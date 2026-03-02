@@ -35,6 +35,31 @@ function summarizeToolResult(text: string): string {
   return truncateAuditText(text, 280);
 }
 
+const SENSITIVE_ARG_KEY_RE = /(pass(word)?|secret|token|api[_-]?key|authorization|cookie|credential|session)/i;
+
+function sanitizeAuditArguments(toolName: string, value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => sanitizeAuditArguments(toolName, entry));
+  }
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+
+  const out: Record<string, unknown> = {};
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (SENSITIVE_ARG_KEY_RE.test(key)) {
+      out[key] = '[REDACTED]';
+      continue;
+    }
+    if (toolName === 'browser_type' && key === 'text') {
+      out[key] = '[REDACTED]';
+      continue;
+    }
+    out[key] = sanitizeAuditArguments(toolName, raw);
+  }
+  return out;
+}
+
 export function emitToolExecutionAuditEvents(input: {
   sessionId: string;
   runId: string;
@@ -44,6 +69,7 @@ export function emitToolExecutionAuditEvents(input: {
   toolExecutions.forEach((execution, index) => {
     const toolCallId = `${runId}:tool:${index + 1}`;
     const argumentsObject = parseJsonObject(execution.arguments || '{}');
+    const auditArguments = sanitizeAuditArguments(execution.name, argumentsObject);
 
     recordAuditEvent({
       sessionId,
@@ -52,7 +78,7 @@ export function emitToolExecutionAuditEvents(input: {
         type: 'tool.call',
         toolCallId,
         toolName: execution.name,
-        arguments: argumentsObject,
+        arguments: auditArguments,
       },
     });
 

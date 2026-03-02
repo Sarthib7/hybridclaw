@@ -22,6 +22,14 @@ System prompts include safety constraints for every conversation turn:
 
 Implementation: [src/prompt-hooks.ts](./src/prompt-hooks.ts)
 
+### 1.1) Browser Authentication Flows
+
+User-directed browser authentication testing is permitted when the user explicitly asks for it:
+
+- Browser tools may fill credentials and submit login forms for the requested site.
+- Credentials must be used only for the requested auth flow on the intended domain.
+- Credentials must not be echoed in assistant prose, written to workspace files, or sent to unrelated domains.
+
 ### 2) Runtime Tool Blocking
 
 Before tool execution, HybridClaw applies policy hooks that block known dangerous patterns:

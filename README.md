@@ -246,6 +246,11 @@ Browser tooling notes:
 
 - The shipped container image preinstalls `agent-browser` and Chromium (Playwright).
 - You can override the binary via `AGENT_BROWSER_BIN` if needed.
+- User-directed authenticated browser-flow testing is supported (including filling/submitting login forms on the requested site).
+- Browser auth/session state now persists per HybridClaw session by default via a dedicated profile directory under `/workspace/.hybridclaw-runtime/browser-profiles`.
+- Session cookies/localStorage are also auto-saved/restored via `agent-browser` session-state files.
+- Optional overrides: `BROWSER_PERSIST_PROFILE=false` (disable profile persistence), `BROWSER_PERSIST_SESSION_STATE=false` (disable state file persistence), `BROWSER_PROFILE_ROOT=/path` (custom profile root), `BROWSER_CDP_URL=ws://...` (force CDP attachment to an existing browser).
+- Structured audit logs redact sensitive browser/tool arguments (password/token/secret fields and typed form text).
 - Navigation to private/loopback hosts is blocked by default (set `BROWSER_ALLOW_PRIVATE_NETWORK=true` to override).
 - Screenshot/PDF outputs are constrained to `/workspace/.browser-artifacts`.
 

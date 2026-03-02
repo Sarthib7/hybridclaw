@@ -1,4 +1,5 @@
 import { execFile, spawnSync } from 'child_process';
+import { createHash } from 'crypto';
 import { lookup } from 'dns/promises';
 import fs from 'fs';
 import net from 'net';
@@ -19,6 +20,8 @@ const BROWSER_TMP_HOME = path.join(BROWSER_RUNTIME_ROOT, 'home');
 const BROWSER_NPM_CACHE = path.join(BROWSER_RUNTIME_ROOT, 'npm-cache');
 const BROWSER_XDG_CACHE = path.join(BROWSER_RUNTIME_ROOT, 'cache');
 const BROWSER_PLAYWRIGHT_CACHE = path.join(BROWSER_RUNTIME_ROOT, 'ms-playwright');
+const BROWSER_PROFILE_ROOT = path.join(BROWSER_RUNTIME_ROOT, 'browser-profiles');
+const ENV_FALSEY = new Set(['0', 'false', 'no', 'off']);
 
 type BrowserRunner = {
   cmd: string;
@@ -28,6 +31,8 @@ type BrowserRunner = {
 type BrowserSession = {
   sessionKey: string;
   socketDir: string;
+  profileDir?: string;
+  stateName?: string;
   createdAt: number;
   lastUsedAt: number;
 };
@@ -42,6 +47,45 @@ function normalizeSessionKey(sessionId: string): string {
     .replace(/^_+/, '')
     .slice(0, 80);
   return normalized || 'default';
+}
+
+function envFlagEnabled(name: string, defaultValue: boolean): boolean {
+  const raw = process.env[name];
+  if (raw == null || raw.trim() === '') return defaultValue;
+  return !ENV_FALSEY.has(raw.trim().toLowerCase());
+}
+
+function deriveStableId(raw: string, maxLength = 40): string {
+  const base =
+    String(raw || 'default')
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, '_')
+      .replace(/^_+|_+$/g, '') || 'default';
+  const hash = createHash('sha256').update(raw).digest('hex').slice(0, 10);
+  const headLength = Math.max(1, maxLength - hash.length - 1);
+  return `${base.slice(0, headLength)}_${hash}`;
+}
+
+function shouldPersistProfiles(): boolean {
+  return envFlagEnabled('BROWSER_PERSIST_PROFILE', true);
+}
+
+function shouldPersistSessionState(): boolean {
+  return envFlagEnabled('BROWSER_PERSIST_SESSION_STATE', true);
+}
+
+function resolveProfileRoot(): string {
+  const configured = String(process.env.BROWSER_PROFILE_ROOT || '').trim();
+  if (!configured) return ensureWritableDir(BROWSER_PROFILE_ROOT);
+  const resolved = path.isAbsolute(configured) ? configured : path.resolve(WORKSPACE_ROOT, configured);
+  return ensureWritableDir(resolved);
+}
+
+function resolveCdpUrl(explicit?: string): string | undefined {
+  const direct = String(explicit || '').trim();
+  if (direct) return direct;
+  const configured = String(process.env.BROWSER_CDP_URL || '').trim();
+  return configured || undefined;
 }
 
 function resolveRunner(): BrowserRunner | null {
@@ -86,12 +130,27 @@ function getSession(sessionId: string): BrowserSession {
   }
 
   fs.mkdirSync(BROWSER_SOCKET_ROOT, { recursive: true, mode: 0o700 });
-  const socketDir = path.join(BROWSER_SOCKET_ROOT, sessionKey);
+  const runtimeKey = deriveStableId(sessionKey, 32);
+  const socketDir = path.join(BROWSER_SOCKET_ROOT, runtimeKey);
   fs.mkdirSync(socketDir, { recursive: true, mode: 0o700 });
+
+  let profileDir: string | undefined;
+  if (shouldPersistProfiles()) {
+    try {
+      profileDir = ensureWritableDir(path.join(resolveProfileRoot(), runtimeKey));
+    } catch {
+      // Fallback to ephemeral browser context if profile dir cannot be created.
+      profileDir = undefined;
+    }
+  }
+
+  const stateName = shouldPersistSessionState() ? deriveStableId(sessionKey, 48) : undefined;
 
   const session: BrowserSession = {
     sessionKey,
     socketDir,
+    profileDir,
+    stateName,
     createdAt: Date.now(),
     lastUsedAt: Date.now(),
   };
@@ -290,24 +349,34 @@ async function runAgentBrowser(
   const xdgCacheDir = ensureWritableDir(BROWSER_XDG_CACHE);
   const playwrightBrowsersPath = resolvePlaywrightBrowsersPath();
   const args = [...runner.prefixArgs];
-  if (options.cdpUrl && options.cdpUrl.trim()) {
-    args.push('--cdp', options.cdpUrl.trim());
+  const cdpUrl = resolveCdpUrl(options.cdpUrl);
+  if (cdpUrl) {
+    args.push('--cdp', cdpUrl);
   }
   args.push('--json', command, ...commandArgs);
+
+  const browserEnv: NodeJS.ProcessEnv = {
+    ...process.env,
+    AGENT_BROWSER_SOCKET_DIR: session.socketDir,
+    AGENT_BROWSER_SESSION: 'default',
+    HOME: homeDir,
+    XDG_CACHE_HOME: xdgCacheDir,
+    NPM_CONFIG_CACHE: npmCacheDir,
+    npm_config_cache: npmCacheDir,
+    PLAYWRIGHT_BROWSERS_PATH: playwrightBrowsersPath,
+  };
+  if (session.stateName) {
+    browserEnv.AGENT_BROWSER_SESSION_NAME = session.stateName;
+  }
+  if (!cdpUrl && session.profileDir) {
+    browserEnv.AGENT_BROWSER_PROFILE = session.profileDir;
+  }
 
   try {
     const { stdout, stderr } = await execFileAsync(runner.cmd, args, {
       timeout: timeoutMs,
       maxBuffer: 2 * 1024 * 1024,
-      env: {
-        ...process.env,
-        AGENT_BROWSER_SOCKET_DIR: session.socketDir,
-        HOME: homeDir,
-        XDG_CACHE_HOME: xdgCacheDir,
-        NPM_CONFIG_CACHE: npmCacheDir,
-        npm_config_cache: npmCacheDir,
-        PLAYWRIGHT_BROWSERS_PATH: playwrightBrowsersPath,
-      },
+      env: browserEnv,
     });
 
     const output = String(stdout || '').trim();

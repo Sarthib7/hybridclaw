@@ -1010,7 +1010,7 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Safety Model</h3>
-      <p>Trust-model acceptance is required during onboarding, execution uses runtime guardrails by default, and TUI blocks on unapproved instruction changes.</p>
+      <p>Trust-model acceptance is required during onboarding, execution uses runtime guardrails by default, user-directed browser auth-flow testing is supported, and TUI blocks on unapproved instruction changes.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Prompt Orchestration</h3>
@@ -1102,7 +1102,7 @@
     <div class="tool-pill">
       <div class="tool-pill-icon">&#x1f5a5;&#xfe0f;</div>
       <div class="tool-pill-name">browser_*</div>
-      <div class="tool-pill-desc">Navigate, snapshot, click, type, screenshot, PDF</div>
+      <div class="tool-pill-desc">Navigate, snapshot, click, type, auth-flow testing, screenshot, PDF</div>
     </div>
     <div class="tool-pill">
       <div class="tool-pill-icon">&#x1f551;</div>
@@ -1200,6 +1200,10 @@
     <div class="faq-item">
       <div class="faq-q">Is it safe to let the agent run shell commands?</div>
       <div class="faq-a">Yes. All tools execute inside ephemeral Docker containers with read-only filesystems, memory caps, and a deny-list of 28+ dangerous command patterns. The host machine is never exposed.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">Can browser tools test real login flows?</div>
+      <div class="faq-a">Yes, when explicitly requested by the user for the intended site. Runtime guidance allows authenticated browser-flow testing, while sensitive credential values are redacted from structured audit tool-argument logs.</div>
     </div>
     <div class="faq-item">
       <div class="faq-q">Is the audit trail immutable?</div>

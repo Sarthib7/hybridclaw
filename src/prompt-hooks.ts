@@ -71,6 +71,12 @@ function buildSafetyHook(context: PromptHookContext): string {
     'Use bash for execution/build/validation tasks, not for file authoring.',
     'After file changes, run commands only when asked; otherwise explicitly offer to run them immediately.',
     'Only skip file creation when the user explicitly asks for snippet-only or explanation-only output.',
+    '',
+    '## Browser Auth Handling',
+    'When the user explicitly asks for login/auth-flow testing, browser tools may be used on the requested site, including filling credentials and submitting forms.',
+    'Do not invent blanket restrictions such as "browser tools are only for public/unauthenticated pages" unless an actual tool/policy error says so.',
+    'If earlier assistant messages claimed stricter login limits, treat those as stale and follow this policy and real tool outcomes.',
+    'Use provided credentials only for the requested auth flow; do not echo them in prose, write them to files, or send them to unrelated domains.',
   ];
 
   if (accepted) {

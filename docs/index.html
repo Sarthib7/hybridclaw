@@ -1033,6 +1033,10 @@
       <p>OpenClaw/CLAUDE-compatible <code>SKILL.md</code> support with multi-tier discovery, prompt embedding modes (<code>always</code>/<code>summary</code>/<code>hidden</code>), eligibility checks, and trust-aware security scanning.</p>
     </div>
     <div class="feature-card">
+      <h3 style="color: var(--accent-1);">Personality Switcher</h3>
+      <p>Command-driven persona switching via <code>/personality</code> updates a managed block in <code>SOUL.md</code> (<code>Name</code>, <code>Definition</code>, <code>Rules</code>) so style remains persistent across sessions without always-on prompt bloat.</p>
+    </div>
+    <div class="feature-card">
       <h3 style="color: var(--accent-1);">Web Routing Intelligence</h3>
       <p>Read-first routing prefers <code>web_fetch</code> for static retrieval, emits escalation hints on JS/app-shell/bot-blocked pages, and guides browser extraction with full snapshots for dynamic content.</p>
     </div>
@@ -1266,6 +1270,10 @@
     <div class="faq-item">
       <div class="faq-q">Does the agent remember things between conversations?</div>
       <div class="faq-a">Yes. The agent writes daily memory files (<code>memory/YYYY-MM-DD.md</code>) and curates long-term insights into <code>MEMORY.md</code>. Before session compaction, a dedicated flush turn ensures durable notes are persisted. These files plus <code>SOUL.md</code> are injected into every request, giving the agent continuous, growing context.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">Can I switch the assistant personality at runtime?</div>
+      <div class="faq-a">Yes. Use <code>/personality</code> (or <code>/personality list</code>) to view profiles, <code>/personality &lt;name&gt;</code> to activate one, and <code>/personality reset</code> to go back to default. HybridClaw persists the active persona in <code>SOUL.md</code> as a managed block with <code>Name</code>, <code>Definition</code>, and <code>Rules</code>.</div>
     </div>
     <div class="faq-item">
       <div class="faq-q">Can I use skills from CLAUDE.md or OpenClaw?</div>

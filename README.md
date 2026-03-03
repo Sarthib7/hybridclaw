@@ -258,6 +258,28 @@ Explicit invocation is supported via:
 Example skill in this repo:
 
 - `skills/repo-orientation/SKILL.md`
+- `skills/current-time/SKILL.md`
+- `skills/personality/SKILL.md`
+
+### Personality switching skill
+
+HybridClaw includes a command-only personality skill that updates the active persona contract in `SOUL.md`.
+
+- List current/available persona: `/personality` (or `/personality list`)
+- Activate persona: `/personality <name>`
+- Reset to default persona: `/personality reset`
+
+The skill writes/updates a managed block in `SOUL.md`:
+
+- `## Active personality`
+- `Name: ...`
+- `Definition: ...` (copied from the selected profile in `skills/personality/SKILL.md`)
+- `Rules: ...` (runtime style/behavior constraints)
+
+Notes:
+
+- The personality skill is intentionally command-only (`always: false`, `disable-model-invocation: true`) to avoid adding per-turn prompt overhead.
+- Profiles are defined in `skills/personality/SKILL.md` and currently include 25 switchable personas (expert, style, and role personas).
 
 ## Agent tools
 

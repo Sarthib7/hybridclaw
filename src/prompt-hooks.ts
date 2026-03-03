@@ -219,8 +219,6 @@ function buildRuntimeHook(context: PromptHookContext): string {
     '## Runtime Metadata',
     `HybridClaw version: v${APP_VERSION}`,
     `Date (UTC): ${new Date().toISOString().slice(0, 10)}`,
-    `Agent ID: ${context.agentId}`,
-    runtimeInfo.chatbotId?.trim() ? `Chatbot ID: ${runtimeInfo.chatbotId.trim()}` : '',
     `Model: ${model}`,
     `Default model: ${defaultModel}`,
     runtimeInfo.channelId?.trim() ? `Channel ID: ${runtimeInfo.channelId.trim()}` : '',
@@ -229,7 +227,8 @@ function buildRuntimeHook(context: PromptHookContext): string {
     `OS: ${process.platform} (${process.arch})`,
     `Host: ${os.hostname()}`,
     `Workspace: ${process.cwd()}`,
-    'When asked about your runtime, version, model, or bot identity, use these exact values.',
+    `When asked for your version, answer briefly as: "HybridClaw v${APP_VERSION}".`,
+    'Only provide more runtime details when the user explicitly asks for them.',
   ];
 
   return lines.filter(Boolean).join('\n');

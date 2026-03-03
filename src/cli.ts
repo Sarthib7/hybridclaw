@@ -6,7 +6,8 @@ import { spawn, spawnSync } from 'child_process';
 import readline from 'readline/promises';
 
 import { ensureHybridAICredentials } from './onboarding.js';
-import { DATA_DIR, GATEWAY_BASE_URL, MissingRequiredEnvVarError } from './config.js';
+import { APP_VERSION, DATA_DIR, GATEWAY_BASE_URL, MissingRequiredEnvVarError } from './config.js';
+import { printUpdateUsage, runUpdateCommand } from './update.js';
 
 async function ensureRuntimeContainer(commandName: string, required = true): Promise<void> {
   const { ensureContainerImageReady } = await import('./container-setup.js');
@@ -183,6 +184,7 @@ function printMainUsage(): void {
   gateway    Manage core runtime (start/stop/status) or run gateway commands
   tui        Start terminal adapter (starts gateway automatically when needed)
   onboarding Run HybridAI account/API key onboarding
+  update     Check and apply HybridClaw CLI updates
   audit      Inspect/verify structured audit trail
   help       Show general or topic-specific help (e.g. \`hybridclaw help gateway\`)`);
 }
@@ -241,6 +243,7 @@ Topics:
   gateway     Help for gateway lifecycle and passthrough commands
   tui         Help for terminal client
   onboarding  Help for onboarding flow
+  update      Help for checking/applying CLI updates
   audit       Help for audit commands
   help        This help`);
 }
@@ -261,6 +264,9 @@ function printHelpTopic(topic: string): boolean {
       return true;
     case 'onboarding':
       printOnboardingUsage();
+      return true;
+    case 'update':
+      printUpdateUsage();
       return true;
     case 'audit':
       printAuditUsage();
@@ -719,6 +725,14 @@ async function main(): Promise<void> {
       await ensureHybridAICredentials({ force: true, commandName: 'hybridclaw onboarding' });
       await ensureRuntimeContainer('hybridclaw onboarding', false);
       break;
+    case 'update': {
+      if (isHelpRequest(subargs)) {
+        printUpdateUsage();
+        break;
+      }
+      await runUpdateCommand(subargs, APP_VERSION);
+      break;
+    }
     case 'audit': {
       if (isHelpRequest(subargs)) {
         printAuditUsage();

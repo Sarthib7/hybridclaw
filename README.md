@@ -11,7 +11,15 @@ npm install -g @hybridaione/hybridclaw
 hybridclaw onboarding
 ```
 
-Latest release: [v0.1.24](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.1.24)
+Latest release: [v0.2.0](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.2.0)
+
+## What's new in v0.2.0
+
+- Personality switcher skill with `/personality` profile commands and managed `SOUL.md` contract (`Name`, `Definition`, `Rules`)
+- Ralph autonomous loop mode (`proactive.ralph.maxIterations`) and live `ralph on|off|set <n>|info` runtime controls
+- Bundled skill-authoring toolkit (`skills/skill-creator/`) for creating and packaging new skills
+- Discord context enrichment pipeline with guild-history memory, participant aliases, mention rewrite (`@name` -> ID), and optional presence snapshots
+- Runtime self-awareness and Discord runtime controls (`guildMembersIntent`, `presenceIntent`, `respondToAllMessages`, `commandsOnly`, `commandUserId`)
 
 ## HybridAI Advantage
 
@@ -79,7 +87,7 @@ HybridClaw best-in-class capabilities:
 - formal prompt hook orchestration (`bootstrap`, `memory`, `safety`)
 - Discord conversational UX: edit-in-place streaming responses, fence-safe chunking beyond Discord's 2000-char limit, typing keepalive, debounce batching, reply-chain-aware context, and concise attachment-first screenshot replies
 - token-efficient context assembly: per-message history truncation, hard history budgets with head/tail preservation, and head/tail truncation for oversized bootstrap files
-- runtime self-awareness in prompts: exact HybridClaw version/date, model/chatbot, and runtime host metadata injected each turn for reliable "what version/model are you?" answers
+- runtime self-awareness in prompts: exact HybridClaw version/date, model, and runtime host metadata injected each turn for reliable "what version/model are you?" answers
 - proactive runtime layer with active-hours gating, push delegation (`single`/`parallel`/`chain`), depth-aware tool policy, and retry controls
 - structured audit trail: append-only hash-chained wire logs (`data/audit/<session>/wire.jsonl`) with tamper-evident immutability, normalized SQLite audit tables, and verification/search CLI commands
 - observability export: incremental `events:batch` forwarding with durable cursor tracking and bot-scoped ingest token lifecycle via `ingest-token:ensure`
@@ -104,7 +112,7 @@ HybridClaw uses typed runtime config in `config.json` (auto-created on first run
 - TUI/Gateway command: `ralph on|off|set <n>|info` (`0` off, `-1` unlimited, `1-64` extra iterations)
 - `observability.*` controls push ingest into HybridAI (`events:batch` endpoint, batching, identity metadata)
 - Some settings require restart to fully apply (for example HTTP bind host/port)
-- Default bot is configured via `hybridai.defaultChatbotId` in `config.json` (legacy `HYBRIDAI_CHATBOT_ID` values are auto-migrated on startup)
+- Default bot is configured via `hybridai.defaultChatbotId` in `config.json`
 
 Secrets remain in `.env`:
 
@@ -352,6 +360,7 @@ CLI runtime commands:
 - `hybridclaw gateway <command...>` — Send a command to a running gateway (for example `sessions`, `bot info`)
 - `hybridclaw tui` — Start terminal client connected to gateway
 - `hybridclaw onboarding` — Run HybridAI account/API key onboarding
+- `hybridclaw update [status|--check] [--yes]` — Check for updates and upgrade global npm installs (source checkouts get git-based update instructions)
 - `hybridclaw audit ...` — Verify and inspect structured audit trail (`recent`, `search`, `approvals`, `verify`, `instructions`)
 
 In Discord, use `!claw help` to see all commands. Key ones:

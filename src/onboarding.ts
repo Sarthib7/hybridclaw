@@ -602,8 +602,7 @@ export async function ensureHybridAICredentials(options: OnboardingOptions = {})
       apiKey = '';
     }
 
-    const fallbackChatbotId = getRuntimeConfig().hybridai.defaultChatbotId.trim()
-      || (process.env.HYBRIDAI_CHATBOT_ID || '').trim();
+    const fallbackChatbotId = getRuntimeConfig().hybridai.defaultChatbotId.trim();
     const chosenChatbotId = await chooseDefaultBot(
       rl,
       validation.ok ? validation.bots : [],

@@ -693,7 +693,7 @@
       <button class="hero-copy-btn" type="button" onclick="navigator.clipboard.writeText('npm install -g @hybridaione/hybridclaw'); this.textContent='Copied'; setTimeout(() => this.textContent='Copy', 1400);">Copy</button>
     </div>
     <code>npm install -g @hybridaione/hybridclaw</code>
-    <div class="hero-install-note">Prerequisites: Node.js 20+ (Docker required for full sandboxed tool execution). Browser automation tooling is preinstalled in the container image. HybridAI API key setup can be completed during onboarding.</div>
+    <div class="hero-install-note">Prerequisites: Node.js 20+ (Docker required for full sandboxed tool execution). Browser automation tooling is preinstalled in the container image. HybridAI API key setup can be completed during onboarding. Current release: v0.2.0.</div>
   </div>
   <div class="hero-cta">
     <a href="#quickstart" class="btn btn-primary">Get Started</a>
@@ -1035,6 +1035,18 @@
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Personality Switcher</h3>
       <p>Command-driven persona switching via <code>/personality</code> updates a managed block in <code>SOUL.md</code> (<code>Name</code>, <code>Definition</code>, <code>Rules</code>) so style remains persistent across sessions without always-on prompt bloat.</p>
+    </div>
+    <div class="feature-card">
+      <h3 style="color: var(--accent-1);">Ralph Autonomous Loop</h3>
+      <p>Autonomous iteration can run beyond a single turn via <code>proactive.ralph.maxIterations</code>, and operators can control it live with <code>ralph on|off|set &lt;n&gt;|info</code> without waiting for idle recycle.</p>
+    </div>
+    <div class="feature-card">
+      <h3 style="color: var(--accent-1);">Discord Context Enrichment</h3>
+      <p>Discord replies can include pending guild-history context, participant alias memory, <code>@name</code> mention-to-ID rewrites, and optional per-channel presence snapshots for better grounded responses.</p>
+    </div>
+    <div class="feature-card">
+      <h3 style="color: var(--accent-1);">Runtime Self-Awareness</h3>
+      <p>Prompt assembly now injects runtime metadata (version, UTC date, model/default model, chatbot/channel/guild IDs, node/OS/host/workspace) so answers stay aligned to the active runtime state.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Web Routing Intelligence</h3>

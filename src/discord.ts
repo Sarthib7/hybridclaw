@@ -1,6 +1,7 @@
 import {
   ActivityType,
   AttachmentBuilder,
+  type ChatInputCommandInteraction,
   Client,
   GatewayIntentBits,
   PermissionFlagsBits,
@@ -77,6 +78,7 @@ let client: Client;
 let messageHandler: MessageHandler;
 let commandHandler: CommandHandler;
 let activeConversationRuns = 0;
+let botMentionRegex: RegExp | null = null;
 const MESSAGE_DEBOUNCE_MS = 2_500;
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 const MAX_ATTACHMENT_CONTEXT_CHARS = 16_000;
@@ -484,21 +486,27 @@ export function formatError(title: string, detail: string): string {
 }
 
 function getSessionId(msg: DiscordMessage): string {
-  return msg.guild ? `${msg.guild.id}:${msg.channelId}` : `dm:${msg.author.id}`;
+  return buildSessionIdFromContext(msg.guild?.id ?? null, msg.channelId, msg.author.id);
+}
+
+function stripBotMentions(text: string): string {
+  if (!botMentionRegex) return text;
+  return text.replace(botMentionRegex, '').trim();
 }
 
 function hasPrefixInvocation(content: string): boolean {
-  let text = content;
-  if (client.user) {
-    text = text.replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '').trim();
-  }
+  const text = stripBotMentions(content);
   return text.startsWith(DISCORD_PREFIX);
 }
 
-function isAuthorizedCommandUser(msg: DiscordMessage): boolean {
+function isAuthorizedCommandUserId(userId: string): boolean {
   const configuredUserId = DISCORD_COMMAND_USER_ID.trim();
   if (!configuredUserId) return true;
-  return msg.author.id === configuredUserId;
+  return userId === configuredUserId;
+}
+
+function buildSessionIdFromContext(guildId: string | null, channelId: string, userId: string): string {
+  return guildId ? `${guildId}:${channelId}` : `dm:${userId}`;
 }
 
 function isTrigger(msg: DiscordMessage): boolean {
@@ -511,18 +519,14 @@ function isTrigger(msg: DiscordMessage): boolean {
 }
 
 function parseCommand(content: string): { isCommand: boolean; command: string; args: string[] } {
-  let text = content;
-
-  if (client.user) {
-    text = text.replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '').trim();
-  }
+  let text = stripBotMentions(content);
 
   if (text.startsWith(DISCORD_PREFIX)) {
     text = text.slice(DISCORD_PREFIX.length).trim();
   }
 
   const parts = text.split(/\s+/);
-  const subcommands = ['bot', 'rag', 'model', 'status', 'sessions', 'audit', 'schedule', 'clear', 'help'];
+  const subcommands = ['bot', 'rag', 'model', 'sessions', 'audit', 'schedule', 'clear', 'help'];
 
   if (parts.length > 0 && subcommands.includes(parts[0].toLowerCase())) {
     return { isCommand: true, command: parts[0].toLowerCase(), args: parts.slice(1) };
@@ -566,10 +570,7 @@ async function withDiscordRetry<T>(label: string, fn: () => Promise<T>): Promise
 }
 
 function cleanIncomingContent(content: string): string {
-  let text = content;
-  if (client.user) {
-    text = text.replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '').trim();
-  }
+  let text = stripBotMentions(content);
   if (text.startsWith(DISCORD_PREFIX)) {
     text = text.slice(DISCORD_PREFIX.length).trim();
   }
@@ -730,29 +731,97 @@ function startTypingLoop(msg: DiscordMessage): { stop: () => void } {
   };
 }
 
+function prepareChunkedPayloads(
+  text: string,
+  files?: AttachmentBuilder[],
+  mentionLookup?: MentionLookup,
+): { content: string; files?: AttachmentBuilder[] }[] {
+  const prepared = mentionLookup ? rewriteUserMentions(text, mentionLookup) : text;
+  const chunks = chunkMessage(prepared, { maxChars: 1_900, maxLines: 20 });
+  const safeChunks = chunks.length > 0 ? chunks : ['(no content)'];
+  return safeChunks.map((content, i) => ({
+    content,
+    ...(i === safeChunks.length - 1 && files && files.length > 0 ? { files } : {}),
+  }));
+}
+
 async function sendChunkedReply(
   msg: DiscordMessage,
   text: string,
   files?: AttachmentBuilder[],
   mentionLookup?: MentionLookup,
 ): Promise<void> {
-  const prepared = mentionLookup ? rewriteUserMentions(text, mentionLookup) : text;
-  const chunks = chunkMessage(prepared, { maxChars: 1_900, maxLines: 20 });
-  const safeChunks = chunks.length > 0 ? chunks : ['(no content)'];
-
-  for (let i = 0; i < safeChunks.length; i += 1) {
-    const payload: { content: string; files?: AttachmentBuilder[] } = {
-      content: safeChunks[i],
-      ...(i === safeChunks.length - 1 && files && files.length > 0 ? { files } : {}),
-    };
+  const payloads = prepareChunkedPayloads(text, files, mentionLookup);
+  for (let i = 0; i < payloads.length; i += 1) {
     if (i === 0) {
-      await withDiscordRetry('reply', () => msg.reply(payload));
+      await withDiscordRetry('reply', () => msg.reply(payloads[i]));
     } else {
       await withDiscordRetry('send', () => (msg.channel as unknown as {
         send: (next: { content: string; files?: AttachmentBuilder[] }) => Promise<void>;
-      }).send(payload));
+      }).send(payloads[i]));
     }
   }
+}
+
+async function sendChunkedDirectReply(
+  msg: DiscordMessage,
+  text: string,
+  files?: AttachmentBuilder[],
+  mentionLookup?: MentionLookup,
+): Promise<void> {
+  const payloads = prepareChunkedPayloads(text, files, mentionLookup);
+  const dm = await withDiscordRetry('dm-open', () => msg.author.createDM());
+  for (const payload of payloads) {
+    await withDiscordRetry('dm-send', () => dm.send(payload));
+  }
+}
+
+async function sendChunkedInteractionReply(
+  interaction: ChatInputCommandInteraction,
+  text: string,
+  files?: AttachmentBuilder[],
+): Promise<void> {
+  const payloads = prepareChunkedPayloads(text, files);
+  for (let i = 0; i < payloads.length; i += 1) {
+    const payload = { ...payloads[i], ephemeral: true };
+    if (i === 0) {
+      if (interaction.replied || interaction.deferred) {
+        await withDiscordRetry('interaction-followup', () => interaction.followUp(payload));
+      } else {
+        await withDiscordRetry('interaction-reply', () => interaction.reply(payload));
+      }
+      continue;
+    }
+    await withDiscordRetry('interaction-followup', () => interaction.followUp(payload));
+  }
+}
+
+async function ensureSlashStatusCommand(): Promise<void> {
+  const definition = {
+    name: 'status',
+    description: 'Show HybridClaw runtime status (only visible to you)',
+  };
+
+  if (!client.application) return;
+  await Promise.allSettled(
+    [...client.guilds.cache.values()].map(async (guild) => {
+      try {
+        const existing = await guild.commands.fetch();
+        const current = existing.find((command) => command.name === definition.name);
+        if (!current) {
+          await guild.commands.create(definition);
+          logger.info({ guildId: guild.id }, 'Registered slash command /status');
+          return;
+        }
+        if (current.description !== definition.description) {
+          await guild.commands.edit(current.id, definition);
+          logger.info({ guildId: guild.id }, 'Updated slash command /status');
+        }
+      } catch (error) {
+        logger.warn({ error, guildId: guild.id }, 'Failed to register slash command /status');
+      }
+    }),
+  );
 }
 
 function updatePresence(): void {
@@ -943,7 +1012,44 @@ export function initDiscord(onMessage: MessageHandler, onCommand: CommandHandler
 
   client.on('clientReady', () => {
     logger.info({ user: client.user?.tag }, 'Discord bot connected');
+    if (client.user) {
+      botMentionRegex = new RegExp(`<@!?${client.user.id}>`, 'g');
+    }
     updatePresence();
+    void ensureSlashStatusCommand();
+  });
+
+  client.on('interactionCreate', async (interaction) => {
+    if (!interaction.isChatInputCommand()) return;
+    if (interaction.commandName !== 'status') return;
+
+    if (!isAuthorizedCommandUserId(interaction.user.id)) {
+      await sendChunkedInteractionReply(
+        interaction,
+        'You are not authorized to run commands for this bot.',
+      );
+      return;
+    }
+
+    const guildId = interaction.guildId ?? null;
+    const channelId = interaction.channelId;
+    const sessionId = buildSessionIdFromContext(guildId, channelId, interaction.user.id);
+    try {
+      await commandHandler(
+        sessionId,
+        guildId,
+        channelId,
+        ['status'],
+        async (text, files) => sendChunkedInteractionReply(interaction, text, files),
+      );
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      logger.error(
+        { error, guildId, channelId, userId: interaction.user.id },
+        'Discord slash /status command failed',
+      );
+      await sendChunkedInteractionReply(interaction, formatError('Gateway Error', detail));
+    }
   });
 
   const dispatchConversationBatch = async (batchKey: string): Promise<void> => {
@@ -1134,26 +1240,43 @@ export function initDiscord(onMessage: MessageHandler, onCommand: CommandHandler
     const reply: ReplyFn = async (text, files) => {
       await sendChunkedReply(msg, text, files, immediateMentionLookup);
     };
+    const commandReply: ReplyFn = async (text, files) => {
+      try {
+        await sendChunkedDirectReply(msg, text, files, immediateMentionLookup);
+      } catch (error) {
+        logger.warn(
+          { error, userId: msg.author.id, channelId: msg.channelId },
+          'Failed to send command reply via DM; command response dropped',
+        );
+      }
+    };
 
     const parsed = parseCommand(msg.content);
+    const prefixedToken = hasPrefixInvocation(msg.content)
+      ? cleanIncomingContent(msg.content).split(/\s+/)[0]?.toLowerCase() || ''
+      : '';
+    const ignorePrefixCommand = prefixedToken === 'status';
     if (DISCORD_COMMANDS_ONLY) {
       if (!hasPrefixInvocation(msg.content)) return;
-      if (!isAuthorizedCommandUser(msg)) {
+      if (!isAuthorizedCommandUserId(msg.author.id)) {
         logger.debug(
           { userId: msg.author.id, channelId: msg.channelId },
           'Ignoring unauthorized Discord command in commands-only mode',
         );
         return;
       }
+      if (ignorePrefixCommand) {
+        return;
+      }
       if (!parsed.isCommand) {
         if (!content) {
-          await reply(`How can I help? Try \`${DISCORD_PREFIX} help\`.`);
+          await commandReply(`How can I help? Try \`${DISCORD_PREFIX} help\`.`);
         } else {
-          await reply(`Unknown command. Try \`${DISCORD_PREFIX} help\`.`);
+          await commandReply(`Unknown command. Try \`${DISCORD_PREFIX} help\`.`);
         }
         return;
       }
-      await commandHandler(sessionId, guildId, channelId, [parsed.command, ...parsed.args], reply);
+      await commandHandler(sessionId, guildId, channelId, [parsed.command, ...parsed.args], commandReply);
       return;
     }
 
@@ -1162,14 +1285,18 @@ export function initDiscord(onMessage: MessageHandler, onCommand: CommandHandler
       return;
     }
 
+    if (ignorePrefixCommand) {
+      return;
+    }
+
     if (parsed.isCommand && hasPrefixInvocation(msg.content)) {
-      if (!isAuthorizedCommandUser(msg)) {
+      if (!isAuthorizedCommandUserId(msg.author.id)) {
         logger.debug(
           { userId: msg.author.id, channelId: msg.channelId },
           'Ignoring unauthorized Discord command; processing as normal chat message',
         );
       } else {
-        await commandHandler(sessionId, guildId, channelId, [parsed.command, ...parsed.args], reply);
+        await commandHandler(sessionId, guildId, channelId, [parsed.command, ...parsed.args], commandReply);
         return;
       }
     }

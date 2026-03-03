@@ -1,7 +1,10 @@
 import { CronExpressionParser } from 'cron-parser';
+import { spawnSync } from 'child_process';
 
 import {
   APP_VERSION,
+  DISCORD_COMMANDS_ONLY,
+  DISCORD_RESPOND_TO_ALL_MESSAGES,
   HYBRIDAI_CHATBOT_ID,
   HYBRIDAI_ENABLE_RAG,
   HYBRIDAI_MODEL,
@@ -23,6 +26,8 @@ import {
   getAllSessions,
   getConversationHistory,
   getOrCreateSession,
+  getQueuedProactiveMessageCount,
+  getRecentStructuredAuditForSession,
   getSessionCount,
   getTasksForSession,
   logAudit,
@@ -55,6 +60,7 @@ import type {
   DelegationSideEffect,
   DelegationTaskSpec,
   ScheduledTask,
+  StructuredAuditEntry,
   StoredMessage,
   TokenUsageStats,
   ToolProgressEvent,
@@ -117,6 +123,7 @@ const PERMANENT_DELEGATION_ERROR_PATTERNS: RegExp[] = [
   /invalid api key/i,
   /blocked by security hook/i,
 ];
+let cachedGitCommitShort: string | null | undefined;
 
 type DelegationMode = 'single' | 'parallel' | 'chain';
 type DelegationRunStatus = 'completed' | 'failed' | 'timeout';
@@ -203,6 +210,292 @@ function parseIntOrNull(raw: string | undefined): number | null {
   if (!raw) return null;
   const parsed = parseInt(raw, 10);
   return Number.isNaN(parsed) ? null : parsed;
+}
+
+function resolveGitCommitShort(): string | null {
+  if (cachedGitCommitShort !== undefined) return cachedGitCommitShort;
+  try {
+    const result = spawnSync('git', ['rev-parse', '--short', 'HEAD'], {
+      cwd: process.cwd(),
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    if (result.status === 0) {
+      const hash = (result.stdout || '').trim();
+      cachedGitCommitShort = hash || null;
+      return cachedGitCommitShort;
+    }
+  } catch {
+    // ignore
+  }
+  cachedGitCommitShort = null;
+  return null;
+}
+
+function parseTimestamp(raw: string | null | undefined): Date | null {
+  const value = (raw || '').trim();
+  if (!value) return null;
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)) {
+    const parsed = new Date(`${value.replace(' ', 'T')}Z`);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function formatRelativeTime(raw: string | null | undefined): string {
+  const at = parseTimestamp(raw);
+  if (!at) return 'unknown';
+  const deltaMs = Date.now() - at.getTime();
+  if (deltaMs < 15_000) return 'just now';
+  if (deltaMs < 60_000) return `${Math.max(1, Math.floor(deltaMs / 1_000))}s ago`;
+  if (deltaMs < 3_600_000) return `${Math.max(1, Math.floor(deltaMs / 60_000))}m ago`;
+  if (deltaMs < 86_400_000) return `${Math.max(1, Math.floor(deltaMs / 3_600_000))}h ago`;
+  return `${Math.max(1, Math.floor(deltaMs / 86_400_000))}d ago`;
+}
+
+function numberFromUnknown(value: unknown): number | null {
+  if (typeof value !== 'number' || Number.isNaN(value) || !Number.isFinite(value)) return null;
+  return value;
+}
+
+function firstNumber(values: unknown[]): number | null {
+  for (const value of values) {
+    const parsed = numberFromUnknown(value);
+    if (parsed != null) return parsed;
+  }
+  return null;
+}
+
+function parseAuditPayload(entry: StructuredAuditEntry): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(entry.payload) as unknown;
+    if (!parsed || typeof parsed !== 'object') return null;
+    return parsed as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function formatCompactNumber(value: number | null): string {
+  if (value == null) return 'n/a';
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000) {
+    const scaled = abs >= 10_000_000 ? (value / 1_000_000).toFixed(0) : (value / 1_000_000).toFixed(1);
+    return `${scaled.replace(/\.0$/, '')}M`;
+  }
+  if (abs >= 1_000) {
+    const scaled = abs >= 10_000 ? (value / 1_000).toFixed(0) : (value / 1_000).toFixed(1);
+    return `${scaled.replace(/\.0$/, '')}k`;
+  }
+  return String(Math.round(value));
+}
+
+function formatPercent(value: number | null): string {
+  if (value == null || Number.isNaN(value) || !Number.isFinite(value)) return 'n/a';
+  return `${Math.max(0, Math.min(100, Math.round(value)))}%`;
+}
+
+function resolveActivationModeLabel(): string {
+  if (DISCORD_COMMANDS_ONLY) return 'commands-only';
+  if (DISCORD_RESPOND_TO_ALL_MESSAGES) return 'all messages';
+  return 'mention';
+}
+
+interface SessionStatusSnapshot {
+  promptTokens: number | null;
+  completionTokens: number | null;
+  cacheReadTokens: number | null;
+  cacheWriteTokens: number | null;
+  cacheHitPercent: number | null;
+  contextUsedTokens: number | null;
+  contextBudgetTokens: number | null;
+  contextUsagePercent: number | null;
+}
+
+function readSessionStatusSnapshot(sessionId: string): SessionStatusSnapshot {
+  const entries = getRecentStructuredAuditForSession(sessionId, 160);
+  let usagePayload: Record<string, unknown> | null = null;
+  let contextPayload: Record<string, unknown> | null = null;
+
+  for (const entry of entries) {
+    const payload = parseAuditPayload(entry);
+    if (!payload) continue;
+    const payloadType = typeof payload.type === 'string' ? payload.type : entry.event_type;
+    if (!usagePayload && payloadType === 'model.usage') {
+      usagePayload = payload;
+    } else if (!contextPayload && payloadType === 'context.optimization') {
+      contextPayload = payload;
+    }
+    if (usagePayload && contextPayload) break;
+  }
+
+  const promptTokens = firstNumber([
+    usagePayload?.promptTokens,
+    usagePayload?.apiPromptTokens,
+    usagePayload?.estimatedPromptTokens,
+  ]);
+  const completionTokens = firstNumber([
+    usagePayload?.completionTokens,
+    usagePayload?.apiCompletionTokens,
+    usagePayload?.estimatedCompletionTokens,
+  ]);
+
+  const cacheReadTokens = firstNumber([
+    usagePayload?.cacheReadTokens,
+    usagePayload?.cacheReadInputTokens,
+  ]);
+  const cacheWriteTokens = firstNumber([
+    usagePayload?.cacheWriteTokens,
+    usagePayload?.cacheWriteInputTokens,
+  ]);
+  const cacheRead = Math.max(0, cacheReadTokens || 0);
+  const cacheWrite = Math.max(0, cacheWriteTokens || 0);
+  const cacheTotal = cacheRead + cacheWrite;
+  const cacheHitPercent = cacheTotal > 0 ? (cacheRead / cacheTotal) * 100 : null;
+
+  const contextUsedTokens = firstNumber([contextPayload?.historyEstimatedTokens]);
+  const contextBudgetTokens = (() => {
+    const maxChars = firstNumber([contextPayload?.historyMaxChars]);
+    if (maxChars == null || maxChars <= 0) return null;
+    return Math.max(1, Math.round(maxChars / 4));
+  })();
+  const contextUsagePercent = (
+    contextUsedTokens != null
+    && contextBudgetTokens != null
+    && contextBudgetTokens > 0
+  )
+    ? (contextUsedTokens / contextBudgetTokens) * 100
+    : null;
+
+  return {
+    promptTokens,
+    completionTokens,
+    cacheReadTokens,
+    cacheWriteTokens,
+    cacheHitPercent,
+    contextUsedTokens,
+    contextBudgetTokens,
+    contextUsagePercent,
+  };
+}
+
+function normalizeVersionQuery(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(/<@!?\d+>/g, ' ')
+    .replace(/[!?.,;:()[\]{}"']/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isVersionOnlyQuestion(raw: string): boolean {
+  const text = normalizeVersionQuery(raw);
+  if (!text) return false;
+  if (text.startsWith('!claw ')) return false;
+  if (!text.includes('version')) return false;
+
+  const detailedRuntimeTokens = [
+    'modell',
+    'model',
+    'runtime',
+    'laufzeit',
+    'node',
+    'os',
+    'plattform',
+    'platform',
+    'agent id',
+    'chatbot id',
+    'commit',
+    'sha',
+    'hash',
+    'details',
+    'detail',
+    'full',
+    'voll',
+  ];
+  if (detailedRuntimeTokens.some((token) => text.includes(token))) return false;
+
+  const words = text.split(' ').filter(Boolean);
+  if (words.length > 8
+    && !text.includes('welche version')
+    && !text.includes('what version')
+    && !text.includes('which version')) {
+    return false;
+  }
+
+  return true;
+}
+
+function recordSuccessfulTurn(opts: {
+  sessionId: string;
+  agentId: string;
+  chatbotId: string;
+  enableRag: boolean;
+  model: string;
+  channelId: string;
+  runId: string;
+  turnIndex: number;
+  userId: string;
+  username: string | null;
+  userContent: string;
+  resultText: string;
+  toolCallCount: number;
+  startedAt: number;
+}): void {
+  storeMessage(opts.sessionId, opts.userId, opts.username, 'user', opts.userContent);
+  storeMessage(opts.sessionId, 'assistant', null, 'assistant', opts.resultText);
+  appendSessionTranscript(opts.agentId, {
+    sessionId: opts.sessionId,
+    channelId: opts.channelId,
+    role: 'user',
+    userId: opts.userId,
+    username: opts.username,
+    content: opts.userContent,
+  });
+  appendSessionTranscript(opts.agentId, {
+    sessionId: opts.sessionId,
+    channelId: opts.channelId,
+    role: 'assistant',
+    userId: 'assistant',
+    username: null,
+    content: opts.resultText,
+  });
+
+  void maybeCompactSession({
+    sessionId: opts.sessionId,
+    agentId: opts.agentId,
+    chatbotId: opts.chatbotId,
+    enableRag: opts.enableRag,
+    model: opts.model,
+    channelId: opts.channelId,
+  }).catch((err) => {
+    logger.warn({ sessionId: opts.sessionId, err }, 'Background session compaction failed');
+  });
+
+  recordAuditEvent({
+    sessionId: opts.sessionId,
+    runId: opts.runId,
+    event: {
+      type: 'turn.end',
+      turnIndex: opts.turnIndex,
+      finishReason: 'completed',
+    },
+  });
+  recordAuditEvent({
+    sessionId: opts.sessionId,
+    runId: opts.runId,
+    event: {
+      type: 'session.end',
+      reason: 'normal',
+      stats: {
+        userMessages: 1,
+        assistantMessages: 1,
+        toolCalls: opts.toolCallCount,
+        durationMs: Date.now() - opts.startedAt,
+      },
+    },
+  });
 }
 
 function normalizeRalphIterations(value: number): number {
@@ -874,6 +1167,21 @@ export async function handleGatewayMessage(req: GatewayChatRequest): Promise<Gat
   const agentId = chatbotId;
   ensureBootstrapFiles(agentId);
 
+  if (isVersionOnlyQuestion(req.content)) {
+    const resultText = `HybridClaw v${APP_VERSION}`;
+    recordSuccessfulTurn({
+      sessionId: req.sessionId, agentId, chatbotId, enableRag, model,
+      channelId: req.channelId, runId, turnIndex,
+      userId: req.userId, username: req.username,
+      userContent: req.content, resultText, toolCallCount: 0, startedAt,
+    });
+    return {
+      status: 'success',
+      result: resultText,
+      toolsUsed: [],
+    };
+  }
+
   const history = getConversationHistory(req.sessionId, MAX_HISTORY_MESSAGES);
   const { messages, skills, historyStats } = buildConversationContext({
     agentId,
@@ -1043,58 +1351,11 @@ export async function handleGatewayMessage(req: GatewayChatRequest): Promise<Gat
     }
 
     const resultText = output.result || 'No response from agent.';
-    storeMessage(req.sessionId, req.userId, req.username, 'user', req.content);
-    storeMessage(req.sessionId, 'assistant', null, 'assistant', resultText);
-    appendSessionTranscript(agentId, {
-      sessionId: req.sessionId,
-      channelId: req.channelId,
-      role: 'user',
-      userId: req.userId,
-      username: req.username,
-      content: req.content,
-    });
-    appendSessionTranscript(agentId, {
-      sessionId: req.sessionId,
-      channelId: req.channelId,
-      role: 'assistant',
-      userId: 'assistant',
-      username: null,
-      content: resultText,
-    });
-
-    void maybeCompactSession({
-      sessionId: req.sessionId,
-      agentId,
-      chatbotId,
-      enableRag,
-      model,
-      channelId: req.channelId,
-    }).catch((err) => {
-      logger.warn({ sessionId: req.sessionId, err }, 'Background session compaction failed');
-    });
-
-    recordAuditEvent({
-      sessionId: req.sessionId,
-      runId,
-      event: {
-        type: 'turn.end',
-        turnIndex,
-        finishReason: 'completed',
-      },
-    });
-    recordAuditEvent({
-      sessionId: req.sessionId,
-      runId,
-      event: {
-        type: 'session.end',
-        reason: 'normal',
-        stats: {
-          userMessages: 1,
-          assistantMessages: 1,
-          toolCalls: toolExecutions.length,
-          durationMs: Date.now() - startedAt,
-        },
-      },
+    recordSuccessfulTurn({
+      sessionId: req.sessionId, agentId, chatbotId, enableRag, model,
+      channelId: req.channelId, runId, turnIndex,
+      userId: req.userId, username: req.username,
+      userContent: req.content, resultText, toolCallCount: toolExecutions.length, startedAt,
     });
 
     return {
@@ -1194,7 +1455,7 @@ export async function handleGatewayCommand(req: GatewayCommandRequest): Promise<
         '`rag [on|off]` — Toggle or set RAG mode',
         '`ralph [on|off|set <n>|info]` — Configure Ralph loop (0 off, -1 unlimited)',
         '`clear` — Clear session history',
-        '`status` — Show runtime status',
+        '`/status` — Show runtime status (Discord slash command, private to caller)',
         '`sessions` — List active sessions',
         '`schedule add "<cron>" <prompt>` — Add scheduled task',
         '`schedule list` — List scheduled tasks',
@@ -1357,15 +1618,31 @@ export async function handleGatewayCommand(req: GatewayCommandRequest): Promise<
     case 'status': {
       const status = getGatewayStatus();
       const delegationStatus = delegationQueueStatus();
+      const metrics = readSessionStatusSnapshot(session.id);
+      const commitShort = resolveGitCommitShort();
+      const sessionModel = session.model || HYBRIDAI_MODEL;
+      const queueLabel = `${delegationStatus.active} active / ${delegationStatus.queued} queued`;
+      const proactiveQueued = getQueuedProactiveMessageCount();
+      const cacheKnown = metrics.cacheReadTokens != null || metrics.cacheWriteTokens != null;
+      const contextLabel = (
+        metrics.contextUsedTokens != null && metrics.contextBudgetTokens != null
+      )
+        ? `${formatCompactNumber(metrics.contextUsedTokens)}/${formatCompactNumber(metrics.contextBudgetTokens)} (${formatPercent(metrics.contextUsagePercent)})`
+        : metrics.contextUsedTokens != null
+          ? `${formatCompactNumber(metrics.contextUsedTokens)} est`
+          : 'n/a';
       const lines = [
-        `Version: ${status.version}`,
-        `Uptime: ${formatUptime(status.uptime)}`,
-        `Sessions: ${status.sessions}`,
-        `Active Containers: ${status.activeContainers}`,
-        `Delegations: ${delegationStatus.active} active / ${delegationStatus.queued} queued`,
-        `Default Model: ${status.defaultModel}`,
-        `RAG Default: ${status.ragDefault ? 'On' : 'Off'}`,
-        `Ralph Loop: ${formatRalphIterations(normalizeRalphIterations(PROACTIVE_RALPH_MAX_ITERATIONS))}`,
+        `🦞 HybridClaw v${status.version}${commitShort ? ` (${commitShort})` : ''}`,
+        `🧠 Model: ${sessionModel}`,
+        `🧮 Tokens: ${formatCompactNumber(metrics.promptTokens)} in / ${formatCompactNumber(metrics.completionTokens)} out`,
+        cacheKnown
+          ? `🗄️ Cache: ${formatPercent(metrics.cacheHitPercent)} hit · ${formatCompactNumber(metrics.cacheReadTokens)} cached, ${formatCompactNumber(metrics.cacheWriteTokens)} new`
+          : '🗄️ Cache: n/a (provider did not report cache stats)',
+        `📚 Context: ${contextLabel} · 🧹 Compactions: ${session.compaction_count}`,
+        `📊 Usage: uptime ${formatUptime(status.uptime)} · sessions ${status.sessions} · containers ${status.activeContainers}`,
+        `🧵 Session: ${session.id} • updated ${formatRelativeTime(session.last_active)}`,
+        `⚙️ Runtime: direct · RAG: ${session.enable_rag ? 'on' : 'off'} · Ralph: ${formatRalphIterations(normalizeRalphIterations(PROACTIVE_RALPH_MAX_ITERATIONS))}`,
+        `👥 Activation: ${resolveActivationModeLabel()} · 🪢 Queue: ${queueLabel} · 📬 Proactive queued: ${proactiveQueued}`,
       ];
       return infoCommand('Status', lines.join('\n'));
     }

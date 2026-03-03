@@ -1,10 +1,6 @@
 import fs from 'fs';
 import path from 'path';
 
-import { loadEnvFile } from './env.js';
-
-loadEnvFile();
-
 export const CONFIG_FILE_NAME = 'config.json';
 export const CONFIG_VERSION = 3;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
@@ -343,156 +339,6 @@ function parseConfigPatch(payload: unknown): DeepPartial<RuntimeConfig> {
   return payload as DeepPartial<RuntimeConfig>;
 }
 
-function readLegacyEnvPatch(): DeepPartial<RuntimeConfig> {
-  const env = process.env;
-
-  const patch: Record<string, unknown> = {
-    discord: {},
-    skills: {},
-    hybridai: {},
-    container: {},
-    heartbeat: {},
-    ops: {},
-    observability: {},
-    sessionCompaction: {
-      preCompactionMemoryFlush: {},
-    },
-    promptHooks: {},
-    proactive: {
-      activeHours: {},
-      delegation: {},
-      autoRetry: {},
-      ralph: {},
-    },
-  };
-
-  const discord = patch.discord as Record<string, unknown>;
-  const skills = patch.skills as Record<string, unknown>;
-  const hybridai = patch.hybridai as Record<string, unknown>;
-  const container = patch.container as Record<string, unknown>;
-  const heartbeat = patch.heartbeat as Record<string, unknown>;
-  const ops = patch.ops as Record<string, unknown>;
-  const observability = patch.observability as Record<string, unknown>;
-  const sessionCompaction = patch.sessionCompaction as Record<string, unknown>;
-  const preCompactionMemoryFlush = sessionCompaction.preCompactionMemoryFlush as Record<string, unknown>;
-  const proactive = patch.proactive as Record<string, unknown>;
-  const proactiveActiveHours = proactive.activeHours as Record<string, unknown>;
-  const proactiveDelegation = proactive.delegation as Record<string, unknown>;
-  const proactiveAutoRetry = proactive.autoRetry as Record<string, unknown>;
-  const proactiveRalph = proactive.ralph as Record<string, unknown>;
-
-  if (env.DISCORD_PREFIX != null) discord.prefix = env.DISCORD_PREFIX;
-  if (env.DISCORD_GUILD_MEMBERS_INTENT != null) {
-    discord.guildMembersIntent = env.DISCORD_GUILD_MEMBERS_INTENT;
-  }
-  if (env.DISCORD_PRESENCE_INTENT != null) {
-    discord.presenceIntent = env.DISCORD_PRESENCE_INTENT;
-  }
-  if (env.DISCORD_RESPOND_TO_ALL_MESSAGES != null) {
-    discord.respondToAllMessages = env.DISCORD_RESPOND_TO_ALL_MESSAGES;
-  }
-  if (env.DISCORD_COMMANDS_ONLY != null) {
-    discord.commandsOnly = env.DISCORD_COMMANDS_ONLY;
-  }
-  if (env.DISCORD_COMMAND_USER_ID != null) {
-    discord.commandUserId = env.DISCORD_COMMAND_USER_ID;
-  }
-  if (env.SKILLS_EXTRA_DIRS != null) skills.extraDirs = env.SKILLS_EXTRA_DIRS;
-
-  if (env.HYBRIDAI_BASE_URL != null) hybridai.baseUrl = env.HYBRIDAI_BASE_URL;
-  if (env.HYBRIDAI_MODEL != null) hybridai.defaultModel = env.HYBRIDAI_MODEL;
-  if (env.HYBRIDAI_ENABLE_RAG != null) hybridai.enableRag = env.HYBRIDAI_ENABLE_RAG;
-  if (env.HYBRIDAI_MODELS != null) hybridai.models = env.HYBRIDAI_MODELS;
-
-  if (env.CONTAINER_IMAGE != null) container.image = env.CONTAINER_IMAGE;
-  if (env.CONTAINER_MEMORY != null) container.memory = env.CONTAINER_MEMORY;
-  if (env.CONTAINER_CPUS != null) container.cpus = env.CONTAINER_CPUS;
-  if (env.CONTAINER_TIMEOUT != null) container.timeoutMs = env.CONTAINER_TIMEOUT;
-  if (env.ADDITIONAL_MOUNTS != null) container.additionalMounts = env.ADDITIONAL_MOUNTS;
-  if (env.CONTAINER_MAX_OUTPUT_SIZE != null) container.maxOutputBytes = env.CONTAINER_MAX_OUTPUT_SIZE;
-  if (env.MAX_CONCURRENT_CONTAINERS != null) container.maxConcurrent = env.MAX_CONCURRENT_CONTAINERS;
-
-  if (env.HEARTBEAT_ENABLED != null) heartbeat.enabled = env.HEARTBEAT_ENABLED;
-  if (env.HEARTBEAT_INTERVAL != null) heartbeat.intervalMs = env.HEARTBEAT_INTERVAL;
-  if (env.HEARTBEAT_CHANNEL != null) heartbeat.channel = env.HEARTBEAT_CHANNEL;
-
-  if (env.HEALTH_HOST != null) ops.healthHost = env.HEALTH_HOST;
-  if (env.HEALTH_PORT != null) ops.healthPort = env.HEALTH_PORT;
-  if (env.GATEWAY_BASE_URL != null) ops.gatewayBaseUrl = env.GATEWAY_BASE_URL;
-  if (env.DB_PATH != null) ops.dbPath = env.DB_PATH;
-  if (env.LOG_LEVEL != null) ops.logLevel = env.LOG_LEVEL;
-
-  if (env.OBSERVABILITY_ENABLED != null) observability.enabled = env.OBSERVABILITY_ENABLED;
-  if (env.OBSERVABILITY_BASE_URL != null) observability.baseUrl = env.OBSERVABILITY_BASE_URL;
-  if (env.OBSERVABILITY_INGEST_PATH != null) observability.ingestPath = env.OBSERVABILITY_INGEST_PATH;
-  if (env.OBSERVABILITY_STATUS_PATH != null) observability.statusPath = env.OBSERVABILITY_STATUS_PATH;
-  if (env.OBSERVABILITY_BOT_ID != null) observability.botId = env.OBSERVABILITY_BOT_ID;
-  if (env.OBSERVABILITY_AGENT_ID != null) observability.agentId = env.OBSERVABILITY_AGENT_ID;
-  if (env.OBSERVABILITY_LABEL != null) observability.label = env.OBSERVABILITY_LABEL;
-  if (env.OBSERVABILITY_ENVIRONMENT != null) observability.environment = env.OBSERVABILITY_ENVIRONMENT;
-  if (env.OBSERVABILITY_FLUSH_INTERVAL_MS != null) observability.flushIntervalMs = env.OBSERVABILITY_FLUSH_INTERVAL_MS;
-  if (env.OBSERVABILITY_BATCH_MAX_EVENTS != null) observability.batchMaxEvents = env.OBSERVABILITY_BATCH_MAX_EVENTS;
-
-  if (env.SESSION_COMPACTION_ENABLED != null) sessionCompaction.enabled = env.SESSION_COMPACTION_ENABLED;
-  if (env.SESSION_COMPACTION_THRESHOLD != null) sessionCompaction.threshold = env.SESSION_COMPACTION_THRESHOLD;
-  if (env.SESSION_COMPACTION_KEEP_RECENT != null) sessionCompaction.keepRecent = env.SESSION_COMPACTION_KEEP_RECENT;
-  if (env.SESSION_COMPACTION_SUMMARY_MAX_CHARS != null) sessionCompaction.summaryMaxChars = env.SESSION_COMPACTION_SUMMARY_MAX_CHARS;
-  if (env.PRE_COMPACTION_MEMORY_FLUSH_ENABLED != null) {
-    preCompactionMemoryFlush.enabled = env.PRE_COMPACTION_MEMORY_FLUSH_ENABLED;
-  }
-  if (env.PRE_COMPACTION_MEMORY_FLUSH_MAX_MESSAGES != null) {
-    preCompactionMemoryFlush.maxMessages = env.PRE_COMPACTION_MEMORY_FLUSH_MAX_MESSAGES;
-  }
-  if (env.PRE_COMPACTION_MEMORY_FLUSH_MAX_CHARS != null) {
-    preCompactionMemoryFlush.maxChars = env.PRE_COMPACTION_MEMORY_FLUSH_MAX_CHARS;
-  }
-
-  if (env.PROACTIVE_ACTIVE_HOURS_ENABLED != null) {
-    proactiveActiveHours.enabled = env.PROACTIVE_ACTIVE_HOURS_ENABLED;
-  }
-  if (env.PROACTIVE_ACTIVE_HOURS_TIMEZONE != null) {
-    proactiveActiveHours.timezone = env.PROACTIVE_ACTIVE_HOURS_TIMEZONE;
-  }
-  if (env.PROACTIVE_ACTIVE_HOURS_START != null) {
-    proactiveActiveHours.startHour = env.PROACTIVE_ACTIVE_HOURS_START;
-  }
-  if (env.PROACTIVE_ACTIVE_HOURS_END != null) {
-    proactiveActiveHours.endHour = env.PROACTIVE_ACTIVE_HOURS_END;
-  }
-  if (env.PROACTIVE_QUEUE_OUTSIDE_HOURS != null) {
-    proactiveActiveHours.queueOutsideHours = env.PROACTIVE_QUEUE_OUTSIDE_HOURS;
-  }
-  if (env.PROACTIVE_DELEGATION_ENABLED != null) {
-    proactiveDelegation.enabled = env.PROACTIVE_DELEGATION_ENABLED;
-  }
-  if (env.PROACTIVE_DELEGATION_MAX_CONCURRENT != null) {
-    proactiveDelegation.maxConcurrent = env.PROACTIVE_DELEGATION_MAX_CONCURRENT;
-  }
-  if (env.PROACTIVE_DELEGATION_MAX_DEPTH != null) {
-    proactiveDelegation.maxDepth = env.PROACTIVE_DELEGATION_MAX_DEPTH;
-  }
-  if (env.PROACTIVE_DELEGATION_MAX_PER_TURN != null) {
-    proactiveDelegation.maxPerTurn = env.PROACTIVE_DELEGATION_MAX_PER_TURN;
-  }
-  if (env.PROACTIVE_AUTO_RETRY_ENABLED != null) {
-    proactiveAutoRetry.enabled = env.PROACTIVE_AUTO_RETRY_ENABLED;
-  }
-  if (env.PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS != null) {
-    proactiveAutoRetry.maxAttempts = env.PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS;
-  }
-  if (env.PROACTIVE_AUTO_RETRY_BASE_DELAY_MS != null) {
-    proactiveAutoRetry.baseDelayMs = env.PROACTIVE_AUTO_RETRY_BASE_DELAY_MS;
-  }
-  if (env.PROACTIVE_AUTO_RETRY_MAX_DELAY_MS != null) {
-    proactiveAutoRetry.maxDelayMs = env.PROACTIVE_AUTO_RETRY_MAX_DELAY_MS;
-  }
-  if (env.PROACTIVE_RALPH_MAX_ITERATIONS != null) {
-    proactiveRalph.maxIterations = env.PROACTIVE_RALPH_MAX_ITERATIONS;
-  }
-
-  return patch as DeepPartial<RuntimeConfig>;
-}
-
 function normalizeRuntimeConfig(patch?: DeepPartial<RuntimeConfig>): RuntimeConfig {
   const raw = patch ?? {};
 
@@ -672,33 +518,6 @@ function normalizeRuntimeConfig(patch?: DeepPartial<RuntimeConfig>): RuntimeConf
   };
 }
 
-function mergePatch(target: Record<string, unknown>, patch: Record<string, unknown>): void {
-  for (const [key, value] of Object.entries(patch)) {
-    if (value === undefined) continue;
-    if (Array.isArray(value)) {
-      target[key] = [...value];
-      continue;
-    }
-    if (isRecord(value)) {
-      const existing = target[key];
-      const nested = isRecord(existing) ? existing : {};
-      mergePatch(nested, value);
-      target[key] = nested;
-      continue;
-    }
-    target[key] = value;
-  }
-}
-
-function combinePatches(...patches: DeepPartial<RuntimeConfig>[]): DeepPartial<RuntimeConfig> {
-  const merged: Record<string, unknown> = {};
-  for (const patch of patches) {
-    if (!isRecord(patch)) continue;
-    mergePatch(merged, patch);
-  }
-  return merged as DeepPartial<RuntimeConfig>;
-}
-
 function loadConfigPatchFromDisk(): DeepPartial<RuntimeConfig> {
   if (!fs.existsSync(CONFIG_PATH)) return {};
   const raw = fs.readFileSync(CONFIG_PATH, 'utf-8');
@@ -731,9 +550,8 @@ function applyConfig(next: RuntimeConfig): void {
 }
 
 function loadRuntimeConfigFromSources(): RuntimeConfig {
-  const envPatch = readLegacyEnvPatch();
   const diskPatch = loadConfigPatchFromDisk();
-  return normalizeRuntimeConfig(combinePatches(envPatch, diskPatch));
+  return normalizeRuntimeConfig(diskPatch);
 }
 
 function reloadFromDisk(trigger: string): void {
@@ -808,36 +626,8 @@ function startWatcher(): void {
 
 function ensureInitialConfigFile(): void {
   if (fs.existsSync(CONFIG_PATH)) return;
-  const seeded = normalizeRuntimeConfig(readLegacyEnvPatch());
+  const seeded = normalizeRuntimeConfig();
   writeConfigFile(seeded);
-}
-
-function migrateLegacyDefaultChatbotId(): void {
-  const legacyChatbotId = normalizeString(process.env.HYBRIDAI_CHATBOT_ID, '', { allowEmpty: true });
-  if (!legacyChatbotId) return;
-
-  let diskPatch: DeepPartial<RuntimeConfig>;
-  try {
-    diskPatch = loadConfigPatchFromDisk();
-  } catch (err) {
-    console.warn(`[runtime-config] legacy chatbot migration skipped: ${err instanceof Error ? err.message : String(err)}`);
-    return;
-  }
-
-  const rawHybridAi = isRecord(diskPatch.hybridai) ? diskPatch.hybridai : {};
-  const existing = normalizeString(rawHybridAi.defaultChatbotId, '', { allowEmpty: true });
-  if (existing) return;
-
-  const migratedPatch = combinePatches(diskPatch, {
-    hybridai: { defaultChatbotId: legacyChatbotId },
-  });
-
-  try {
-    const migrated = normalizeRuntimeConfig(migratedPatch);
-    writeConfigFile(migrated);
-  } catch (err) {
-    console.warn(`[runtime-config] legacy chatbot migration failed: ${err instanceof Error ? err.message : String(err)}`);
-  }
 }
 
 function migrateConfigSchemaOnStartup(): void {
@@ -885,7 +675,6 @@ function migrateConfigSchemaOnStartup(): void {
 
 function initializeRuntimeConfig(): void {
   ensureInitialConfigFile();
-  migrateLegacyDefaultChatbotId();
   migrateConfigSchemaOnStartup();
   reloadFromDisk('startup');
   startWatcher();

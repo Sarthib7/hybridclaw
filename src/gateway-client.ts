@@ -7,6 +7,7 @@ import {
   type GatewayCommandResult,
   type GatewayChatStreamEvent,
   type GatewayChatStreamResultEvent,
+  type GatewayChatTextDeltaEvent,
   type GatewayChatToolProgressEvent,
   type GatewayStatus,
 } from './gateway-types.js';
@@ -184,6 +185,12 @@ function createResponseParser(onEvent: (event: GatewayChatStreamEvent) => void):
     if (parsed.type === 'tool' && parsed.toolName && (parsed.phase === 'start' || parsed.phase === 'finish')) {
       const toolEvent = parsed as GatewayChatToolProgressEvent;
       onEvent(toolEvent);
+      return null;
+    }
+
+    if (parsed.type === 'text' && typeof parsed.delta === 'string') {
+      const textEvent = parsed as GatewayChatTextDeltaEvent;
+      onEvent(textEvent);
       return null;
     }
 

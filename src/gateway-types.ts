@@ -33,12 +33,20 @@ export interface GatewayChatToolProgressEvent {
   durationMs?: number;
 }
 
+export interface GatewayChatTextDeltaEvent {
+  type: 'text';
+  delta: string;
+}
+
 export interface GatewayChatStreamResultEvent {
   type: 'result';
   result: GatewayChatResult;
 }
 
-export type GatewayChatStreamEvent = GatewayChatToolProgressEvent | GatewayChatStreamResultEvent;
+export type GatewayChatStreamEvent =
+  | GatewayChatToolProgressEvent
+  | GatewayChatTextDeltaEvent
+  | GatewayChatStreamResultEvent;
 
 export interface GatewayChatRequestBody {
   sessionId: string;

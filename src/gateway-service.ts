@@ -169,6 +169,7 @@ export interface GatewayChatRequest {
   chatbotId?: GatewayChatRequestBody['chatbotId'];
   model?: GatewayChatRequestBody['model'];
   enableRag?: GatewayChatRequestBody['enableRag'];
+  onTextDelta?: (delta: string) => void;
   onToolProgress?: (event: ToolProgressEvent) => void;
   onProactiveMessage?: (message: ProactiveMessagePayload) => void | Promise<void>;
   abortSignal?: AbortSignal;
@@ -899,6 +900,7 @@ export async function handleGatewayMessage(req: GatewayChatRequest): Promise<Gat
       req.channelId,
       scheduledTasks,
       undefined,
+      req.onTextDelta,
       req.onToolProgress,
       req.abortSignal,
     );

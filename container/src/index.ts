@@ -1,7 +1,7 @@
 import path from 'path';
 
 import { emitRuntimeEvent, runAfterToolHooks, runBeforeToolHooks } from './extensions.js';
-import { callHybridAI, HybridAIRequestError } from './hybridai-client.js';
+import { callHybridAI, callHybridAIStream, HybridAIRequestError } from './hybridai-client.js';
 import { waitForInput, writeOutput } from './ipc.js';
 import {
   accumulateApiUsage,
@@ -63,6 +63,12 @@ function readStdinLine(): Promise<string> {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function emitStreamDelta(delta: string): void {
+  if (!delta) return;
+  const payload = Buffer.from(delta, 'utf-8').toString('base64');
+  console.error(`[stream] ${payload}`);
 }
 
 function isRetryableError(err: unknown): boolean {
@@ -151,8 +157,18 @@ async function callHybridAIWithRetry(params: {
   enableRag: boolean;
   history: ChatMessage[];
   tools: ToolDefinition[];
+  onTextDelta?: (delta: string) => void;
 }): Promise<Awaited<ReturnType<typeof callHybridAI>>> {
-  const { baseUrl, apiKey, model, chatbotId, enableRag, history, tools } = params;
+  const {
+    baseUrl,
+    apiKey,
+    model,
+    chatbotId,
+    enableRag,
+    history,
+    tools,
+    onTextDelta,
+  } = params;
   let attempt = 0;
   let delayMs = RETRY_BASE_DELAY_MS;
 
@@ -160,7 +176,31 @@ async function callHybridAIWithRetry(params: {
     attempt += 1;
     await emitRuntimeEvent({ event: 'before_model_call', attempt });
     try {
-      const response = await callHybridAI(baseUrl, apiKey, model, chatbotId, enableRag, history, tools);
+      let response;
+      if (onTextDelta) {
+        try {
+          response = await callHybridAIStream(
+            baseUrl,
+            apiKey,
+            model,
+            chatbotId,
+            enableRag,
+            history,
+            tools,
+            onTextDelta,
+          );
+        } catch (streamErr) {
+          const fallbackEligible =
+            streamErr instanceof HybridAIRequestError
+            && streamErr.status >= 400
+            && streamErr.status < 500
+            && streamErr.status !== 429;
+          if (!fallbackEligible) throw streamErr;
+          response = await callHybridAI(baseUrl, apiKey, model, chatbotId, enableRag, history, tools);
+        }
+      } else {
+        response = await callHybridAI(baseUrl, apiKey, model, chatbotId, enableRag, history, tools);
+      }
       await emitRuntimeEvent({ event: 'after_model_call', attempt, toolCallCount: response.choices[0]?.message?.tool_calls?.length || 0 });
       return response;
     } catch (err) {
@@ -214,6 +254,7 @@ async function processRequest(
         enableRag,
         history,
         tools,
+        onTextDelta: emitStreamDelta,
       });
     } catch (err) {
       const failed: ContainerOutput = {

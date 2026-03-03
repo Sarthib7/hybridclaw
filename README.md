@@ -11,6 +11,8 @@ npm install -g @hybridaione/hybridclaw
 hybridclaw onboarding
 ```
 
+Latest release: [v0.1.24](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.1.24)
+
 ## HybridAI Advantage
 
 - Security-focused foundation
@@ -75,6 +77,7 @@ HybridClaw best-in-class capabilities:
 - explicit trust-model acceptance during onboarding (recorded in `config.json`)
 - typed `config.json` runtime settings with defaults, validation, and hot reload
 - formal prompt hook orchestration (`bootstrap`, `memory`, `safety`)
+- Discord conversational UX: edit-in-place streaming responses, fence-safe chunking beyond Discord's 2000-char limit, typing keepalive, debounce batching, reply-chain-aware context, and concise attachment-first screenshot replies
 - token-efficient context assembly: per-message history truncation, hard history budgets with head/tail preservation, and head/tail truncation for oversized bootstrap files
 - proactive runtime layer with active-hours gating, push delegation (`single`/`parallel`/`chain`), depth-aware tool policy, and retry controls
 - structured audit trail: append-only hash-chained wire logs (`data/audit/<session>/wire.jsonl`) with tamper-evident immutability, normalized SQLite audit tables, and verification/search CLI commands

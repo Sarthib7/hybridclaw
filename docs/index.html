@@ -1025,6 +1025,10 @@
       <p>Persistent workspace memory plus long-session compaction keeps conversations responsive without losing important context.</p>
     </div>
     <div class="feature-card">
+      <h3 style="color: var(--accent-1);">Discord Conversational UX</h3>
+      <p>Edit-in-place streaming, chunk-safe long messages, typing keepalive, multi-message debounce batching, reply-chain context, and concise attachment-first screenshot delivery.</p>
+    </div>
+    <div class="feature-card">
       <h3 style="color: var(--accent-1);">Skills Engine</h3>
       <p>OpenClaw/CLAUDE-compatible <code>SKILL.md</code> support with multi-tier discovery, prompt embedding modes (<code>always</code>/<code>summary</code>/<code>hidden</code>), eligibility checks, and trust-aware security scanning.</p>
     </div>
@@ -1234,6 +1238,10 @@
     <div class="faq-item">
       <div class="faq-q">Can I use it without Discord?</div>
       <div class="faq-a">Absolutely. Run <code>hybridclaw tui</code> for the terminal UI. The same assistant behavior and context model is shared across supported interfaces.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">How are screenshots returned in Discord?</div>
+      <div class="faq-a">HybridClaw attaches generated screenshots directly to the reply and keeps the text concise (for example: "Here it is.") instead of exposing internal workspace file paths.</div>
     </div>
     <div class="faq-item">
       <div class="faq-q">What is the heartbeat system?</div>

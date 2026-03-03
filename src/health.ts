@@ -146,9 +146,17 @@ async function handleApiChatStream(
     });
   };
 
+  const onTextDelta = (delta: string): void => {
+    sendEvent({
+      type: 'text',
+      delta,
+    });
+  };
+
   try {
     const result = await handleGatewayMessage({
       ...chatRequest,
+      onTextDelta,
       onToolProgress,
     });
     sendEvent({ type: 'result', result });

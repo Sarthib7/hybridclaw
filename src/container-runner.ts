@@ -33,13 +33,30 @@ interface PoolEntry {
   sessionId: string;
   startedAt: number;
   stderrBuffer: string;
+  onTextDelta?: (delta: string) => void;
   onToolProgress?: (event: ToolProgressEvent) => void;
 }
 
 const pool = new Map<string, PoolEntry>();
 const TOOL_RESULT_RE = /^\[tool\]\s+([a-zA-Z0-9_.-]+)\s+result\s+\((\d+)ms\):\s*(.*)$/;
 const TOOL_START_RE = /^\[tool\]\s+([a-zA-Z0-9_.-]+):\s*(.*)$/;
+const STREAM_DELTA_RE = /^\[stream\]\s+([A-Za-z0-9+/=]+)$/;
 const CONTAINER_WORKSPACE_ROOT = '/workspace';
+
+function emitTextDelta(entry: PoolEntry, line: string): void {
+  const callback = entry.onTextDelta;
+  if (!callback) return;
+  const match = line.match(STREAM_DELTA_RE);
+  if (!match) return;
+
+  try {
+    const delta = Buffer.from(match[1], 'base64').toString('utf-8');
+    if (!delta) return;
+    callback(delta);
+  } catch (err) {
+    logger.debug({ sessionId: entry.sessionId, err }, 'Text delta callback failed');
+  }
+}
 
 function emitToolProgress(entry: PoolEntry, line: string): void {
   const callback = entry.onToolProgress;
@@ -218,6 +235,7 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
     for (const rawLine of lines) {
       const line = rawLine.trim();
       if (!line) continue;
+      emitTextDelta(entry, line);
       logger.debug({ container: containerName }, line);
       emitToolProgress(entry, line);
     }
@@ -226,6 +244,7 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
   proc.on('close', (code) => {
     const tail = entry.stderrBuffer.trim();
     if (tail) {
+      emitTextDelta(entry, tail);
       logger.debug({ container: containerName }, tail);
       emitToolProgress(entry, tail);
       entry.stderrBuffer = '';
@@ -256,6 +275,7 @@ export async function runContainer(
   channelId: string = '',
   scheduledTasks?: ScheduledTask[],
   allowedTools?: string[],
+  onTextDelta?: (delta: string) => void,
   onToolProgress?: (event: ToolProgressEvent) => void,
   abortSignal?: AbortSignal,
 ): Promise<ContainerOutput> {
@@ -312,6 +332,7 @@ export async function runContainer(
     allowedTools,
   };
 
+  entry.onTextDelta = onTextDelta;
   entry.onToolProgress = onToolProgress;
   const onAbort = () => {
     logger.info({ sessionId, containerName: entry.containerName }, 'Interrupt requested, stopping container');
@@ -346,6 +367,9 @@ export async function runContainer(
     return output;
   } finally {
     abortSignal?.removeEventListener('abort', onAbort);
+    if (entry.onTextDelta === onTextDelta) {
+      entry.onTextDelta = undefined;
+    }
     if (entry.onToolProgress === onToolProgress) {
       entry.onToolProgress = undefined;
     }

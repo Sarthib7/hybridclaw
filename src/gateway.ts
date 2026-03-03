@@ -66,6 +66,53 @@ function buildArtifactAttachments(
   return attachments;
 }
 
+function normalizePathForMatch(value: string): string {
+  return value.replace(/\\/g, '/').toLowerCase();
+}
+
+function simplifyImageAttachmentNarration(
+  text: string,
+  artifacts?: ArtifactMetadata[],
+): string {
+  if (!text.trim() || !artifacts || artifacts.length === 0) return text;
+
+  const imageArtifacts = artifacts.filter((artifact) => artifact.mimeType.startsWith('image/'));
+  if (imageArtifacts.length === 0) return text;
+
+  const pathHints = new Set<string>();
+  for (const artifact of imageArtifacts) {
+    const normalizedPath = normalizePathForMatch(artifact.path);
+    const filename = normalizePathForMatch(artifact.filename);
+    if (normalizedPath) pathHints.add(normalizedPath);
+    if (filename) pathHints.add(filename);
+    if (filename) pathHints.add(`/workspace/.browser-artifacts/${filename}`);
+    if (filename) pathHints.add(`.browser-artifacts/${filename}`);
+  }
+
+  const pathishLine = /(^`?\s*(\.\/|\/|~\/|[a-zA-Z]:\\|\.browser-artifacts\/))|([\\/][^\\/\s]+\.[a-zA-Z0-9]{1,8})/;
+  const locationNarration = /(workspace|saved to|find it at|located at|liegt unter|pfad|path)/i;
+
+  let removedPathNarration = false;
+  const keptLines: string[] = [];
+  for (const line of text.split('\n')) {
+    const normalizedLine = normalizePathForMatch(line);
+    const mentionsArtifact = Array.from(pathHints).some((hint) => normalizedLine.includes(hint));
+    const isPathLine = pathishLine.test(line.trim());
+    const isLocationNarration = locationNarration.test(line);
+    if (mentionsArtifact && (isPathLine || isLocationNarration)) {
+      removedPathNarration = true;
+      continue;
+    }
+    keptLines.push(line);
+  }
+
+  if (!removedPathNarration) return text;
+
+  const cleaned = keptLines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  if (cleaned) return cleaned;
+  return imageArtifacts.length === 1 ? 'Here it is.' : 'Here they are.';
+}
+
 async function deliverProactiveMessage(
   channelId: string,
   text: string,
@@ -151,7 +198,8 @@ async function startDiscordIntegration(): Promise<void> {
       userId: string,
       username: string,
       content: string,
-      reply: ReplyFn,
+      _reply: ReplyFn,
+      context,
     ) => {
       try {
         const result = await handleGatewayMessage({
@@ -161,20 +209,33 @@ async function startDiscordIntegration(): Promise<void> {
           userId,
           username,
           content,
+          onTextDelta: (delta) => {
+            void context.stream.append(delta);
+          },
           onProactiveMessage: async (message) => {
             await deliverProactiveMessage(channelId, message.text, 'delegate', message.artifacts);
           },
+          abortSignal: context.abortSignal,
         });
         if (result.status === 'error') {
-          await reply(formatError('Agent Error', result.error || 'Unknown error'));
+          const errorText = formatError('Agent Error', result.error || 'Unknown error');
+          await context.stream.fail(errorText);
           return;
         }
         const attachments = buildArtifactAttachments(result.artifacts);
-        await reply(buildResponseText(result.result || 'No response from agent.', result.toolsUsed), attachments);
+        const userText = simplifyImageAttachmentNarration(
+          result.result || 'No response from agent.',
+          result.artifacts,
+        );
+        await context.stream.finalize(
+          buildResponseText(userText, result.toolsUsed),
+          attachments,
+        );
       } catch (error) {
         const text = error instanceof Error ? error.message : String(error);
         logger.error({ error, sessionId, channelId }, 'Discord message handling failed');
-        await reply(formatError('Gateway Error', text));
+        const errorText = formatError('Gateway Error', text);
+        await context.stream.fail(errorText);
       }
     },
     async (

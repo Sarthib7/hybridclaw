@@ -6,7 +6,7 @@ import { loadEnvFile } from './env.js';
 loadEnvFile();
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 2;
+export const CONFIG_VERSION = 3;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 
 const KNOWN_LOG_LEVELS = new Set(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']);
@@ -116,6 +116,9 @@ export interface RuntimeConfig {
       baseDelayMs: number;
       maxDelayMs: number;
     };
+    ralph: {
+      maxIterations: number;
+    };
   };
 }
 
@@ -213,6 +216,9 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       maxAttempts: 3,
       baseDelayMs: 2_000,
       maxDelayMs: 8_000,
+    },
+    ralph: {
+      maxIterations: 0,
     },
   },
 };
@@ -346,6 +352,7 @@ function readLegacyEnvPatch(): DeepPartial<RuntimeConfig> {
       activeHours: {},
       delegation: {},
       autoRetry: {},
+      ralph: {},
     },
   };
 
@@ -362,6 +369,7 @@ function readLegacyEnvPatch(): DeepPartial<RuntimeConfig> {
   const proactiveActiveHours = proactive.activeHours as Record<string, unknown>;
   const proactiveDelegation = proactive.delegation as Record<string, unknown>;
   const proactiveAutoRetry = proactive.autoRetry as Record<string, unknown>;
+  const proactiveRalph = proactive.ralph as Record<string, unknown>;
 
   if (env.DISCORD_PREFIX != null) discord.prefix = env.DISCORD_PREFIX;
   if (env.SKILLS_EXTRA_DIRS != null) skills.extraDirs = env.SKILLS_EXTRA_DIRS;
@@ -453,6 +461,9 @@ function readLegacyEnvPatch(): DeepPartial<RuntimeConfig> {
   if (env.PROACTIVE_AUTO_RETRY_MAX_DELAY_MS != null) {
     proactiveAutoRetry.maxDelayMs = env.PROACTIVE_AUTO_RETRY_MAX_DELAY_MS;
   }
+  if (env.PROACTIVE_RALPH_MAX_ITERATIONS != null) {
+    proactiveRalph.maxIterations = env.PROACTIVE_RALPH_MAX_ITERATIONS;
+  }
 
   return patch as DeepPartial<RuntimeConfig>;
 }
@@ -477,6 +488,7 @@ function normalizeRuntimeConfig(patch?: DeepPartial<RuntimeConfig>): RuntimeConf
   const rawActiveHours = isRecord(rawProactive.activeHours) ? rawProactive.activeHours : {};
   const rawDelegation = isRecord(rawProactive.delegation) ? rawProactive.delegation : {};
   const rawAutoRetry = isRecord(rawProactive.autoRetry) ? rawProactive.autoRetry : {};
+  const rawRalph = isRecord(rawProactive.ralph) ? rawProactive.ralph : {};
 
   const defaultOps = DEFAULT_RUNTIME_CONFIG.ops;
   const healthPort = normalizeInteger(rawOps.healthPort, defaultOps.healthPort, { min: 1, max: 65_535 });
@@ -606,6 +618,9 @@ function normalizeRuntimeConfig(patch?: DeepPartial<RuntimeConfig>): RuntimeConf
         maxAttempts: normalizeInteger(rawAutoRetry.maxAttempts, DEFAULT_RUNTIME_CONFIG.proactive.autoRetry.maxAttempts, { min: 1, max: 8 }),
         baseDelayMs: normalizeInteger(rawAutoRetry.baseDelayMs, DEFAULT_RUNTIME_CONFIG.proactive.autoRetry.baseDelayMs, { min: 100, max: 120_000 }),
         maxDelayMs: normalizeInteger(rawAutoRetry.maxDelayMs, DEFAULT_RUNTIME_CONFIG.proactive.autoRetry.maxDelayMs, { min: 100, max: 600_000 }),
+      },
+      ralph: {
+        maxIterations: normalizeInteger(rawRalph.maxIterations, DEFAULT_RUNTIME_CONFIG.proactive.ralph.maxIterations, { min: -1, max: 64 }),
       },
     },
   };

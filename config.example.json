@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "security": {
     "trustModelAccepted": false,
     "trustModelAcceptedAt": "",
@@ -94,6 +94,9 @@
       "maxAttempts": 3,
       "baseDelayMs": 2000,
       "maxDelayMs": 8000
+    },
+    "ralph": {
+      "maxIterations": 0
     }
   }
 }

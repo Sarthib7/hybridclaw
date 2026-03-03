@@ -140,6 +140,7 @@ function printHelp(): void {
   console.log(`  ${TEAL}/bots${RESET}             List available bots`);
   console.log(`  ${TEAL}/bot <id|name>${RESET}    Switch bot for this session`);
   console.log(`  ${TEAL}/rag [on|off]${RESET}     Toggle or set RAG`);
+  console.log(`  ${TEAL}/ralph [on|off|set n]${RESET} Configure Ralph loop`);
   console.log(`  ${TEAL}/info${RESET}             Show current settings`);
   console.log(`  ${TEAL}/clear${RESET}            Clear session history`);
   console.log(`  ${TEAL}/stop${RESET}             Interrupt current request`);
@@ -262,6 +263,13 @@ async function handleSlashCommand(input: string, rl: readline.Interface): Promis
         await runGatewayCommand(['rag', parts[1]]);
       } else {
         await runGatewayCommand(['rag']);
+      }
+      return true;
+    case 'ralph':
+      if (parts.length > 1) {
+        await runGatewayCommand(['ralph', ...parts.slice(1)]);
+      } else {
+        await runGatewayCommand(['ralph', 'info']);
       }
       return true;
     case 'info':

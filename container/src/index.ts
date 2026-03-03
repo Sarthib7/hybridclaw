@@ -19,6 +19,13 @@ const RETRY_ENABLED = process.env.HYBRIDCLAW_RETRY_ENABLED !== 'false';
 const RETRY_MAX_ATTEMPTS = Math.max(1, parseInt(process.env.HYBRIDCLAW_RETRY_MAX_ATTEMPTS || '3', 10));
 const RETRY_BASE_DELAY_MS = Math.max(100, parseInt(process.env.HYBRIDCLAW_RETRY_BASE_DELAY_MS || '2000', 10));
 const RETRY_MAX_DELAY_MS = Math.max(RETRY_BASE_DELAY_MS, parseInt(process.env.HYBRIDCLAW_RETRY_MAX_DELAY_MS || '8000', 10));
+const RAW_RALPH_MAX_EXTRA_ITERATIONS = Number.parseInt(process.env.HYBRIDCLAW_RALPH_MAX_ITERATIONS || '0', 10);
+const RALPH_MAX_EXTRA_ITERATIONS = Number.isFinite(RAW_RALPH_MAX_EXTRA_ITERATIONS)
+  ? (RAW_RALPH_MAX_EXTRA_ITERATIONS === -1
+    ? -1
+    : Math.max(0, Math.min(64, RAW_RALPH_MAX_EXTRA_ITERATIONS)))
+  : 0;
+const RALPH_ENABLED = RALPH_MAX_EXTRA_ITERATIONS !== 0;
 const WORKSPACE_ROOT = '/workspace';
 const ARTIFACT_MIME_TYPES: Record<string, string> = {
   '.gif': 'image/gif',
@@ -82,6 +89,64 @@ function isRetryableError(err: unknown): boolean {
 function inferToolError(result: string, blockedReason: string | null): boolean {
   if (blockedReason) return true;
   return /\b(error|failed|denied|forbidden|timed out|timeout|exception|invalid)\b/i.test(result);
+}
+
+function latestUserPrompt(messages: ChatMessage[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message.role !== 'user') continue;
+    const text = String(message.content || '').replace(/\s+/g, ' ').trim();
+    if (!text) continue;
+    return text.slice(0, 1_200);
+  }
+  return 'Continue the task';
+}
+
+function parseRalphChoice(content: string | null): 'CONTINUE' | 'STOP' | null {
+  if (!content) return null;
+  const re = /<choice>\s*([^<]*)\s*<\/choice>/gi;
+  let match: RegExpExecArray | null = null;
+  let lastChoice: string | null = null;
+  while (true) {
+    match = re.exec(content);
+    if (!match) break;
+    lastChoice = (match[1] || '').trim().toUpperCase();
+  }
+  if (lastChoice === 'CONTINUE' || lastChoice === 'STOP') return lastChoice;
+  return null;
+}
+
+function stripRalphChoiceTags(content: string | null): string | null {
+  if (content == null) return content;
+  const stripped = content
+    .replace(/<choice>\s*[^<]*\s*<\/choice>/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return stripped || content;
+}
+
+function buildRalphPrompt(taskPrompt: string, missingChoice: boolean): string {
+  const punctuatedPrompt = /[.!?]$/.test(taskPrompt) ? taskPrompt : `${taskPrompt}.`;
+  const lines = [
+    `${punctuatedPrompt} (You are running in an automated loop where the same prompt is fed repeatedly. Only choose STOP when the task is fully complete. Including it will stop further iterations. If you are not 100% sure, choose CONTINUE.)`,
+    '',
+    'Available branches:',
+    '- CONTINUE',
+    '- STOP',
+    '',
+    'Reply with a choice using <choice>...</choice>.',
+  ];
+  if (missingChoice) {
+    lines.push('');
+    lines.push('Your last response did not include a valid choice. Include exactly one: CONTINUE or STOP.');
+  }
+  return lines.join('\n');
+}
+
+function resolveMaxModelTurns(): number {
+  if (!RALPH_ENABLED) return MAX_ITERATIONS;
+  if (RALPH_MAX_EXTRA_ITERATIONS < 0) return Number.MAX_SAFE_INTEGER;
+  return Math.max(MAX_ITERATIONS, RALPH_MAX_EXTRA_ITERATIONS + 1);
 }
 
 function inferMimeType(filePath: string): string {
@@ -237,9 +302,12 @@ async function processRequest(
   const artifacts: ArtifactMetadata[] = [];
   const artifactPaths = new Set<string>();
   const tokenUsage = createTokenUsageStats();
+  const ralphSeedPrompt = RALPH_ENABLED ? latestUserPrompt(messages) : '';
+  const maxModelTurns = resolveMaxModelTurns();
+  let ralphExtraIterations = 0;
   let iterations = 0;
 
-  while (iterations < MAX_ITERATIONS) {
+  while (iterations < maxModelTurns) {
     iterations++;
     tokenUsage.modelCalls += 1;
     tokenUsage.estimatedPromptTokens += estimateMessageTokens(history);
@@ -305,9 +373,39 @@ async function processRequest(
 
     const toolCalls = choice.message.tool_calls || [];
     if (toolCalls.length === 0) {
+      if (RALPH_ENABLED) {
+        const branchChoice = parseRalphChoice(choice.message.content);
+        if (branchChoice === 'STOP') {
+          const completed: ContainerOutput = {
+            status: 'success',
+            result: stripRalphChoiceTags(choice.message.content),
+            toolsUsed: [...new Set(toolsUsed)],
+            ...(artifacts.length > 0 ? { artifacts } : {}),
+            toolExecutions,
+            tokenUsage: finalizeTokenUsage(tokenUsage),
+          };
+          await emitRuntimeEvent({ event: 'turn_end', status: completed.status, toolsUsed: completed.toolsUsed });
+          return completed;
+        }
+
+        const canContinue = RALPH_MAX_EXTRA_ITERATIONS < 0 || ralphExtraIterations < RALPH_MAX_EXTRA_ITERATIONS;
+        if (canContinue) {
+          ralphExtraIterations += 1;
+          history.push({
+            role: 'user',
+            content: buildRalphPrompt(ralphSeedPrompt, branchChoice == null),
+          });
+          console.error(
+            `[ralph] continue ${ralphExtraIterations}`
+            + (RALPH_MAX_EXTRA_ITERATIONS < 0 ? '' : `/${RALPH_MAX_EXTRA_ITERATIONS}`),
+          );
+          continue;
+        }
+      }
+
       const completed: ContainerOutput = {
         status: 'success',
-        result: choice.message.content,
+        result: stripRalphChoiceTags(choice.message.content),
         toolsUsed: [...new Set(toolsUsed)],
         ...(artifacts.length > 0 ? { artifacts } : {}),
         toolExecutions,
@@ -366,7 +464,7 @@ async function processRequest(
   const lastAssistant = history.filter((m) => m.role === 'assistant').pop();
   const completed: ContainerOutput = {
     status: 'success',
-    result: lastAssistant?.content || 'Max tool iterations reached.',
+    result: stripRalphChoiceTags(lastAssistant?.content || null) || 'Max tool iterations reached.',
     toolsUsed: [...new Set(toolsUsed)],
     ...(artifacts.length > 0 ? { artifacts } : {}),
     toolExecutions,

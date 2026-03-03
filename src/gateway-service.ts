@@ -12,9 +12,10 @@ import {
   PROACTIVE_AUTO_RETRY_MAX_DELAY_MS,
   PROACTIVE_DELEGATION_MAX_DEPTH,
   PROACTIVE_DELEGATION_MAX_PER_TURN,
+  PROACTIVE_RALPH_MAX_ITERATIONS,
 } from './config.js';
 import { runAgent } from './agent.js';
-import { getActiveContainerCount } from './container-runner.js';
+import { getActiveContainerCount, stopSessionContainer } from './container-runner.js';
 import {
   clearSessionHistory,
   createTask,
@@ -63,6 +64,7 @@ import { buildConversationContext } from './conversation.js';
 import { runIsolatedScheduledTask } from './scheduled-task-runner.js';
 import { delegationQueueStatus, enqueueDelegation } from './delegation-manager.js';
 import { estimateTokenCountFromMessages, estimateTokenCountFromText } from './token-efficiency.js';
+import { updateRuntimeConfig } from './runtime-config.js';
 
 const BOT_CACHE_TTL = 300_000; // 5 minutes
 const MAX_HISTORY_MESSAGES = 40;
@@ -94,6 +96,7 @@ const BASE_SUBAGENT_ALLOWED_TOOLS = [
 const ORCHESTRATOR_SUBAGENT_ALLOWED_TOOLS = [...BASE_SUBAGENT_ALLOWED_TOOLS, 'delegate'];
 const MAX_DELEGATION_TASKS = 6;
 const MAX_DELEGATION_USER_CHARS = 500;
+const MAX_RALPH_ITERATIONS = 64;
 const TRANSIENT_DELEGATION_ERROR_PATTERNS: RegExp[] = [
   /econnreset/i,
   /etimedout/i,
@@ -200,6 +203,20 @@ function parseIntOrNull(raw: string | undefined): number | null {
   if (!raw) return null;
   const parsed = parseInt(raw, 10);
   return Number.isNaN(parsed) ? null : parsed;
+}
+
+function normalizeRalphIterations(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  const truncated = Math.trunc(value);
+  if (truncated === -1) return -1;
+  if (truncated < 0) return 0;
+  return Math.min(MAX_RALPH_ITERATIONS, truncated);
+}
+
+function formatRalphIterations(value: number): string {
+  if (value === -1) return 'unlimited';
+  if (value <= 0) return 'off';
+  return `${value} extra iteration${value === 1 ? '' : 's'}`;
 }
 
 function badCommand(title: string, text: string): GatewayCommandResult {
@@ -1168,6 +1185,7 @@ export async function handleGatewayCommand(req: GatewayCommandRequest): Promise<
         '`model set <name>` — Set model for this session',
         '`model info` — Show current model',
         '`rag [on|off]` — Toggle or set RAG mode',
+        '`ralph [on|off|set <n>|info]` — Configure Ralph loop (0 off, -1 unlimited)',
         '`clear` — Clear session history',
         '`status` — Show runtime status',
         '`sessions` — List active sessions',
@@ -1271,6 +1289,59 @@ export async function handleGatewayCommand(req: GatewayCommandRequest): Promise<
       return badCommand('Usage', 'Usage: `rag [on|off]`');
     }
 
+    case 'ralph': {
+      const sub = (req.args[1] || '').toLowerCase();
+      if (!sub || sub === 'info' || sub === 'status') {
+        const current = normalizeRalphIterations(PROACTIVE_RALPH_MAX_ITERATIONS);
+        return infoCommand(
+          'Ralph Loop',
+          [
+            `Current: ${formatRalphIterations(current)}`,
+            'Usage: `ralph on|off|set <n>|info`',
+            'Set values: `0` disables, `-1` is unlimited, `1-64` are extra autonomous iterations.',
+          ].join('\n'),
+        );
+      }
+
+      let nextValue: number | null = null;
+      if (sub === 'on') {
+        nextValue = PROACTIVE_RALPH_MAX_ITERATIONS === 0 ? 3 : PROACTIVE_RALPH_MAX_ITERATIONS;
+      } else if (sub === 'off') {
+        nextValue = 0;
+      } else if (sub === 'set') {
+        if (req.args[2] == null) {
+          return badCommand('Usage', 'Usage: `ralph set <n>` (0=off, -1=unlimited, 1-64=extra iterations)');
+        }
+        const parsed = Number.parseInt(req.args[2], 10);
+        if (Number.isNaN(parsed)) {
+          return badCommand('Usage', 'Usage: `ralph set <n>` where n is an integer');
+        }
+        if (parsed < -1 || parsed > MAX_RALPH_ITERATIONS) {
+          return badCommand('Range', `Ralph iterations must be between -1 and ${MAX_RALPH_ITERATIONS}.`);
+        }
+        nextValue = parsed;
+      } else {
+        const parsed = Number.parseInt(sub, 10);
+        if (Number.isNaN(parsed)) {
+          return badCommand('Usage', 'Usage: `ralph on|off|set <n>|info`');
+        }
+        if (parsed < -1 || parsed > MAX_RALPH_ITERATIONS) {
+          return badCommand('Range', `Ralph iterations must be between -1 and ${MAX_RALPH_ITERATIONS}.`);
+        }
+        nextValue = parsed;
+      }
+
+      const normalized = normalizeRalphIterations(nextValue);
+      updateRuntimeConfig((draft) => {
+        draft.proactive.ralph.maxIterations = normalized;
+      });
+      const restarted = stopSessionContainer(req.sessionId);
+      const restartNote = restarted
+        ? ' Current session container restarted to apply immediately.'
+        : '';
+      return plainCommand(`Ralph loop set to ${formatRalphIterations(normalized)}.${restartNote}`);
+    }
+
     case 'clear': {
       const deleted = clearSessionHistory(session.id);
       return infoCommand('Session Cleared', `Deleted ${deleted} messages. Workspace files preserved.`);
@@ -1286,6 +1357,7 @@ export async function handleGatewayCommand(req: GatewayCommandRequest): Promise<
         `Delegations: ${delegationStatus.active} active / ${delegationStatus.queued} queued`,
         `Default Model: ${status.defaultModel}`,
         `RAG Default: ${status.ragDefault ? 'On' : 'Off'}`,
+        `Ralph Loop: ${formatRalphIterations(normalizeRalphIterations(PROACTIVE_RALPH_MAX_ITERATIONS))}`,
       ];
       return infoCommand('Status', lines.join('\n'));
     }

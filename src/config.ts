@@ -122,6 +122,7 @@ export let PROACTIVE_AUTO_RETRY_ENABLED = true;
 export let PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS = 3;
 export let PROACTIVE_AUTO_RETRY_BASE_DELAY_MS = 2_000;
 export let PROACTIVE_AUTO_RETRY_MAX_DELAY_MS = 8_000;
+export let PROACTIVE_RALPH_MAX_ITERATIONS = 0;
 
 function applyRuntimeConfig(config: RuntimeConfig): void {
   DISCORD_PREFIX = config.discord.prefix;
@@ -192,6 +193,9 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
     PROACTIVE_AUTO_RETRY_BASE_DELAY_MS,
     config.proactive.autoRetry.maxDelayMs,
   );
+
+  const rawRalphMax = Math.trunc(config.proactive.ralph.maxIterations);
+  PROACTIVE_RALPH_MAX_ITERATIONS = rawRalphMax === -1 ? -1 : Math.max(0, rawRalphMax);
 }
 
 applyRuntimeConfig(getRuntimeConfig());

@@ -18,6 +18,7 @@ import {
   PROACTIVE_AUTO_RETRY_ENABLED,
   PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS,
   PROACTIVE_AUTO_RETRY_MAX_DELAY_MS,
+  PROACTIVE_RALPH_MAX_ITERATIONS,
   getHybridAIApiKey,
 } from './config.js';
 import { cleanupIpc, ensureAgentDirs, ensureSessionDirs, getSessionPaths, readOutput, writeInput } from './ipc.js';
@@ -95,6 +96,15 @@ function emitToolProgress(entry: PoolEntry, line: string): void {
 
 export function getActiveContainerCount(): number {
   return pool.size;
+}
+
+export function stopSessionContainer(sessionId: string): boolean {
+  const entry = pool.get(sessionId);
+  if (!entry) return false;
+  logger.info({ sessionId, containerName: entry.containerName }, 'Stopping session container');
+  stopContainer(entry.containerName);
+  pool.delete(sessionId);
+  return true;
 }
 
 function stopContainer(containerName: string): void {
@@ -188,6 +198,7 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
     '-e', `HYBRIDCLAW_RETRY_MAX_ATTEMPTS=${PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS}`,
     '-e', `HYBRIDCLAW_RETRY_BASE_DELAY_MS=${PROACTIVE_AUTO_RETRY_BASE_DELAY_MS}`,
     '-e', `HYBRIDCLAW_RETRY_MAX_DELAY_MS=${PROACTIVE_AUTO_RETRY_MAX_DELAY_MS}`,
+    '-e', `HYBRIDCLAW_RALPH_MAX_ITERATIONS=${PROACTIVE_RALPH_MAX_ITERATIONS}`,
     '-e', 'PLAYWRIGHT_BROWSERS_PATH=/ms-playwright',
   ];
 

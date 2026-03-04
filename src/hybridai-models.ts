@@ -1,150 +1,69 @@
-import { getHybridAIApiKey, HYBRIDAI_BASE_URL } from './config.js';
-
 interface HybridAIModel {
   id: string;
   contextWindowTokens: number | null;
 }
 
-interface ModelCacheEntry {
-  models: HybridAIModel[];
-  fetchedAtMs: number;
-}
+// Source: ../../examples/pi-mono/packages/ai/src/models.generated.ts
+// Keep this list intentionally small and focused on the GPT-5 family we use.
+const STATIC_MODEL_CONTEXT_WINDOWS: Record<string, number> = {
+  // Claude 4.6
+  'claude-opus-4-6': 200_000,
+  'claude-opus-4.6': 200_000,
+  'claude-sonnet-4-6': 200_000,
+  'claude-sonnet-4.6': 200_000,
 
-const MODEL_LIST_PATHS = ['/v1/models', '/api/v1/model-management/models'];
+  // Gemini 3 / 3.1
+  'gemini-3': 1_048_576,
+  'gemini-3-pro': 1_048_576,
+  'gemini-3-flash': 1_048_576,
+  'gemini-3.1': 1_048_576,
+  'gemini-3.1-pro': 1_048_576,
+  'gemini-3.1-pro-high': 1_048_576,
+  'gemini-3.1-pro-low': 1_048_576,
+  'gemini-3-pro-preview': 1_048_576,
+  'gemini-3-flash-preview': 1_048_576,
+  'gemini-3.1-pro-preview': 1_048_576,
 
-let modelCache: ModelCacheEntry | null = null;
-
-const FALLBACK_MODEL_CONTEXT_WINDOWS: Record<string, number> = {
-  'gpt-5-nano': 128_000,
-  'gpt-5-mini': 272_000,
+  // GPT-5 family
   'gpt-5': 400_000,
+  'gpt-5-chat-latest': 128_000,
+  'gpt-5-codex': 400_000,
+  'gpt-5-mini': 400_000,
+  'gpt-5-nano': 400_000,
+  'gpt-5-pro': 400_000,
+  'gpt-5.1': 400_000,
+  'gpt-5.1-chat-latest': 128_000,
+  'gpt-5.1-codex': 400_000,
+  'gpt-5.1-codex-max': 400_000,
+  'gpt-5.1-codex-mini': 400_000,
+  'gpt-5.2': 400_000,
+  'gpt-5.2-chat-latest': 128_000,
+  'gpt-5.2-codex': 400_000,
+  'gpt-5.2-pro': 400_000,
+  'gpt-5.3-codex': 400_000,
+  'gpt-5.3-codex-spark': 128_000,
 };
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  if (!value || typeof value !== 'object') return null;
-  return value as Record<string, unknown>;
-}
-
-function numberFromUnknown(value: unknown): number | null {
-  if (typeof value !== 'number') return null;
-  if (!Number.isFinite(value) || value <= 0) return null;
-  return Math.floor(value);
-}
-
-function firstPositiveNumber(values: unknown[]): number | null {
-  for (const value of values) {
-    const parsed = numberFromUnknown(value);
-    if (parsed != null) return parsed;
-  }
-  return null;
-}
-
-function extractContextWindowTokens(
-  item: Record<string, unknown>,
-): number | null {
-  const usageRecord = asRecord(item.usage);
-  const limitsRecord = asRecord(item.limits);
-  const metadataRecord = asRecord(item.metadata);
-  const modelRecord = asRecord(item.model);
-  const capabilitiesRecord = asRecord(item.capabilities);
-
-  return firstPositiveNumber([
-    item.context_window,
-    item.contextWindow,
-    item.context_length,
-    item.contextLength,
-    item.max_context_tokens,
-    item.maxContextTokens,
-    item.max_context_size,
-    item.maxContextSize,
-    item.token_limit,
-    item.tokenLimit,
-    usageRecord?.context_window,
-    usageRecord?.max_context_tokens,
-    limitsRecord?.context_window,
-    limitsRecord?.max_context_tokens,
-    metadataRecord?.context_window,
-    metadataRecord?.context_length,
-    modelRecord?.context_window,
-    modelRecord?.max_context_tokens,
-    capabilitiesRecord?.context_window,
-    capabilitiesRecord?.max_context_tokens,
-  ]);
-}
-
-function normalizeModels(payload: unknown): HybridAIModel[] {
-  const rootRecord = asRecord(payload);
-  const rawItems = Array.isArray(payload)
-    ? payload
-    : Array.isArray(rootRecord?.data)
-      ? rootRecord.data
-      : Array.isArray(rootRecord?.models)
-        ? rootRecord.models
-        : Array.isArray(rootRecord?.items)
-          ? rootRecord.items
-          : [];
-  const results: HybridAIModel[] = [];
-  for (const raw of rawItems) {
-    const item = asRecord(raw);
-    if (!item) continue;
-    const id = String(item.id ?? item.model ?? item.name ?? '').trim();
-    if (!id) continue;
-    results.push({
-      id,
-      contextWindowTokens: extractContextWindowTokens(item),
-    });
-  }
-  return results;
-}
-
-async function fetchFromPath(pathname: string): Promise<HybridAIModel[]> {
-  const url = `${HYBRIDAI_BASE_URL}${pathname}`;
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${getHybridAIApiKey()}` },
-  });
-  if (!res.ok) {
-    throw new Error(`Failed to fetch models: ${res.status} ${res.statusText}`);
-  }
-  return normalizeModels(await res.json());
-}
-
-export async function fetchHybridAIModels(options?: {
-  cacheTtlMs?: number;
-}): Promise<HybridAIModel[]> {
-  const cacheTtlMs = Math.max(0, options?.cacheTtlMs ?? 0);
-  const now = Date.now();
-  if (
-    cacheTtlMs > 0 &&
-    modelCache &&
-    now - modelCache.fetchedAtMs < cacheTtlMs
-  ) {
-    return modelCache.models;
-  }
-
-  let lastError: Error | null = null;
-  for (const pathname of MODEL_LIST_PATHS) {
-    try {
-      const models = await fetchFromPath(pathname);
-      if (cacheTtlMs > 0) {
-        modelCache = { models, fetchedAtMs: now };
-      } else {
-        modelCache = null;
-      }
-      return models;
-    } catch (err) {
-      lastError = err instanceof Error ? err : new Error(String(err));
-    }
-  }
-
-  if (modelCache?.models.length) return modelCache.models;
-  if (lastError) throw lastError;
-  return [];
-}
 
 export function resolveModelContextWindowFromList(
   models: HybridAIModel[],
   modelName: string,
 ): number | null {
+  const normalizeModelIdTail = (modelId: string): string => {
+    const normalized = modelId.trim().toLowerCase();
+    return normalized.includes('/')
+      ? (normalized.split('/').at(-1) ?? normalized)
+      : normalized;
+  };
+  const matchesModelFamily = (candidateId: string, targetId: string): boolean => {
+    if (!candidateId || !targetId) return false;
+    if (candidateId === targetId) return true;
+    const boundary = candidateId.at(targetId.length);
+    return (
+      candidateId.startsWith(targetId) &&
+      (boundary === '-' || boundary === '.' || boundary === ':' || boundary === '/')
+    );
+  };
+
   const target = modelName.trim().toLowerCase();
   if (!target) return null;
 
@@ -162,36 +81,67 @@ export function resolveModelContextWindowFromList(
 
   const tailMatch = models.find((entry) => {
     if (entry.contextWindowTokens == null) return false;
-    const normalizedId = entry.id.trim().toLowerCase();
-    const normalizedTail = normalizedId.includes('/')
-      ? (normalizedId.split('/').at(-1) ?? '')
-      : normalizedId;
+    const normalizedTail = normalizeModelIdTail(entry.id);
     return normalizedTail === targetTail;
   });
-  return tailMatch?.contextWindowTokens ?? null;
+  if (tailMatch?.contextWindowTokens != null) return tailMatch.contextWindowTokens;
+
+  const familyMatch = models
+    .filter((entry) => entry.contextWindowTokens != null)
+    .map((entry) => ({
+      contextWindowTokens: entry.contextWindowTokens as number,
+      tail: normalizeModelIdTail(entry.id),
+    }))
+    .filter((entry) => matchesModelFamily(entry.tail, targetTail))
+    .sort((a, b) => b.tail.length - a.tail.length)
+    .at(0);
+  return familyMatch?.contextWindowTokens ?? null;
 }
 
 export function resolveModelContextWindowFallback(
   modelName: string,
 ): number | null {
+  const matchesModelFamily = (candidateId: string, targetId: string): boolean => {
+    if (!candidateId || !targetId) return false;
+    if (candidateId === targetId) return true;
+    const boundary = candidateId.at(targetId.length);
+    return (
+      candidateId.startsWith(targetId) &&
+      (boundary === '-' ||
+        boundary === '.' ||
+        boundary === ':' ||
+        boundary === '/')
+    );
+  };
+
   const normalized = modelName.trim().toLowerCase();
   if (!normalized) return null;
 
-  const direct = FALLBACK_MODEL_CONTEXT_WINDOWS[normalized];
+  const direct = STATIC_MODEL_CONTEXT_WINDOWS[normalized];
   if (direct != null) return direct;
 
   const slashTail = normalized.includes('/')
     ? (normalized.split('/').at(-1) ?? '')
     : normalized;
-  if (slashTail && FALLBACK_MODEL_CONTEXT_WINDOWS[slashTail] != null) {
-    return FALLBACK_MODEL_CONTEXT_WINDOWS[slashTail];
+  if (slashTail && STATIC_MODEL_CONTEXT_WINDOWS[slashTail] != null) {
+    return STATIC_MODEL_CONTEXT_WINDOWS[slashTail];
   }
 
   const colonTail = normalized.includes(':')
     ? (normalized.split(':').at(-1) ?? '')
     : normalized;
-  if (colonTail && FALLBACK_MODEL_CONTEXT_WINDOWS[colonTail] != null) {
-    return FALLBACK_MODEL_CONTEXT_WINDOWS[colonTail];
+  if (colonTail && STATIC_MODEL_CONTEXT_WINDOWS[colonTail] != null) {
+    return STATIC_MODEL_CONTEXT_WINDOWS[colonTail];
+  }
+
+  // Family fallback for versioned ids, e.g. "gpt-5.1-2025-11-13".
+  const familyCandidates = [slashTail, colonTail, normalized].filter(Boolean);
+  for (const candidate of familyCandidates) {
+    const bestMatch = Object.keys(STATIC_MODEL_CONTEXT_WINDOWS)
+      .filter((key) => matchesModelFamily(candidate, key))
+      .sort((a, b) => b.length - a.length)
+      .at(0);
+    if (bestMatch) return STATIC_MODEL_CONTEXT_WINDOWS[bestMatch] ?? null;
   }
 
   return null;

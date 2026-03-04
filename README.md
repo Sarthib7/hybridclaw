@@ -19,7 +19,7 @@ Latest release: [v0.2.6](https://github.com/HybridAIOne/hybridclaw/releases/tag/
 - Discord command access controls now support `discord.commandMode` (`public|restricted`) plus `discord.commandAllowedUserIds` (with legacy `commandUserId` compatibility).
 - Free-mode Discord replies now apply stronger relevance gating (for example short acknowledgements/URL-only chatter are skipped, and messages mentioning other users are de-prioritized).
 - `browser_upload` now supports selector targets and automatic fallback from wrapper refs to detected `input[type="file"]` elements.
-- HybridAI status/usage context metrics now use model-catalog context-window metadata with fallback mappings, and runtime supports `hybridai.maxTokens` for default completion budgeting.
+- HybridAI status/usage context metrics now use a curated static context-window catalog (Claude/Gemini/GPT-5) with family-aware fallback matching, and runtime supports `hybridai.maxTokens` for default completion budgeting.
 - Model-usage telemetry now captures cache read/write token counters where providers expose them, and prompt-dump diagnostics include media plus allowed/blocked tool context.
 - CLI container readiness checks now resolve the package install root to avoid non-root invocation failures.
 

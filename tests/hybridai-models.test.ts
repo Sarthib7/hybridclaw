@@ -27,8 +27,17 @@ test('resolveModelContextWindowFromList returns null when unresolved', () => {
 });
 
 test('resolveModelContextWindowFallback resolves known defaults', () => {
-  expect(resolveModelContextWindowFallback('gpt-5-mini')).toBe(272_000);
-  expect(resolveModelContextWindowFallback('openai/gpt-5-nano')).toBe(128_000);
+  expect(resolveModelContextWindowFallback('gpt-5-mini')).toBe(400_000);
+  expect(resolveModelContextWindowFallback('openai/gpt-5-nano')).toBe(400_000);
+  expect(resolveModelContextWindowFallback('gpt-5.1')).toBe(400_000);
+  expect(resolveModelContextWindowFallback('gpt-5.3')).toBe(400_000);
+  expect(resolveModelContextWindowFallback('anthropic/claude-opus-4-6')).toBe(
+    200_000,
+  );
+  expect(resolveModelContextWindowFallback('claude-sonnet-4.6')).toBe(200_000);
+  expect(resolveModelContextWindowFallback('google/gemini-3.1-pro')).toBe(
+    1_048_576,
+  );
   expect(resolveModelContextWindowFallback('openai:gpt-5')).toBe(400_000);
 });
 

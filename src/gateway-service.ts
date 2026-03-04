@@ -63,9 +63,7 @@ import {
 } from './gateway-types.js';
 import { fetchHybridAIBots } from './hybridai-bots.js';
 import {
-  fetchHybridAIModels,
   resolveModelContextWindowFallback,
-  resolveModelContextWindowFromList,
 } from './hybridai-models.js';
 import { logger } from './logger.js';
 import { memoryService } from './memory-service.js';
@@ -98,7 +96,6 @@ import type {
 import { ensureBootstrapFiles } from './workspace.js';
 
 const BOT_CACHE_TTL = 300_000; // 5 minutes
-const MODEL_CACHE_TTL = 300_000; // 5 minutes
 const MAX_HISTORY_MESSAGES = 40;
 const BASE_SUBAGENT_ALLOWED_TOOLS = [
   'read',
@@ -2402,25 +2399,8 @@ export async function handleGatewayCommand(
       const delegationStatus = delegationQueueStatus();
       const commitShort = resolveGitCommitShort();
       const sessionModel = session.model || HYBRIDAI_MODEL;
-      let modelContextWindowTokens: number | null = null;
-      try {
-        const models = await fetchHybridAIModels({
-          cacheTtlMs: MODEL_CACHE_TTL,
-        });
-        modelContextWindowTokens = resolveModelContextWindowFromList(
-          models,
-          sessionModel,
-        );
-      } catch (err) {
-        logger.debug(
-          { sessionId: session.id, model: sessionModel, err },
-          'Failed to resolve model context window for status',
-        );
-      }
-      if (modelContextWindowTokens == null) {
-        modelContextWindowTokens =
-          resolveModelContextWindowFallback(sessionModel);
-      }
+      const modelContextWindowTokens =
+        resolveModelContextWindowFallback(sessionModel);
       const metrics = readSessionStatusSnapshot(session.id, {
         modelContextWindowTokens,
       });

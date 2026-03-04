@@ -2,17 +2,23 @@
  * HybridClaw TUI — thin client for the gateway API.
  * Usage: npm run tui
  */
-import readline from 'readline';
+import readline from 'node:readline';
 
-import { APP_VERSION, GATEWAY_BASE_URL, HYBRIDAI_BASE_URL, HYBRIDAI_CHATBOT_ID, HYBRIDAI_MODEL } from './config.js';
 import {
-  gatewayChatStream,
-  gatewayCommand,
-  gatewayChat,
-  gatewayStatus,
-  renderGatewayCommand,
+  APP_VERSION,
+  GATEWAY_BASE_URL,
+  HYBRIDAI_BASE_URL,
+  HYBRIDAI_CHATBOT_ID,
+  HYBRIDAI_MODEL,
+} from './config.js';
+import {
   type GatewayChatResult,
   type GatewayCommandResult,
+  gatewayChat,
+  gatewayChatStream,
+  gatewayCommand,
+  gatewayStatus,
+  renderGatewayCommand,
 } from './gateway-client.js';
 import { logger } from './logger.js';
 
@@ -53,7 +59,10 @@ function inferThemeFromColorFgBg(): TuiTheme | null {
   const raw = process.env.COLORFGBG;
   if (!raw) return null;
 
-  const parts = raw.split(/[;:]/).map((part) => part.trim()).filter(Boolean);
+  const parts = raw
+    .split(/[;:]/)
+    .map((part) => part.trim())
+    .filter(Boolean);
   if (parts.length === 0) return null;
 
   const bg = Number.parseInt(parts[parts.length - 1], 10);
@@ -64,7 +73,14 @@ function inferThemeFromColorFgBg(): TuiTheme | null {
 }
 
 function resolveTuiTheme(): TuiTheme {
-  const override = (process.env.HYBRIDCLAW_THEME || process.env.HYBRIDCLAW_TUI_THEME || process.env.TUI_THEME || '').trim().toLowerCase();
+  const override = (
+    process.env.HYBRIDCLAW_THEME ||
+    process.env.HYBRIDCLAW_TUI_THEME ||
+    process.env.TUI_THEME ||
+    ''
+  )
+    .trim()
+    .toLowerCase();
   if (override === 'light' || override === 'dark') return override;
   return inferThemeFromColorFgBg() || 'dark';
 }
@@ -86,6 +102,84 @@ const TUI_MULTILINE_PASTE_DEBOUNCE_MS = Math.max(
 const TOOL_PREVIEW_MAX_CHARS = 140;
 
 let activeRunAbortController: AbortController | null = null;
+
+function findPendingApprovalRequestId(
+  result: GatewayChatResult,
+): string | null {
+  const executions = result.toolExecutions || [];
+  for (let i = executions.length - 1; i >= 0; i -= 1) {
+    const execution = executions[i];
+    if (execution.approvalDecision !== 'required') continue;
+    if (!execution.approvalRequestId) continue;
+    return execution.approvalRequestId;
+  }
+  return null;
+}
+
+function mapApprovalSelectionToCommand(
+  selection: string,
+  requestId: string,
+): string | null {
+  const normalized = selection.trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!normalized) return null;
+
+  if (
+    normalized === '1' ||
+    normalized === 'yes' ||
+    normalized === 'y' ||
+    normalized === 'once'
+  ) {
+    return `yes ${requestId}`;
+  }
+  if (
+    normalized === '2' ||
+    normalized === 'session' ||
+    normalized === 'yes for session' ||
+    normalized === 'for session'
+  ) {
+    return `yes ${requestId} for session`;
+  }
+  if (
+    normalized === '3' ||
+    normalized === 'agent' ||
+    normalized === 'yes for agent' ||
+    normalized === 'for agent'
+  ) {
+    return `yes ${requestId} for agent`;
+  }
+  if (
+    normalized === '4' ||
+    normalized === 'no' ||
+    normalized === 'n' ||
+    normalized === 'skip'
+  ) {
+    return `skip ${requestId}`;
+  }
+  return null;
+}
+
+async function promptApprovalSelection(
+  rl: readline.Interface,
+  requestId: string,
+): Promise<string | null> {
+  console.log(
+    `  ${BOLD}${GOLD}Approval options${RESET} ${MUTED}(request ${requestId})${RESET}`,
+  );
+  console.log(`  ${TEAL}1${RESET} yes (once)`);
+  console.log(`  ${TEAL}2${RESET} yes for session`);
+  console.log(`  ${TEAL}3${RESET} yes for agent`);
+  console.log(`  ${TEAL}4${RESET} no / skip`);
+  const answer = await new Promise<string>((resolve) => {
+    rl.question(`  ${MUTED}Select 1-4 (Enter to skip):${RESET} `, resolve);
+  });
+  const command = mapApprovalSelectionToCommand(answer, requestId);
+  if (answer.trim() && !command) {
+    printInfo(
+      `Unrecognized selection "${answer.trim()}". You can reply manually with yes/skip and the request id.`,
+    );
+  }
+  return command;
+}
 
 function printBanner(): void {
   const T = TEAL;
@@ -124,12 +218,18 @@ function printBanner(): void {
   console.log();
   for (const line of logo) console.log(line);
   console.log();
-  console.log(`  \u{1F99E} ${BOLD}${TEAL}H y b r i d ${GOLD}C l a w${RESET} ${MUTED}v${APP_VERSION}${RESET}`);
+  console.log(
+    `  \u{1F99E} ${BOLD}${TEAL}H y b r i d ${GOLD}C l a w${RESET} ${MUTED}v${APP_VERSION}${RESET}`,
+  );
   console.log(`${MUTED}     Powered by HybridAI${RESET}`);
   console.log();
-  console.log(`  ${MUTED}Model:${RESET} ${TEAL}${HYBRIDAI_MODEL}${RESET}${MUTED} | Bot:${RESET} ${GOLD}${HYBRIDAI_CHATBOT_ID || 'unset'}${RESET}`);
+  console.log(
+    `  ${MUTED}Model:${RESET} ${TEAL}${HYBRIDAI_MODEL}${RESET}${MUTED} | Bot:${RESET} ${GOLD}${HYBRIDAI_CHATBOT_ID || 'unset'}${RESET}`,
+  );
   console.log(`  ${MUTED}Gateway:${RESET} ${TEAL}${GATEWAY_BASE_URL}${RESET}`);
-  console.log(`  ${MUTED}HybridAI:${RESET} ${TEAL}${HYBRIDAI_BASE_URL}${RESET}`);
+  console.log(
+    `  ${MUTED}HybridAI:${RESET} ${TEAL}${HYBRIDAI_BASE_URL}${RESET}`,
+  );
   console.log();
 }
 
@@ -167,7 +267,9 @@ function printInfo(text: string): void {
 
 function printToolUsage(tools: string[]): void {
   if (tools.length === 0) return;
-  console.log(`  ${MUTED}${JELLYFISH} tools:${RESET} ${GREEN}${tools.join(', ')}${RESET}`);
+  console.log(
+    `  ${MUTED}${JELLYFISH} tools:${RESET} ${GREEN}${tools.join(', ')}${RESET}`,
+  );
 }
 
 function printGatewayCommandResult(result: GatewayCommandResult): void {
@@ -190,7 +292,7 @@ function spinner(): {
   const clearLine = () => process.stdout.write('\r\x1b[2K');
   const render = () => {
     clearLine();
-      process.stdout.write(`\r${TEAL}thinking${dots[i % dots.length]}${RESET}`);
+    process.stdout.write(`\r${TEAL}thinking${dots[i % dots.length]}${RESET}`);
     i++;
   };
   const interval = setInterval(render, 350);
@@ -203,7 +305,9 @@ function spinner(): {
     addTool: (toolName: string, preview?: string) => {
       clearLine();
       const previewText = preview ? ` ${MUTED}${preview}${RESET}` : '';
-      process.stdout.write(`  ${JELLYFISH} ${TEAL}${toolName}${RESET}${previewText}\n`);
+      process.stdout.write(
+        `  ${JELLYFISH} ${TEAL}${toolName}${RESET}${previewText}\n`,
+      );
       transientToolLines++;
       render();
     },
@@ -234,7 +338,10 @@ async function runGatewayCommand(args: string[]): Promise<void> {
   }
 }
 
-async function handleSlashCommand(input: string, rl: readline.Interface): Promise<boolean> {
+async function handleSlashCommand(
+  input: string,
+  rl: readline.Interface,
+): Promise<boolean> {
   const parts = input.slice(1).trim().split(/\s+/).filter(Boolean);
   const cmd = (parts[0] || '').toLowerCase();
 
@@ -248,6 +355,7 @@ async function handleSlashCommand(input: string, rl: readline.Interface): Promis
       console.log(`\n  ${GOLD}Goodbye!${RESET}\n`);
       rl.close();
       process.exit(0);
+      return true;
     case 'bots':
       await runGatewayCommand(['bot', 'list']);
       return true;
@@ -282,7 +390,10 @@ async function handleSlashCommand(input: string, rl: readline.Interface): Promis
       return true;
     case 'stop':
     case 'abort':
-      if (activeRunAbortController && !activeRunAbortController.signal.aborted) {
+      if (
+        activeRunAbortController &&
+        !activeRunAbortController.signal.aborted
+      ) {
         activeRunAbortController.abort();
         printInfo('Stopping current request...');
       } else {
@@ -294,7 +405,10 @@ async function handleSlashCommand(input: string, rl: readline.Interface): Promis
   }
 }
 
-async function processMessage(content: string): Promise<void> {
+async function processMessage(
+  content: string,
+  rl: readline.Interface,
+): Promise<void> {
   const s = spinner();
   const abortController = new AbortController();
   activeRunAbortController = abortController;
@@ -325,11 +439,17 @@ async function processMessage(content: string): Promise<void> {
           stream: true,
         },
         (event) => {
-          if (event.type !== 'tool' || event.phase !== 'start' || !event.toolName) return;
+          if (
+            event.type !== 'tool' ||
+            event.phase !== 'start' ||
+            !event.toolName
+          )
+            return;
           const preview = (event.preview || '').replace(/\s+/g, ' ').trim();
-          const previewText = preview.length > TOOL_PREVIEW_MAX_CHARS
-            ? `${preview.slice(0, TOOL_PREVIEW_MAX_CHARS - 1)}…`
-            : preview;
+          const previewText =
+            preview.length > TOOL_PREVIEW_MAX_CHARS
+              ? `${preview.slice(0, TOOL_PREVIEW_MAX_CHARS - 1)}…`
+              : preview;
           toolNames.add(event.toolName);
           s.addTool(event.toolName, previewText || undefined);
         },
@@ -361,7 +481,10 @@ async function processMessage(content: string): Promise<void> {
       printToolUsage(Array.from(toolNames));
     }
 
-    if ((result.error || '').includes('aborted') || (result.error || '').includes('Interrupted')) {
+    if (
+      (result.error || '').includes('aborted') ||
+      (result.error || '').includes('Interrupted')
+    ) {
       return;
     }
 
@@ -371,6 +494,16 @@ async function processMessage(content: string): Promise<void> {
     }
 
     printResponse(result.result || 'No response.');
+    const pendingApprovalId = findPendingApprovalRequestId(result);
+    if (pendingApprovalId) {
+      const approvalCommand = await promptApprovalSelection(
+        rl,
+        pendingApprovalId,
+      );
+      if (approvalCommand) {
+        await processMessage(approvalCommand, rl);
+      }
+    }
   } catch (err) {
     s.stop();
     if (abortController.signal.aborted) return;
@@ -399,7 +532,8 @@ async function main(): Promise<void> {
   if (process.stdin.isTTY) process.stdin.setRawMode(true);
   process.stdin.on('keypress', (_str, key) => {
     if (key?.name !== 'escape') return;
-    if (!activeRunAbortController || activeRunAbortController.signal.aborted) return;
+    if (!activeRunAbortController || activeRunAbortController.signal.aborted)
+      return;
     activeRunAbortController.abort();
   });
 
@@ -423,7 +557,7 @@ async function main(): Promise<void> {
             return;
           }
         }
-        await processMessage(input);
+        await processMessage(input, rl);
         rl.prompt();
       })
       .catch((err) => {
@@ -446,7 +580,10 @@ async function main(): Promise<void> {
   rl.on('line', (line) => {
     pendingInputLines.push(line);
     if (pendingInputTimer) clearTimeout(pendingInputTimer);
-    pendingInputTimer = setTimeout(flushPendingInput, TUI_MULTILINE_PASTE_DEBOUNCE_MS);
+    pendingInputTimer = setTimeout(
+      flushPendingInput,
+      TUI_MULTILINE_PASTE_DEBOUNCE_MS,
+    );
   });
 
   rl.on('close', () => {

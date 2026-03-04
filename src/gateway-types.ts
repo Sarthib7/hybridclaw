@@ -20,9 +20,27 @@ export interface GatewayChatResult {
     arguments: string;
     result: string;
     durationMs: number;
+    isError?: boolean;
+    blocked?: boolean;
+    blockedReason?: string;
+    approvalTier?: 'green' | 'yellow' | 'red';
+    approvalBaseTier?: 'green' | 'yellow' | 'red';
+    approvalDecision?:
+      | 'auto'
+      | 'implicit'
+      | 'approved_once'
+      | 'approved_session'
+      | 'approved_agent'
+      | 'promoted'
+      | 'required'
+      | 'denied';
+    approvalActionKey?: string;
+    approvalReason?: string;
+    approvalRequestId?: string;
   }>;
   tokenUsage?: TokenUsageStats;
   error?: string;
+  effectiveUserPrompt?: string;
 }
 
 export interface GatewayChatToolProgressEvent {

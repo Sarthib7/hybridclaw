@@ -16,14 +16,22 @@ interface RuntimeEventPayload {
 interface RuntimeExtension {
   name: string;
   onEvent?: (payload: RuntimeEventPayload) => void | Promise<void>;
-  onBeforeToolCall?: (toolName: string, args: Record<string, unknown>) => string | null | Promise<string | null>;
-  onAfterToolCall?: (toolName: string, args: Record<string, unknown>, result: string) => void | Promise<void>;
+  onBeforeToolCall?: (
+    toolName: string,
+    args: Record<string, unknown>,
+  ) => string | null | Promise<string | null>;
+  onAfterToolCall?: (
+    toolName: string,
+    args: Record<string, unknown>,
+    result: string,
+  ) => void | Promise<void>;
 }
 
 const DANGEROUS_FILE_CONTENT_PATTERNS: Array<{ re: RegExp; reason: string }> = [
   {
     re: /\brm\s+-rf\s+\/(\s|$)/i,
-    reason: 'Detected destructive root delete pattern (`rm -rf /`) in file content.',
+    reason:
+      'Detected destructive root delete pattern (`rm -rf /`) in file content.',
   },
   {
     re: /:\(\)\s*\{.*\};\s*:/i,
@@ -31,7 +39,8 @@ const DANGEROUS_FILE_CONTENT_PATTERNS: Array<{ re: RegExp; reason: string }> = [
   },
   {
     re: /\bcurl\b[^\n|]*\|\s*(sh|bash|zsh)\b/i,
-    reason: 'Detected remote shell execution pattern (`curl | sh`) in file content.',
+    reason:
+      'Detected remote shell execution pattern (`curl | sh`) in file content.',
   },
 ];
 
@@ -50,9 +59,10 @@ const securityHookExtension: RuntimeExtension = {
   name: 'security-hook',
   onBeforeToolCall: (toolName, args) => {
     if (toolName === 'write' || toolName === 'edit') {
-      const content = toolName === 'write'
-        ? String(args.contents || '')
-        : String(args.new || '');
+      const content =
+        toolName === 'write'
+          ? String(args.contents || '')
+          : String(args.new || '');
       for (const pattern of DANGEROUS_FILE_CONTENT_PATTERNS) {
         if (pattern.re.test(content)) return pattern.reason;
       }
@@ -74,14 +84,17 @@ const runtimeExtensions: RuntimeExtension[] = [securityHookExtension];
 function parseArgs(argsJson: string): Record<string, unknown> {
   try {
     const parsed = JSON.parse(argsJson) as unknown;
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+      return {};
     return parsed as Record<string, unknown>;
   } catch {
     return {};
   }
 }
 
-export async function emitRuntimeEvent(payload: RuntimeEventPayload): Promise<void> {
+export async function emitRuntimeEvent(
+  payload: RuntimeEventPayload,
+): Promise<void> {
   for (const ext of runtimeExtensions) {
     if (!ext.onEvent) continue;
     try {
@@ -92,7 +105,10 @@ export async function emitRuntimeEvent(payload: RuntimeEventPayload): Promise<vo
   }
 }
 
-export async function runBeforeToolHooks(toolName: string, argsJson: string): Promise<string | null> {
+export async function runBeforeToolHooks(
+  toolName: string,
+  argsJson: string,
+): Promise<string | null> {
   const args = parseArgs(argsJson);
   for (const ext of runtimeExtensions) {
     if (!ext.onBeforeToolCall) continue;
@@ -112,11 +128,19 @@ export async function runBeforeToolHooks(toolName: string, argsJson: string): Pr
       // ignore broken extensions
     }
   }
-  await emitRuntimeEvent({ event: 'before_tool_call', toolName, blocked: false });
+  await emitRuntimeEvent({
+    event: 'before_tool_call',
+    toolName,
+    blocked: false,
+  });
   return null;
 }
 
-export async function runAfterToolHooks(toolName: string, argsJson: string, result: string): Promise<void> {
+export async function runAfterToolHooks(
+  toolName: string,
+  argsJson: string,
+  result: string,
+): Promise<void> {
   const args = parseArgs(argsJson);
   for (const ext of runtimeExtensions) {
     if (!ext.onAfterToolCall) continue;

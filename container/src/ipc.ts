@@ -1,5 +1,5 @@
-import fs from 'fs';
-import path from 'path';
+import fs from 'node:fs';
+import path from 'node:path';
 
 import type { ContainerInput, ContainerOutput } from './types.js';
 
@@ -10,7 +10,9 @@ const OUTPUT_PATH = path.join(IPC_DIR, 'output.json');
 /**
  * Poll for input.json. Returns null if idle timeout expires.
  */
-export async function waitForInput(idleTimeoutMs: number): Promise<ContainerInput | null> {
+export async function waitForInput(
+  idleTimeoutMs: number,
+): Promise<ContainerInput | null> {
   const pollInterval = 200;
   const deadline = Date.now() + idleTimeoutMs;
 

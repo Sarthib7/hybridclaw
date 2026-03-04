@@ -1,4 +1,9 @@
-import type { ChatCompletionResponse, ChatMessage, ToolCall, ToolDefinition } from './types.js';
+import type {
+  ChatCompletionResponse,
+  ChatMessage,
+  ToolCall,
+  ToolDefinition,
+} from './types.js';
 
 export class HybridAIRequestError extends Error {
   status: number;
@@ -86,7 +91,10 @@ function ensureToolCall(toolCalls: ToolCall[], index: number): ToolCall {
   return toolCalls[index];
 }
 
-function mergeToolCallDelta(target: ToolCall, delta: StreamToolCallDelta): void {
+function mergeToolCallDelta(
+  target: ToolCall,
+  delta: StreamToolCallDelta,
+): void {
   if (typeof delta.id === 'string' && delta.id) {
     target.id = target.id ? `${target.id}${delta.id}` : delta.id;
   }
@@ -99,7 +107,10 @@ function mergeToolCallDelta(target: ToolCall, delta: StreamToolCallDelta): void 
         ? `${target.function.name}${delta.function.name}`
         : delta.function.name;
     }
-    if (typeof delta.function.arguments === 'string' && delta.function.arguments) {
+    if (
+      typeof delta.function.arguments === 'string' &&
+      delta.function.arguments
+    ) {
       target.function.arguments += delta.function.arguments;
     }
   }
@@ -166,11 +177,13 @@ export async function callHybridAIStream(
     throw new HybridAIRequestError(response.status, text);
   }
 
-  const contentType = (response.headers.get('content-type') || '').toLowerCase();
+  const contentType = (
+    response.headers.get('content-type') || ''
+  ).toLowerCase();
   if (
-    contentType.includes('application/json')
-    && !contentType.includes('ndjson')
-    && !contentType.includes('event-stream')
+    contentType.includes('application/json') &&
+    !contentType.includes('ndjson') &&
+    !contentType.includes('event-stream')
   ) {
     return (await response.json()) as ChatCompletionResponse;
   }
@@ -208,10 +221,14 @@ export async function callHybridAIStream(
 
     sawPayload = true;
     if (typeof payload.id === 'string' && payload.id) streamId = payload.id;
-    if (typeof payload.model === 'string' && payload.model) streamModel = payload.model;
-    if (payload.usage && typeof payload.usage === 'object') usage = payload.usage;
+    if (typeof payload.model === 'string' && payload.model)
+      streamModel = payload.model;
+    if (payload.usage && typeof payload.usage === 'object')
+      usage = payload.usage;
 
-    const choice = Array.isArray(payload.choices) ? payload.choices[0] : undefined;
+    const choice = Array.isArray(payload.choices)
+      ? payload.choices[0]
+      : undefined;
     if (!choice) return;
 
     if (choice.message) {
@@ -249,7 +266,10 @@ export async function callHybridAIStream(
       }
       if (Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0) {
         for (const callDelta of delta.tool_calls) {
-          const index = typeof callDelta.index === 'number' && callDelta.index >= 0 ? callDelta.index : 0;
+          const index =
+            typeof callDelta.index === 'number' && callDelta.index >= 0
+              ? callDelta.index
+              : 0;
           const target = ensureToolCall(toolCalls, index);
           mergeToolCallDelta(target, callDelta);
         }
@@ -293,7 +313,8 @@ export async function callHybridAIStream(
     throw new Error('Streaming response ended without payload');
   }
 
-  const finalFinishReason = finishReason || (toolCalls.length > 0 ? 'tool_calls' : 'stop');
+  const finalFinishReason =
+    finishReason || (toolCalls.length > 0 ? 'tool_calls' : 'stop');
   return {
     id: streamId || 'stream',
     model: streamModel,

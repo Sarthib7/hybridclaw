@@ -82,6 +82,20 @@ export interface ToolExecution {
   isError?: boolean;
   blocked?: boolean;
   blockedReason?: string;
+  approvalTier?: 'green' | 'yellow' | 'red';
+  approvalBaseTier?: 'green' | 'yellow' | 'red';
+  approvalDecision?:
+    | 'auto'
+    | 'implicit'
+    | 'approved_once'
+    | 'approved_session'
+    | 'approved_agent'
+    | 'promoted'
+    | 'required'
+    | 'denied';
+  approvalActionKey?: string;
+  approvalReason?: string;
+  approvalRequestId?: string;
 }
 
 export interface ToolProgressEvent {
@@ -117,6 +131,7 @@ export interface ContainerOutput {
   toolExecutions?: ToolExecution[];
   tokenUsage?: TokenUsageStats;
   error?: string;
+  effectiveUserPrompt?: string;
   sideEffects?: {
     schedules?: ScheduleSideEffect[];
     delegations?: DelegationSideEffect[];

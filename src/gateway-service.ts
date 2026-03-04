@@ -1,4 +1,4 @@
-import { spawnSync } from 'child_process';
+import { spawnSync } from 'node:child_process';
 import { CronExpressionParser } from 'cron-parser';
 import { runAgent } from './agent.js';
 import {
@@ -1608,6 +1608,11 @@ export async function handleGatewayMessage(
       req.abortSignal,
       media,
     );
+    const effectiveUserContent =
+      typeof output.effectiveUserPrompt === 'string' &&
+      output.effectiveUserPrompt.trim()
+        ? output.effectiveUserPrompt.trim()
+        : req.content;
     const toolExecutions = output.toolExecutions || [];
     emitToolExecutionAuditEvents({
       sessionId: req.sessionId,
@@ -1749,7 +1754,7 @@ export async function handleGatewayMessage(
       turnIndex,
       userId: req.userId,
       username: req.username,
-      userContent: req.content,
+      userContent: effectiveUserContent,
       resultText,
       toolCallCount: toolExecutions.length,
       startedAt,
@@ -1762,6 +1767,7 @@ export async function handleGatewayMessage(
       artifacts: output.artifacts,
       toolExecutions,
       tokenUsage: output.tokenUsage,
+      effectiveUserPrompt: output.effectiveUserPrompt,
     };
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);

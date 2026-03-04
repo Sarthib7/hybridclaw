@@ -3,11 +3,10 @@
  * TOOLS.md, MEMORY.md, HEARTBEAT.md from the agent workspace
  * and injects them into the system prompt (like OpenClaw).
  */
-import fs from 'fs';
-import path from 'path';
-
-import { logger } from './logger.js';
+import fs from 'node:fs';
+import path from 'node:path';
 import { agentWorkspaceDir } from './ipc.js';
+import { logger } from './logger.js';
 import { truncateHeadTailText } from './token-efficiency.js';
 
 const BOOTSTRAP_FILES = [
@@ -21,6 +20,21 @@ const BOOTSTRAP_FILES = [
   'BOOTSTRAP.md',
   'BOOT.md',
 ] as const;
+const POLICY_RELATIVE_PATH = path.join('.hybridclaw', 'policy.yaml');
+const DEFAULT_POLICY_TEMPLATE = `approval:
+  pinned_red:
+    - pattern: "rm -rf /"
+    - paths: ["~/.ssh/**", "/etc/**", ".env*"]
+    - tools: ["force_push"]
+
+  workspace_fence: true
+  max_pending_approvals: 3
+  approval_timeout_secs: 120
+
+audit:
+  log_all_red: true
+  log_denials: true
+`;
 
 const MAX_FILE_CHARS = 20_000;
 const TEMPLATES_DIR = path.join(process.cwd(), 'templates');
@@ -47,6 +61,25 @@ export function ensureBootstrapFiles(agentId: string): void {
       logger.debug({ agentId, file: filename }, 'Copied bootstrap template');
     }
   }
+
+  const policyDestPath = path.join(wsDir, POLICY_RELATIVE_PATH);
+  if (!fs.existsSync(policyDestPath)) {
+    fs.mkdirSync(path.dirname(policyDestPath), { recursive: true });
+    const repoPolicyPath = path.join(process.cwd(), POLICY_RELATIVE_PATH);
+    if (fs.existsSync(repoPolicyPath)) {
+      fs.copyFileSync(repoPolicyPath, policyDestPath);
+      logger.debug(
+        { agentId, file: POLICY_RELATIVE_PATH },
+        'Copied approval policy from repository',
+      );
+    } else {
+      fs.writeFileSync(policyDestPath, DEFAULT_POLICY_TEMPLATE, 'utf-8');
+      logger.debug(
+        { agentId, file: POLICY_RELATIVE_PATH },
+        'Wrote default approval policy template',
+      );
+    }
+  }
 }
 
 /**
@@ -71,7 +104,10 @@ export function loadBootstrapFiles(agentId: string): ContextFile[] {
 
       files.push({ name: filename, content });
     } catch (err) {
-      logger.warn({ agentId, file: filename, err }, 'Failed to read bootstrap file');
+      logger.warn(
+        { agentId, file: filename, err },
+        'Failed to read bootstrap file',
+      );
     }
   }
 
@@ -83,7 +119,10 @@ export function loadBootstrapFiles(agentId: string): ContextFile[] {
  * e.g. "Tuesday, February 24th, 2026 — 14:32"
  */
 function formatCurrentTime(timezone?: string): string {
-  const tz = timezone?.trim() || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  const tz =
+    timezone?.trim() ||
+    Intl.DateTimeFormat().resolvedOptions().timeZone ||
+    'UTC';
   const now = new Date();
   try {
     const parts = new Intl.DateTimeFormat('en-US', {
@@ -100,14 +139,27 @@ function formatCurrentTime(timezone?: string): string {
     for (const part of parts) {
       if (part.type !== 'literal') map[part.type] = part.value;
     }
-    if (!map.weekday || !map.year || !map.month || !map.day || !map.hour || !map.minute) {
+    if (
+      !map.weekday ||
+      !map.year ||
+      !map.month ||
+      !map.day ||
+      !map.hour ||
+      !map.minute
+    ) {
       return now.toISOString();
     }
     const dayNum = parseInt(map.day, 10);
-    const suffix = dayNum >= 11 && dayNum <= 13 ? 'th'
-      : dayNum % 10 === 1 ? 'st'
-      : dayNum % 10 === 2 ? 'nd'
-      : dayNum % 10 === 3 ? 'rd' : 'th';
+    const suffix =
+      dayNum >= 11 && dayNum <= 13
+        ? 'th'
+        : dayNum % 10 === 1
+          ? 'st'
+          : dayNum % 10 === 2
+            ? 'nd'
+            : dayNum % 10 === 3
+              ? 'rd'
+              : 'th';
     return `${map.weekday}, ${map.month} ${dayNum}${suffix}, ${map.year} — ${map.hour}:${map.minute} (${tz})`;
   } catch {
     return now.toISOString();

@@ -1,8 +1,12 @@
-import { execSync } from 'child_process';
-import fs from 'fs';
-import path from 'path';
+import { execSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
 
-import { BROWSER_TOOL_DEFINITIONS, executeBrowserTool, setBrowserModelContext } from './browser-tools.js';
+import {
+  BROWSER_TOOL_DEFINITIONS,
+  executeBrowserTool,
+  setBrowserModelContext,
+} from './browser-tools.js';
 import type {
   DelegationSideEffect,
   DelegationTaskSpec,
@@ -15,24 +19,24 @@ import { webFetch } from './web-fetch.js';
 // --- Exec safety deny-list (defense-in-depth, adapted from PicoClaw) ---
 
 const DENY_PATTERNS: RegExp[] = [
-  /\brm\s+-[rf]{1,2}\b/,           // rm -r, rm -f, rm -rf
+  /\brm\s+-[rf]{1,2}\b/, // rm -r, rm -f, rm -rf
   /(^|[;&|]\s*)mkfs(?:\.[a-z0-9_+-]+)?\b/, // mkfs command at segment start
-  /(^|[;&|]\s*)format(?:\.com|\.exe)?\b/,  // format command at segment start (Windows)
-  /\bdd\s+if=/,                      // raw disk I/O
-  /:\(\)\s*\{.*\};\s*:/,            // fork bomb :(){ :|:& };:
-  /\|\s*(sh|bash|zsh)\b/,           // pipe to shell
-  /;\s*rm\s+-[rf]/,                  // chained rm after semicolon
-  /&&\s*rm\s+-[rf]/,                 // chained rm after &&
-  /\|\|\s*rm\s+-[rf]/,              // chained rm after ||
-  /\bcurl\b.*\|\s*(sh|bash)/,       // curl | sh
-  /\bwget\b.*\|\s*(sh|bash)/,       // wget | sh
-  /\beval\b/,                        // eval execution
-  /\bsource\s+.*\.sh\b/,            // source shell scripts
-  /\bpkill\b/,                       // process killing
-  /\bkillall\b/,                     // process killing
-  /\bkill\s+-9\b/,                   // force kill
-  /\b(shutdown|reboot|poweroff)\b/,  // system power control
-  />\s*\/dev\/sd[a-z]\b/,           // write to block devices
+  /(^|[;&|]\s*)format(?:\.com|\.exe)?\b/, // format command at segment start (Windows)
+  /\bdd\s+if=/, // raw disk I/O
+  /:\(\)\s*\{.*\};\s*:/, // fork bomb :(){ :|:& };:
+  /\|\s*(sh|bash|zsh)\b/, // pipe to shell
+  /;\s*rm\s+-[rf]/, // chained rm after semicolon
+  /&&\s*rm\s+-[rf]/, // chained rm after &&
+  /\|\|\s*rm\s+-[rf]/, // chained rm after ||
+  /\bcurl\b.*\|\s*(sh|bash)/, // curl | sh
+  /\bwget\b.*\|\s*(sh|bash)/, // wget | sh
+  /\beval\b/, // eval execution
+  /\bsource\s+.*\.sh\b/, // source shell scripts
+  /\bpkill\b/, // process killing
+  /\bkillall\b/, // process killing
+  /\bkill\s+-9\b/, // force kill
+  /\b(shutdown|reboot|poweroff)\b/, // system power control
+  />\s*\/dev\/sd[a-z]\b/, // write to block devices
 ];
 
 function guardCommand(command: string): string | null {
@@ -47,7 +51,16 @@ function guardCommand(command: string): string | null {
 
 // --- Side-effect accumulator for host-processed actions ---
 
-type ScheduledTaskInfo = { id: number; cronExpr: string; runAt: string | null; everyMs: number | null; prompt: string; enabled: number; lastRun: string | null; createdAt: string };
+type ScheduledTaskInfo = {
+  id: number;
+  cronExpr: string;
+  runAt: string | null;
+  everyMs: number | null;
+  prompt: string;
+  enabled: number;
+  lastRun: string | null;
+  createdAt: string;
+};
 
 let pendingSchedules: ScheduleSideEffect[] = [];
 let pendingDelegations: DelegationSideEffect[] = [];
@@ -80,18 +93,23 @@ export function resetSideEffects(): void {
   pendingDelegations = [];
 }
 
-export function getPendingSideEffects(): {
-  schedules?: ScheduleSideEffect[];
-  delegations?: DelegationSideEffect[];
-} | undefined {
-  if (pendingSchedules.length === 0 && pendingDelegations.length === 0) return undefined;
+export function getPendingSideEffects():
+  | {
+      schedules?: ScheduleSideEffect[];
+      delegations?: DelegationSideEffect[];
+    }
+  | undefined {
+  if (pendingSchedules.length === 0 && pendingDelegations.length === 0)
+    return undefined;
   return {
     schedules: pendingSchedules.length > 0 ? pendingSchedules : undefined,
     delegations: pendingDelegations.length > 0 ? pendingDelegations : undefined,
   };
 }
 
-export function setScheduledTasks(tasks: ScheduledTaskInfo[] | undefined): void {
+export function setScheduledTasks(
+  tasks: ScheduledTaskInfo[] | undefined,
+): void {
   injectedTasks = tasks || [];
 }
 
@@ -99,7 +117,11 @@ export function setSessionContext(sessionId: string): void {
   currentSessionId = String(sessionId || '');
 }
 
-export function setGatewayContext(baseUrl?: string, apiToken?: string, channelId?: string): void {
+export function setGatewayContext(
+  baseUrl?: string,
+  apiToken?: string,
+  channelId?: string,
+): void {
   gatewayBaseUrl = String(baseUrl || '').trim();
   gatewayApiToken = String(apiToken || '').trim();
   gatewayChannelId = String(channelId || '').trim();
@@ -128,12 +150,16 @@ function readStringValue(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-function resolveDiscordMessageAction(rawAction: unknown): DiscordMessageToolAction | null {
+function resolveDiscordMessageAction(
+  rawAction: unknown,
+): DiscordMessageToolAction | null {
   const normalized = readStringValue(rawAction)?.toLowerCase();
   if (!normalized) return null;
   if (normalized === 'read' || normalized === 'readmessages') return 'read';
-  if (normalized === 'member-info' || normalized === 'memberinfo') return 'member-info';
-  if (normalized === 'channel-info' || normalized === 'channelinfo') return 'channel-info';
+  if (normalized === 'member-info' || normalized === 'memberinfo')
+    return 'member-info';
+  if (normalized === 'channel-info' || normalized === 'channelinfo')
+    return 'channel-info';
   return null;
 }
 
@@ -143,7 +169,9 @@ function resolveGatewayDiscordActionUrl(): string | null {
   return `${base}/api/discord/action`;
 }
 
-async function callGatewayDiscordAction(payload: Record<string, unknown>): Promise<string> {
+async function callGatewayDiscordAction(
+  payload: Record<string, unknown>,
+): Promise<string> {
   const url = resolveGatewayDiscordActionUrl();
   if (!url) {
     return 'Error: Discord actions are unavailable because gatewayBaseUrl is not configured.';
@@ -179,9 +207,10 @@ async function callGatewayDiscordAction(payload: Record<string, unknown>): Promi
   }
 
   if (!response.ok) {
-    const detail = typeof parsed?.error === 'string'
-      ? parsed.error
-      : rawText || `HTTP ${response.status}`;
+    const detail =
+      typeof parsed?.error === 'string'
+        ? parsed.error
+        : rawText || `HTTP ${response.status}`;
     return `Error: Discord action failed (${response.status}): ${detail}`;
   }
 
@@ -189,7 +218,10 @@ async function callGatewayDiscordAction(payload: Record<string, unknown>): Promi
   return rawText || JSON.stringify({ ok: true }, null, 2);
 }
 
-function normalizeDelegationTask(raw: unknown, fallbackModel?: string): DelegationTaskSpec | null {
+function normalizeDelegationTask(
+  raw: unknown,
+  fallbackModel?: string,
+): DelegationTaskSpec | null {
   if (typeof raw === 'string') {
     const prompt = raw.trim();
     if (!prompt) return null;
@@ -202,7 +234,8 @@ function normalizeDelegationTask(raw: unknown, fallbackModel?: string): Delegati
   if (!prompt) return null;
 
   const label = typeof task.label === 'string' ? task.label.trim() : '';
-  const model = typeof task.model === 'string' ? task.model.trim() : (fallbackModel || '');
+  const model =
+    typeof task.model === 'string' ? task.model.trim() : fallbackModel || '';
   const normalized: DelegationTaskSpec = { prompt };
   if (label) normalized.label = label;
   if (model) normalized.model = model;
@@ -217,10 +250,16 @@ function normalizeDelegationTaskList(params: {
   const { raw, fallbackModel, fieldName } = params;
   if (raw == null) return { tasks: [] };
   if (!Array.isArray(raw)) {
-    return { tasks: [], error: `Error: "${fieldName}" must be an array of task objects.` };
+    return {
+      tasks: [],
+      error: `Error: "${fieldName}" must be an array of task objects.`,
+    };
   }
   if (raw.length === 0) {
-    return { tasks: [], error: `Error: "${fieldName}" must contain at least one task.` };
+    return {
+      tasks: [],
+      error: `Error: "${fieldName}" must contain at least one task.`,
+    };
   }
   if (raw.length > MAX_DELEGATION_BATCH_ITEMS) {
     return {
@@ -274,7 +313,9 @@ function isSafeDiscordCdnUrl(raw: string): boolean {
     return false;
   }
   if (parsed.protocol !== 'https:') return false;
-  return DISCORD_CDN_HOST_PATTERNS.some((pattern) => pattern.test(parsed.hostname));
+  return DISCORD_CDN_HOST_PATTERNS.some((pattern) =>
+    pattern.test(parsed.hostname),
+  );
 }
 
 function normalizeVisionLocalPath(rawPath: string): string | null {
@@ -286,8 +327,13 @@ function normalizeVisionLocalPath(rawPath: string): string | null {
     ? path.posix.normalize(normalizedInput)
     : path.posix.normalize(path.posix.join(WORKSPACE_ROOT, normalizedInput));
   if (
-    !(candidate === WORKSPACE_ROOT || candidate.startsWith(`${WORKSPACE_ROOT}/`))
-    && !(candidate === DISCORD_MEDIA_CACHE_ROOT || candidate.startsWith(`${DISCORD_MEDIA_CACHE_ROOT}/`))
+    !(
+      candidate === WORKSPACE_ROOT || candidate.startsWith(`${WORKSPACE_ROOT}/`)
+    ) &&
+    !(
+      candidate === DISCORD_MEDIA_CACHE_ROOT ||
+      candidate.startsWith(`${DISCORD_MEDIA_CACHE_ROOT}/`)
+    )
   ) {
     return null;
   }
@@ -304,8 +350,13 @@ function isKnownDiscordMediaPath(localPath: string): boolean {
   return knownPaths.includes(localPath);
 }
 
-function inferImageMimeTypeFromPath(localPath: string, fallbackMime?: string | null): string {
-  const normalizedFallback = String(fallbackMime || '').trim().toLowerCase();
+function inferImageMimeTypeFromPath(
+  localPath: string,
+  fallbackMime?: string | null,
+): string {
+  const normalizedFallback = String(fallbackMime || '')
+    .trim()
+    .toLowerCase();
   if (normalizedFallback.startsWith('image/')) return normalizedFallback;
   const ext = path.posix.extname(localPath).toLowerCase();
   if (ext === '.png') return 'image/png';
@@ -318,13 +369,22 @@ function inferImageMimeTypeFromPath(localPath: string, fallbackMime?: string | n
   return 'image/png';
 }
 
-async function readVisionImageFromLocalPath(localPath: string): Promise<{ buffer: Buffer; mimeType: string; source: string }> {
+async function readVisionImageFromLocalPath(
+  localPath: string,
+): Promise<{ buffer: Buffer; mimeType: string; source: string }> {
   const normalizedPath = normalizeVisionLocalPath(localPath);
   if (!normalizedPath) {
-    throw new Error('local image path must be under /workspace or /discord-media-cache');
+    throw new Error(
+      'local image path must be under /workspace or /discord-media-cache',
+    );
   }
-  if (normalizedPath.startsWith(`${DISCORD_MEDIA_CACHE_ROOT}/`) && !isKnownDiscordMediaPath(normalizedPath)) {
-    throw new Error('requested local image is not part of current media context');
+  if (
+    normalizedPath.startsWith(`${DISCORD_MEDIA_CACHE_ROOT}/`) &&
+    !isKnownDiscordMediaPath(normalizedPath)
+  ) {
+    throw new Error(
+      'requested local image is not part of current media context',
+    );
   }
   if (!fs.existsSync(normalizedPath)) {
     throw new Error(`local image not found: ${normalizedPath}`);
@@ -337,14 +397,21 @@ async function readVisionImageFromLocalPath(localPath: string): Promise<{ buffer
     throw new Error(`local image is empty: ${normalizedPath}`);
   }
   if (stat.size > VISION_IMAGE_MAX_BYTES) {
-    throw new Error(`local image exceeds max size (${VISION_IMAGE_MAX_BYTES} bytes)`);
+    throw new Error(
+      `local image exceeds max size (${VISION_IMAGE_MAX_BYTES} bytes)`,
+    );
   }
   const buffer = fs.readFileSync(normalizedPath);
   const mediaHint = currentMediaContext.find((entry) => {
-    const normalizedEntryPath = entry.path ? normalizeVisionLocalPath(entry.path) : null;
+    const normalizedEntryPath = entry.path
+      ? normalizeVisionLocalPath(entry.path)
+      : null;
     return normalizedEntryPath === normalizedPath;
   });
-  const mimeType = inferImageMimeTypeFromPath(normalizedPath, mediaHint?.mimeType);
+  const mimeType = inferImageMimeTypeFromPath(
+    normalizedPath,
+    mediaHint?.mimeType,
+  );
   if (!mimeType.startsWith('image/')) {
     throw new Error(`unsupported local image type: ${mimeType}`);
   }
@@ -355,9 +422,13 @@ async function readVisionImageFromLocalPath(localPath: string): Promise<{ buffer
   };
 }
 
-async function readVisionImageFromUrl(rawUrl: string): Promise<{ buffer: Buffer; mimeType: string; source: string }> {
+async function readVisionImageFromUrl(
+  rawUrl: string,
+): Promise<{ buffer: Buffer; mimeType: string; source: string }> {
   if (!isSafeDiscordCdnUrl(rawUrl)) {
-    throw new Error('remote image URL is blocked (only Discord CDN HTTPS URLs are allowed)');
+    throw new Error(
+      'remote image URL is blocked (only Discord CDN HTTPS URLs are allowed)',
+    );
   }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), VISION_FETCH_TIMEOUT_MS);
@@ -373,13 +444,23 @@ async function readVisionImageFromUrl(rawUrl: string): Promise<{ buffer: Buffer;
     if (!mimeType.startsWith('image/')) {
       throw new Error(`remote URL is not an image (${mimeType || 'unknown'})`);
     }
-    const contentLength = Number.parseInt(response.headers.get('content-length') || '', 10);
-    if (Number.isFinite(contentLength) && contentLength > VISION_IMAGE_MAX_BYTES) {
-      throw new Error(`remote image exceeds max size (${VISION_IMAGE_MAX_BYTES} bytes)`);
+    const contentLength = Number.parseInt(
+      response.headers.get('content-length') || '',
+      10,
+    );
+    if (
+      Number.isFinite(contentLength) &&
+      contentLength > VISION_IMAGE_MAX_BYTES
+    ) {
+      throw new Error(
+        `remote image exceeds max size (${VISION_IMAGE_MAX_BYTES} bytes)`,
+      );
     }
     const buffer = Buffer.from(await response.arrayBuffer());
     if (buffer.length > VISION_IMAGE_MAX_BYTES) {
-      throw new Error(`remote image exceeds max size (${VISION_IMAGE_MAX_BYTES} bytes)`);
+      throw new Error(
+        `remote image exceeds max size (${VISION_IMAGE_MAX_BYTES} bytes)`,
+      );
     }
     return {
       buffer,
@@ -392,14 +473,21 @@ async function readVisionImageFromUrl(rawUrl: string): Promise<{ buffer: Buffer;
 }
 
 function visionModelContextError(): string | null {
-  if (!currentModelApiKey) return 'vision_analyze is not configured: missing API key context.';
-  if (!currentModelBaseUrl) return 'vision_analyze is not configured: missing base URL context.';
-  if (!currentModelName) return 'vision_analyze is not configured: missing model context.';
-  if (!currentChatbotId) return 'vision_analyze is not configured: missing chatbot_id context.';
+  if (!currentModelApiKey)
+    return 'vision_analyze is not configured: missing API key context.';
+  if (!currentModelBaseUrl)
+    return 'vision_analyze is not configured: missing base URL context.';
+  if (!currentModelName)
+    return 'vision_analyze is not configured: missing model context.';
+  if (!currentChatbotId)
+    return 'vision_analyze is not configured: missing chatbot_id context.';
   return null;
 }
 
-async function callVisionModel(question: string, imageDataUrl: string): Promise<{ model: string; analysis: string }> {
+async function callVisionModel(
+  question: string,
+  imageDataUrl: string,
+): Promise<{ model: string; analysis: string }> {
   const contextError = visionModelContextError();
   if (contextError) throw new Error(contextError);
 
@@ -427,8 +515,11 @@ async function callVisionModel(question: string, imageDataUrl: string): Promise<
 
   const rawText = await response.text();
   if (!response.ok) {
-    const detail = rawText.length > 600 ? `${rawText.slice(0, 600)}...` : rawText;
-    throw new Error(`vision API request failed (${response.status}): ${detail}`);
+    const detail =
+      rawText.length > 600 ? `${rawText.slice(0, 600)}...` : rawText;
+    throw new Error(
+      `vision API request failed (${response.status}): ${detail}`,
+    );
   }
 
   let parsed: unknown;
@@ -454,15 +545,25 @@ async function callVisionModel(question: string, imageDataUrl: string): Promise<
   };
 }
 
-async function runVisionAnalyze(args: Record<string, unknown>): Promise<string> {
+async function runVisionAnalyze(
+  args: Record<string, unknown>,
+): Promise<string> {
   const question = readStringValue(args.question);
   if (!question) return 'Error: question is required';
 
-  const imageRef = readStringValue(args.image_url) || readStringValue(args.imageUrl) || readStringValue(args.path);
-  const fallbackUrl = readStringValue(args.fallback_url) || readStringValue(args.fallbackUrl) || readStringValue(args.original_url);
+  const imageRef =
+    readStringValue(args.image_url) ||
+    readStringValue(args.imageUrl) ||
+    readStringValue(args.path);
+  const fallbackUrl =
+    readStringValue(args.fallback_url) ||
+    readStringValue(args.fallbackUrl) ||
+    readStringValue(args.original_url);
   if (!imageRef) return 'Error: image_url is required';
 
-  const candidates = [imageRef, fallbackUrl].filter((value): value is string => Boolean(value));
+  const candidates = [imageRef, fallbackUrl].filter((value): value is string =>
+    Boolean(value),
+  );
   const errors: string[] = [];
   for (const candidate of candidates) {
     try {
@@ -472,14 +573,18 @@ async function runVisionAnalyze(args: Record<string, unknown>): Promise<string> 
         : await readVisionImageFromLocalPath(candidate);
       const dataUrl = `data:${image.mimeType};base64,${image.buffer.toString('base64')}`;
       const vision = await callVisionModel(question, dataUrl);
-      return JSON.stringify({
-        success: true,
-        model: vision.model,
-        analysis: vision.analysis,
-        source: image.source,
-        mime_type: image.mimeType,
-        size_bytes: image.buffer.length,
-      }, null, 2);
+      return JSON.stringify(
+        {
+          success: true,
+          model: vision.model,
+          analysis: vision.analysis,
+          source: image.source,
+          mime_type: image.mimeType,
+          size_bytes: image.buffer.length,
+        },
+        null,
+        2,
+      );
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
       errors.push(`${candidate}: ${detail}`);
@@ -502,11 +607,17 @@ const READ_MAX_BYTES = 50 * 1024;
 
 function abbreviatePreview(text: string): string {
   const lines = text.split('\n');
-  const truncated = lines.slice(0, PREVIEW_MAX_OUTPUT_LINES).map((line) =>
-    line.length > PREVIEW_MAX_LINE_LENGTH ? line.slice(0, PREVIEW_MAX_LINE_LENGTH) + '...' : line
-  );
+  const truncated = lines
+    .slice(0, PREVIEW_MAX_OUTPUT_LINES)
+    .map((line) =>
+      line.length > PREVIEW_MAX_LINE_LENGTH
+        ? `${line.slice(0, PREVIEW_MAX_LINE_LENGTH)}...`
+        : line,
+    );
   if (lines.length > PREVIEW_MAX_OUTPUT_LINES) {
-    truncated.push(`... (${lines.length - PREVIEW_MAX_OUTPUT_LINES} more lines)`);
+    truncated.push(
+      `... (${lines.length - PREVIEW_MAX_OUTPUT_LINES} more lines)`,
+    );
   }
   return truncated.join('\n');
 }
@@ -525,7 +636,11 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
 
-function truncateReadContent(content: string, maxLines = READ_MAX_LINES, maxBytes = READ_MAX_BYTES): ReadTruncationResult {
+function truncateReadContent(
+  content: string,
+  maxLines = READ_MAX_LINES,
+  maxBytes = READ_MAX_BYTES,
+): ReadTruncationResult {
   const lines = content.split('\n');
   const totalBytes = Buffer.byteLength(content, 'utf-8');
   if (lines.length <= maxLines && totalBytes <= maxBytes) {
@@ -576,7 +691,11 @@ function truncateReadContent(content: string, maxLines = READ_MAX_LINES, maxByte
 function formatBashOutput(content: string): string {
   const raw = content || '(no output)';
   const totalLines = raw.split('\n').length;
-  const truncation = truncateReadContent(raw, BASH_MAX_OUTPUT_LINES, BASH_MAX_OUTPUT_BYTES);
+  const truncation = truncateReadContent(
+    raw,
+    BASH_MAX_OUTPUT_LINES,
+    BASH_MAX_OUTPUT_BYTES,
+  );
   if (!truncation.truncated) return raw;
 
   if (truncation.firstLineExceedsLimit) {
@@ -675,11 +794,13 @@ function resolveMemoryFilePath(args: Record<string, unknown>): string | null {
     normalizeMemoryFilePath(args.path);
   if (direct) return direct;
 
-  const target = typeof args.target === 'string' ? args.target.trim().toLowerCase() : '';
+  const target =
+    typeof args.target === 'string' ? args.target.trim().toLowerCase() : '';
   if (target === 'memory') return 'MEMORY.md';
   if (target === 'user') return 'USER.md';
   if (target === 'daily') {
-    const date = typeof args.date === 'string' ? normalizeDateStamp(args.date) : null;
+    const date =
+      typeof args.date === 'string' ? normalizeDateStamp(args.date) : null;
     return `memory/${date || currentDateStamp()}.md`;
   }
 
@@ -773,12 +894,14 @@ function collectTranscriptRows(filePath: string): TranscriptRow[] {
       }
       parsed.push({
         sessionId: row.sessionId,
-        channelId: typeof row.channelId === 'string' ? row.channelId : undefined,
+        channelId:
+          typeof row.channelId === 'string' ? row.channelId : undefined,
         role: row.role,
         userId: typeof row.userId === 'string' ? row.userId : undefined,
         username: row.username == null ? null : String(row.username),
         content: row.content,
-        createdAt: typeof row.createdAt === 'string' ? row.createdAt : undefined,
+        createdAt:
+          typeof row.createdAt === 'string' ? row.createdAt : undefined,
       });
     } catch {
       // Skip malformed row
@@ -787,7 +910,11 @@ function collectTranscriptRows(filePath: string): TranscriptRow[] {
   return parsed;
 }
 
-function scoreTranscript(rows: TranscriptRow[], query: string, roleFilter: Set<string> | null): number {
+function scoreTranscript(
+  rows: TranscriptRow[],
+  query: string,
+  roleFilter: Set<string> | null,
+): number {
   const terms = query
     .toLowerCase()
     .split(/\s+/)
@@ -808,7 +935,11 @@ function scoreTranscript(rows: TranscriptRow[], query: string, roleFilter: Set<s
   return score;
 }
 
-function findMatchIndexes(rows: TranscriptRow[], query: string, roleFilter: Set<string> | null): number[] {
+function findMatchIndexes(
+  rows: TranscriptRow[],
+  query: string,
+  roleFilter: Set<string> | null,
+): number[] {
   const lower = query.toLowerCase();
   const terms = lower
     .split(/\s+/)
@@ -821,14 +952,20 @@ function findMatchIndexes(rows: TranscriptRow[], query: string, roleFilter: Set<
     const role = rows[i].role.toLowerCase();
     if (roleFilter && !roleFilter.has(role)) continue;
     const content = rows[i].content.toLowerCase();
-    if (content.includes(lower) || terms.some((term) => content.includes(term))) {
+    if (
+      content.includes(lower) ||
+      terms.some((term) => content.includes(term))
+    ) {
       indexes.push(i);
     }
   }
   return indexes;
 }
 
-function summarizeSessionCandidate(candidate: SessionSearchCandidate, query: string): Record<string, unknown> {
+function summarizeSessionCandidate(
+  candidate: SessionSearchCandidate,
+  query: string,
+): Record<string, unknown> {
   const rows = candidate.rows;
   const snippets: string[] = [];
   const seenIndexes = new Set<number>();
@@ -858,12 +995,17 @@ function summarizeSessionCandidate(candidate: SessionSearchCandidate, query: str
     }
   }
 
-  const firstTs = rows.find((row) => typeof row.createdAt === 'string')?.createdAt || null;
-  const lastTs = [...rows].reverse().find((row) => typeof row.createdAt === 'string')?.createdAt || null;
+  const firstTs =
+    rows.find((row) => typeof row.createdAt === 'string')?.createdAt || null;
+  const lastTs =
+    [...rows].reverse().find((row) => typeof row.createdAt === 'string')
+      ?.createdAt || null;
   const summaryParts = [
     `Matched ${candidate.matchIndexes.length} turn(s) for "${query}".`,
     userMatches.length > 0 ? `User focus: ${userMatches.join(' | ')}` : '',
-    assistantMatches.length > 0 ? `Assistant outcomes: ${assistantMatches.join(' | ')}` : '',
+    assistantMatches.length > 0
+      ? `Assistant outcomes: ${assistantMatches.join(' | ')}`
+      : '',
   ].filter(Boolean);
 
   return {
@@ -876,7 +1018,10 @@ function summarizeSessionCandidate(candidate: SessionSearchCandidate, query: str
   };
 }
 
-export async function executeTool(name: string, argsJson: string): Promise<string> {
+export async function executeTool(
+  name: string,
+  argsJson: string,
+): Promise<string> {
   try {
     const args = JSON.parse(argsJson);
 
@@ -886,19 +1031,25 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
           return 'Error: path is required';
         }
         const filePath = safeJoin(args.path);
-        if (!fs.existsSync(filePath)) return `Error: File not found: ${args.path}`;
+        if (!fs.existsSync(filePath))
+          return `Error: File not found: ${args.path}`;
         const content = fs.readFileSync(filePath, 'utf-8');
         const lines = content.split('\n');
         const totalFileLines = lines.length;
 
-        const rawOffset = typeof args.offset === 'number' && Number.isFinite(args.offset) ? args.offset : 1;
+        const rawOffset =
+          typeof args.offset === 'number' && Number.isFinite(args.offset)
+            ? args.offset
+            : 1;
         const startLine = Math.max(1, Math.floor(rawOffset));
         if (startLine > totalFileLines) {
           return `Error: Offset ${startLine} is beyond end of file (${totalFileLines} lines total)`;
         }
 
         const rawLimit =
-          typeof args.limit === 'number' && Number.isFinite(args.limit) && args.limit > 0
+          typeof args.limit === 'number' &&
+          Number.isFinite(args.limit) &&
+          args.limit > 0
             ? Math.floor(args.limit)
             : undefined;
 
@@ -913,7 +1064,9 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
         const truncation = truncateReadContent(selectedContent);
         if (truncation.firstLineExceedsLimit) {
           const firstSelectedLine = selected[0] ?? '';
-          const firstLineSize = formatBytes(Buffer.byteLength(firstSelectedLine, 'utf-8'));
+          const firstLineSize = formatBytes(
+            Buffer.byteLength(firstSelectedLine, 'utf-8'),
+          );
           return `[Line ${startLine} is ${firstLineSize}, exceeds ${formatBytes(READ_MAX_BYTES)} limit. Use bash: sed -n '${startLine}p' ${args.path} | head -c ${READ_MAX_BYTES}]`;
         }
 
@@ -947,7 +1100,8 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
 
       case 'edit': {
         const filePath = safeJoin(args.path);
-        if (!fs.existsSync(filePath)) return `Error: File not found: ${args.path}`;
+        if (!fs.existsSync(filePath))
+          return `Error: File not found: ${args.path}`;
         let content = fs.readFileSync(filePath, 'utf-8');
         const count = args.count || 1;
         for (let i = 0; i < count; i++) {
@@ -956,7 +1110,10 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
             if (i === 0) return `Error: Text not found in ${args.path}`;
             break;
           }
-          content = content.slice(0, idx) + args.new + content.slice(idx + args.old.length);
+          content =
+            content.slice(0, idx) +
+            args.new +
+            content.slice(idx + args.old.length);
         }
         fs.writeFileSync(filePath, content);
         return `Edited ${args.path} (${count} replacement${count > 1 ? 's' : ''})`;
@@ -964,7 +1121,8 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
 
       case 'delete': {
         const filePath = safeJoin(args.path);
-        if (!fs.existsSync(filePath)) return `Error: File not found: ${args.path}`;
+        if (!fs.existsSync(filePath))
+          return `Error: File not found: ${args.path}`;
         fs.unlinkSync(filePath);
         return `Deleted ${args.path}`;
       }
@@ -977,7 +1135,10 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
           const result = execSync(cmd, { timeout: 10000, encoding: 'utf-8' });
           if (!result.trim()) return 'No files found.';
           // Convert absolute paths to relative
-          const files = result.trim().split('\n').map((f) => f.replace('/workspace/', ''));
+          const files = result
+            .trim()
+            .split('\n')
+            .map((f) => f.replace('/workspace/', ''));
           return abbreviatePreview(files.join('\n'));
         } catch {
           return 'No files found.';
@@ -1022,23 +1183,28 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
             message?: string;
           };
 
-          const stdout = typeof execErr.stdout === 'string'
-            ? execErr.stdout
-            : Buffer.isBuffer(execErr.stdout)
-              ? execErr.stdout.toString('utf-8')
-              : '';
-          const stderr = typeof execErr.stderr === 'string'
-            ? execErr.stderr
-            : Buffer.isBuffer(execErr.stderr)
-              ? execErr.stderr.toString('utf-8')
-              : '';
-          const combinedOutput = [stdout, stderr].filter(Boolean).join('\n').trim();
+          const stdout =
+            typeof execErr.stdout === 'string'
+              ? execErr.stdout
+              : Buffer.isBuffer(execErr.stdout)
+                ? execErr.stdout.toString('utf-8')
+                : '';
+          const stderr =
+            typeof execErr.stderr === 'string'
+              ? execErr.stderr
+              : Buffer.isBuffer(execErr.stderr)
+                ? execErr.stderr.toString('utf-8')
+                : '';
+          const combinedOutput = [stdout, stderr]
+            .filter(Boolean)
+            .join('\n')
+            .trim();
 
           const errorMessage = execErr.message || 'Command failed';
           const timeoutLikely =
-            execErr.code === 'ETIMEDOUT'
-            || /ETIMEDOUT|timed out/i.test(errorMessage)
-            || (execErr.signal === 'SIGTERM' && /spawnSync/i.test(errorMessage));
+            execErr.code === 'ETIMEDOUT' ||
+            /ETIMEDOUT|timed out/i.test(errorMessage) ||
+            (execErr.signal === 'SIGTERM' && /spawnSync/i.test(errorMessage));
           const summary = timeoutLikely
             ? `Command timed out after ${timeoutMs}ms`
             : errorMessage;
@@ -1049,7 +1215,10 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
       }
 
       case 'memory': {
-        const action = typeof args.action === 'string' ? args.action.trim().toLowerCase() : 'read';
+        const action =
+          typeof args.action === 'string'
+            ? args.action.trim().toLowerCase()
+            : 'read';
         const relativePath = resolveMemoryFilePath(args);
         if (!relativePath) {
           return 'Error: memory file_path must be MEMORY.md, USER.md, or memory/YYYY-MM-DD.md';
@@ -1065,7 +1234,10 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
         }
 
         if (action === 'search') {
-          const query = typeof args.query === 'string' ? args.query.trim().toLowerCase() : '';
+          const query =
+            typeof args.query === 'string'
+              ? args.query.trim().toLowerCase()
+              : '';
           if (!query) return 'Error: query is required for memory search';
           const files = listMemoryFiles();
           const matches: string[] = [];
@@ -1085,7 +1257,9 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
             }
             if (matches.length >= 40) break;
           }
-          return matches.length > 0 ? matches.join('\n') : `No memory matches for "${query}".`;
+          return matches.length > 0
+            ? matches.join('\n')
+            : `No memory matches for "${query}".`;
         }
 
         if (action === 'read') {
@@ -1097,11 +1271,14 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
         }
 
         if (action === 'append') {
-          const content = typeof args.content === 'string' ? args.content.trim() : '';
+          const content =
+            typeof args.content === 'string' ? args.content.trim() : '';
           if (!content) return 'Error: content is required for memory append';
 
           fs.mkdirSync(path.dirname(filePath), { recursive: true });
-          const existing = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf-8') : '';
+          const existing = fs.existsSync(filePath)
+            ? fs.readFileSync(filePath, 'utf-8')
+            : '';
           let next = existing.replace(/\s+$/, '');
           if (next.length > 0) next += '\n\n';
           next += `${content}\n`;
@@ -1125,12 +1302,16 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
         }
 
         if (action === 'replace') {
-          const oldText = typeof args.old_text === 'string' ? args.old_text : '';
-          const newText = typeof args.new_text === 'string' ? args.new_text : '';
+          const oldText =
+            typeof args.old_text === 'string' ? args.old_text : '';
+          const newText =
+            typeof args.new_text === 'string' ? args.new_text : '';
           if (!oldText) return 'Error: old_text is required for memory replace';
-          if (!fs.existsSync(filePath)) return `Error: File not found: ${relativePath}`;
+          if (!fs.existsSync(filePath))
+            return `Error: File not found: ${relativePath}`;
           const content = fs.readFileSync(filePath, 'utf-8');
-          if (!content.includes(oldText)) return `Error: old_text not found in ${relativePath}`;
+          if (!content.includes(oldText))
+            return `Error: old_text not found in ${relativePath}`;
           const next = content.replace(oldText, newText);
           const limit = memoryCharLimit(relativePath);
           if (next.length > limit) {
@@ -1141,11 +1322,14 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
         }
 
         if (action === 'remove') {
-          const oldText = typeof args.old_text === 'string' ? args.old_text : '';
+          const oldText =
+            typeof args.old_text === 'string' ? args.old_text : '';
           if (!oldText) return 'Error: old_text is required for memory remove';
-          if (!fs.existsSync(filePath)) return `Error: File not found: ${relativePath}`;
+          if (!fs.existsSync(filePath))
+            return `Error: File not found: ${relativePath}`;
           const content = fs.readFileSync(filePath, 'utf-8');
-          if (!content.includes(oldText)) return `Error: old_text not found in ${relativePath}`;
+          if (!content.includes(oldText))
+            return `Error: old_text not found in ${relativePath}`;
           fs.writeFileSync(filePath, content.replace(oldText, ''), 'utf-8');
           return `Removed matching text from ${relativePath}`;
         }
@@ -1163,10 +1347,10 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
 
         if (action === 'read') {
           const channelId =
-            readStringValue(args.channelId)
-            || readStringValue(args.to)
-            || readStringValue(args.target)
-            || gatewayChannelId;
+            readStringValue(args.channelId) ||
+            readStringValue(args.to) ||
+            readStringValue(args.target) ||
+            gatewayChannelId;
           if (!channelId) {
             return 'Error: channelId is required for message action "read".';
           }
@@ -1186,10 +1370,10 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
         if (action === 'member-info') {
           const guildId = readStringValue(args.guildId);
           const userId =
-            readStringValue(args.userId)
-            || readStringValue(args.memberId)
-            || readStringValue(args.user)
-            || readStringValue(args.username);
+            readStringValue(args.userId) ||
+            readStringValue(args.memberId) ||
+            readStringValue(args.user) ||
+            readStringValue(args.username);
           if (!guildId) {
             return 'Error: guildId is required for message action "member-info".';
           }
@@ -1202,10 +1386,10 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
 
         if (action === 'channel-info') {
           const channelId =
-            readStringValue(args.channelId)
-            || readStringValue(args.to)
-            || readStringValue(args.target)
-            || gatewayChannelId;
+            readStringValue(args.channelId) ||
+            readStringValue(args.to) ||
+            readStringValue(args.target) ||
+            gatewayChannelId;
           if (!channelId) {
             return 'Error: channelId is required for message action "channel-info".';
           }
@@ -1223,19 +1407,26 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
           typeof args.limit === 'number' && Number.isFinite(args.limit)
             ? Math.floor(args.limit)
             : 3;
-        const limit = Math.max(1, Math.min(requestedLimit, SESSION_SEARCH_MAX_RESULTS));
+        const limit = Math.max(
+          1,
+          Math.min(requestedLimit, SESSION_SEARCH_MAX_RESULTS),
+        );
         const includeCurrent = args.include_current === true;
         const roleFilter = parseRoleFilter(args.role_filter);
 
         const transcriptDir = safeJoin(SESSION_TRANSCRIPTS_DIR);
         if (!fs.existsSync(transcriptDir)) {
-          return JSON.stringify({
-            success: true,
-            query,
-            count: 0,
-            results: [],
-            message: 'No historical transcripts found yet.',
-          }, null, 2);
+          return JSON.stringify(
+            {
+              success: true,
+              query,
+              count: 0,
+              results: [],
+              message: 'No historical transcripts found yet.',
+            },
+            null,
+            2,
+          );
         }
 
         const files = fs
@@ -1249,8 +1440,14 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
           const rows = collectTranscriptRows(filePath);
           if (rows.length === 0) continue;
 
-          const sessionId = rows[0].sessionId || filename.replace(/\.jsonl$/, '');
-          if (!includeCurrent && currentSessionId && sessionId === currentSessionId) continue;
+          const sessionId =
+            rows[0].sessionId || filename.replace(/\.jsonl$/, '');
+          if (
+            !includeCurrent &&
+            currentSessionId &&
+            sessionId === currentSessionId
+          )
+            continue;
 
           const matchIndexes = findMatchIndexes(rows, query, roleFilter);
           if (matchIndexes.length === 0) continue;
@@ -1273,15 +1470,21 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
         });
 
         const top = candidates.slice(0, limit);
-        const results = top.map((candidate) => summarizeSessionCandidate(candidate, query));
+        const results = top.map((candidate) =>
+          summarizeSessionCandidate(candidate, query),
+        );
 
-        return JSON.stringify({
-          success: true,
-          query,
-          count: results.length,
-          sessions_searched: candidates.length,
-          results,
-        }, null, 2);
+        return JSON.stringify(
+          {
+            success: true,
+            query,
+            count: results.length,
+            sessions_searched: candidates.length,
+            results,
+          },
+          null,
+          2,
+        );
       }
 
       case 'web_fetch': {
@@ -1294,7 +1497,9 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
         const meta = `[${result.extractor}] ${result.finalUrl} (${result.status}, ${result.tookMs}ms)`;
         const lines = [meta];
         if (result.escalationHint) {
-          lines.push(`Escalation hint: ${result.escalationHint} (retry with browser_navigate for this URL).`);
+          lines.push(
+            `Escalation hint: ${result.escalationHint} (retry with browser_navigate for this URL).`,
+          );
         }
         if (result.warning) {
           lines.push(`Warning: ${result.warning}`);
@@ -1321,7 +1526,11 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
       case 'browser_console':
       case 'browser_network':
       case 'browser_close': {
-        return await executeBrowserTool(name, args, currentSessionId || 'default');
+        return await executeBrowserTool(
+          name,
+          args,
+          currentSessionId || 'default',
+        );
       }
 
       case 'cron': {
@@ -1335,7 +1544,8 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
             else if (t.everyMs) {
               const secs = t.everyMs / 1000;
               if (secs < 120) schedule = `every ${secs}s`;
-              else if (secs < 7200) schedule = `every ${Math.round(secs / 60)}m`;
+              else if (secs < 7200)
+                schedule = `every ${Math.round(secs / 60)}m`;
               else schedule = `every ${Math.round(secs / 3600)}h`;
             } else schedule = t.cronExpr;
             const status = t.enabled ? 'enabled' : 'disabled';
@@ -1349,22 +1559,37 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
 
           if (args.at) {
             const runAt = new Date(args.at);
-            if (isNaN(runAt.getTime())) return `Error: invalid ISO-8601 timestamp: ${args.at}`;
-            if (runAt.getTime() <= Date.now()) return `Error: timestamp must be in the future: ${args.at}`;
-            pendingSchedules.push({ action: 'add', runAt: runAt.toISOString(), prompt: args.prompt });
+            if (Number.isNaN(runAt.getTime()))
+              return `Error: invalid ISO-8601 timestamp: ${args.at}`;
+            if (runAt.getTime() <= Date.now())
+              return `Error: timestamp must be in the future: ${args.at}`;
+            pendingSchedules.push({
+              action: 'add',
+              runAt: runAt.toISOString(),
+              prompt: args.prompt,
+            });
             return `Scheduled one-shot task at ${runAt.toISOString()}: ${args.prompt}`;
           }
 
           if (args.cron) {
-            pendingSchedules.push({ action: 'add', cronExpr: args.cron, prompt: args.prompt });
+            pendingSchedules.push({
+              action: 'add',
+              cronExpr: args.cron,
+              prompt: args.prompt,
+            });
             return `Scheduled recurring task with cron "${args.cron}": ${args.prompt}`;
           }
 
           if (args.every) {
             const secs = Number(args.every);
-            if (isNaN(secs) || secs < 10) return 'Error: "every" must be a number of seconds >= 10';
+            if (Number.isNaN(secs) || secs < 10)
+              return 'Error: "every" must be a number of seconds >= 10';
             const everyMs = Math.round(secs * 1000);
-            pendingSchedules.push({ action: 'add', everyMs, prompt: args.prompt });
+            pendingSchedules.push({
+              action: 'add',
+              everyMs,
+              prompt: args.prompt,
+            });
             return `Scheduled interval task every ${secs}s: ${args.prompt}`;
           }
 
@@ -1385,14 +1610,21 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
           return `Error: delegation limit reached for this turn (${MAX_PENDING_DELEGATIONS}).`;
         }
 
-        const modeRaw = typeof args.mode === 'string' ? args.mode.trim().toLowerCase() : '';
-        if (modeRaw && modeRaw !== 'single' && modeRaw !== 'parallel' && modeRaw !== 'chain') {
+        const modeRaw =
+          typeof args.mode === 'string' ? args.mode.trim().toLowerCase() : '';
+        if (
+          modeRaw &&
+          modeRaw !== 'single' &&
+          modeRaw !== 'parallel' &&
+          modeRaw !== 'chain'
+        ) {
           return 'Error: mode must be one of "single", "parallel", or "chain".';
         }
 
         const label = typeof args.label === 'string' ? args.label.trim() : '';
         const model = typeof args.model === 'string' ? args.model.trim() : '';
-        const prompt = typeof args.prompt === 'string' ? args.prompt.trim() : '';
+        const prompt =
+          typeof args.prompt === 'string' ? args.prompt.trim() : '';
         const tasksResult = normalizeDelegationTaskList({
           raw: args.tasks,
           fallbackModel: model || undefined,
@@ -1421,7 +1653,10 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
           mode = 'single';
         }
 
-        if ((hasTasks ? 1 : 0) + (hasChain ? 1 : 0) + (hasPrompt ? 1 : 0) > 1 && !modeRaw) {
+        if (
+          (hasTasks ? 1 : 0) + (hasChain ? 1 : 0) + (hasPrompt ? 1 : 0) > 1 &&
+          !modeRaw
+        ) {
           return 'Error: provide one delegation mode payload: "prompt", "tasks", or "chain".';
         }
 
@@ -1439,8 +1674,10 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
           };
           summary = label ? `${label}: ${prompt}` : prompt;
         } else if (mode === 'parallel') {
-          if (!hasTasks) return 'Error: tasks are required for mode="parallel".';
-          if (hasPrompt || hasChain) return 'Error: mode="parallel" accepts only "tasks" plus optional label/model.';
+          if (!hasTasks)
+            return 'Error: tasks are required for mode="parallel".';
+          if (hasPrompt || hasChain)
+            return 'Error: mode="parallel" accepts only "tasks" plus optional label/model.';
           effect = {
             action: 'delegate',
             mode,
@@ -1451,7 +1688,8 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
           summary = `${tasksResult.tasks.length} parallel task(s)`;
         } else {
           if (!hasChain) return 'Error: chain is required for mode="chain".';
-          if (hasPrompt || hasTasks) return 'Error: mode="chain" accepts only "chain" plus optional label/model.';
+          if (hasPrompt || hasTasks)
+            return 'Error: mode="chain" accepts only "chain" plus optional label/model.';
           effect = {
             action: 'delegate',
             mode,
@@ -1486,8 +1724,16 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         type: 'object',
         properties: {
           path: { type: 'string', description: 'Path to the file to read' },
-          offset: { type: 'number', description: 'Line number to start reading from (1-indexed, default: 1)' },
-          limit: { type: 'number', description: 'Maximum number of lines to read before truncation logic (optional)' },
+          offset: {
+            type: 'number',
+            description:
+              'Line number to start reading from (1-indexed, default: 1)',
+          },
+          limit: {
+            type: 'number',
+            description:
+              'Maximum number of lines to read before truncation logic (optional)',
+          },
         },
         required: ['path'],
       },
@@ -1521,7 +1767,10 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           path: { type: 'string', description: 'Path to the file to edit' },
           old: { type: 'string', description: 'Text to find and replace' },
           new: { type: 'string', description: 'Replacement text' },
-          count: { type: 'number', description: 'Number of replacements (default: 1)' },
+          count: {
+            type: 'number',
+            description: 'Number of replacements (default: 1)',
+          },
         },
         required: ['path', 'old', 'new'],
       },
@@ -1549,7 +1798,10 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       parameters: {
         type: 'object',
         properties: {
-          pattern: { type: 'string', description: 'Glob pattern to match files' },
+          pattern: {
+            type: 'string',
+            description: 'Glob pattern to match files',
+          },
         },
         required: ['pattern'],
       },
@@ -1563,8 +1815,15 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       parameters: {
         type: 'object',
         properties: {
-          pattern: { type: 'string', description: 'Regex pattern to search for' },
-          path: { type: 'string', description: 'Directory or file to search in (default: workspace root)' },
+          pattern: {
+            type: 'string',
+            description: 'Regex pattern to search for',
+          },
+          path: {
+            type: 'string',
+            description:
+              'Directory or file to search in (default: workspace root)',
+          },
         },
         required: ['pattern'],
       },
@@ -1580,8 +1839,16 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         type: 'object',
         properties: {
           command: { type: 'string', description: 'Shell command to execute' },
-          timeoutMs: { type: 'number', description: 'Optional command timeout in milliseconds (default 240000, max 900000)' },
-          timeoutSeconds: { type: 'number', description: 'Optional command timeout in seconds (used when timeoutMs is omitted)' },
+          timeoutMs: {
+            type: 'number',
+            description:
+              'Optional command timeout in milliseconds (default 240000, max 900000)',
+          },
+          timeoutSeconds: {
+            type: 'number',
+            description:
+              'Optional command timeout in seconds (used when timeoutMs is omitted)',
+          },
         },
         required: ['command'],
       },
@@ -1596,14 +1863,42 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       parameters: {
         type: 'object',
         properties: {
-          action: { type: 'string', description: 'Action: "read", "append", "write", "replace", "remove", "list", or "search"' },
-          file_path: { type: 'string', description: 'Target file path. Allowed: MEMORY.md, USER.md, memory/YYYY-MM-DD.md' },
-          target: { type: 'string', description: 'Optional shorthand target: "memory", "user", or "daily"' },
-          date: { type: 'string', description: 'Date for target="daily" in YYYY-MM-DD format (defaults to today)' },
-          content: { type: 'string', description: 'Text payload for append/write' },
-          old_text: { type: 'string', description: 'Existing substring for replace/remove' },
-          new_text: { type: 'string', description: 'Replacement text for replace' },
-          query: { type: 'string', description: 'Case-insensitive query string for search' },
+          action: {
+            type: 'string',
+            description:
+              'Action: "read", "append", "write", "replace", "remove", "list", or "search"',
+          },
+          file_path: {
+            type: 'string',
+            description:
+              'Target file path. Allowed: MEMORY.md, USER.md, memory/YYYY-MM-DD.md',
+          },
+          target: {
+            type: 'string',
+            description:
+              'Optional shorthand target: "memory", "user", or "daily"',
+          },
+          date: {
+            type: 'string',
+            description:
+              'Date for target="daily" in YYYY-MM-DD format (defaults to today)',
+          },
+          content: {
+            type: 'string',
+            description: 'Text payload for append/write',
+          },
+          old_text: {
+            type: 'string',
+            description: 'Existing substring for replace/remove',
+          },
+          new_text: {
+            type: 'string',
+            description: 'Replacement text for replace',
+          },
+          query: {
+            type: 'string',
+            description: 'Case-insensitive query string for search',
+          },
         },
         required: ['action'],
       },
@@ -1620,12 +1915,14 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         properties: {
           action: {
             type: 'string',
-            description: 'Action to perform: "read", "member-info", or "channel-info".',
+            description:
+              'Action to perform: "read", "member-info", or "channel-info".',
             enum: ['read', 'member-info', 'channel-info'],
           },
           channelId: {
             type: 'string',
-            description: 'Discord channel id. Defaults to current channel for read/channel-info.',
+            description:
+              'Discord channel id. Defaults to current channel for read/channel-info.',
           },
           guildId: {
             type: 'string',
@@ -1641,7 +1938,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           },
           username: {
             type: 'string',
-            description: 'Discord username/display name/@handle to resolve for member-info.',
+            description:
+              'Discord username/display name/@handle to resolve for member-info.',
           },
           user: {
             type: 'string',
@@ -1651,9 +1949,18 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             type: 'number',
             description: 'Read limit for action="read" (default 20, max 100).',
           },
-          before: { type: 'string', description: 'Read messages before this message id.' },
-          after: { type: 'string', description: 'Read messages after this message id.' },
-          around: { type: 'string', description: 'Read messages around this message id.' },
+          before: {
+            type: 'string',
+            description: 'Read messages before this message id.',
+          },
+          after: {
+            type: 'string',
+            description: 'Read messages after this message id.',
+          },
+          around: {
+            type: 'string',
+            description: 'Read messages around this message id.',
+          },
           target: { type: 'string', description: 'Alias for channelId.' },
           to: { type: 'string', description: 'Alias for channelId.' },
         },
@@ -1670,10 +1977,25 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       parameters: {
         type: 'object',
         properties: {
-          query: { type: 'string', description: 'Search query over prior session transcripts' },
-          limit: { type: 'number', description: 'Maximum number of sessions to summarize (default 3, max 5)' },
-          role_filter: { type: 'string', description: 'Optional comma-separated roles to match (e.g. "user,assistant")' },
-          include_current: { type: 'boolean', description: 'Include the current session in results (default false)' },
+          query: {
+            type: 'string',
+            description: 'Search query over prior session transcripts',
+          },
+          limit: {
+            type: 'number',
+            description:
+              'Maximum number of sessions to summarize (default 3, max 5)',
+          },
+          role_filter: {
+            type: 'string',
+            description:
+              'Optional comma-separated roles to match (e.g. "user,assistant")',
+          },
+          include_current: {
+            type: 'boolean',
+            description:
+              'Include the current session in results (default false)',
+          },
         },
         required: ['query'],
       },
@@ -1695,7 +2017,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           },
           maxChars: {
             type: 'number',
-            description: 'Maximum characters to return (default 50000, max 50000)',
+            description:
+              'Maximum characters to return (default 50000, max 50000)',
           },
         },
         required: ['url'],
@@ -1713,7 +2036,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         properties: {
           image_url: {
             type: 'string',
-            description: 'Local image path (preferred) or Discord CDN HTTPS URL.',
+            description:
+              'Local image path (preferred) or Discord CDN HTTPS URL.',
           },
           question: {
             type: 'string',
@@ -1721,7 +2045,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           },
           fallback_url: {
             type: 'string',
-            description: 'Optional fallback Discord CDN URL if image_url cannot be read.',
+            description:
+              'Optional fallback Discord CDN URL if image_url cannot be read.',
           },
           original_url: {
             type: 'string',
@@ -1736,14 +2061,14 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'image',
-      description:
-        'Alias of vision_analyze for image analysis.',
+      description: 'Alias of vision_analyze for image analysis.',
       parameters: {
         type: 'object',
         properties: {
           image_url: {
             type: 'string',
-            description: 'Local image path (preferred) or Discord CDN HTTPS URL.',
+            description:
+              'Local image path (preferred) or Discord CDN HTTPS URL.',
           },
           question: {
             type: 'string',
@@ -1751,7 +2076,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           },
           fallback_url: {
             type: 'string',
-            description: 'Optional fallback Discord CDN URL if image_url cannot be read.',
+            description:
+              'Optional fallback Discord CDN URL if image_url cannot be read.',
           },
           original_url: {
             type: 'string',
@@ -1774,38 +2100,65 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         properties: {
           mode: {
             type: 'string',
-            description: 'Optional explicit mode: "single", "parallel", or "chain". Inferred automatically when omitted.',
+            description:
+              'Optional explicit mode: "single", "parallel", or "chain". Inferred automatically when omitted.',
             enum: ['single', 'parallel', 'chain'],
           },
-          prompt: { type: 'string', description: 'Single-mode task instructions. Must be self-contained and specific.' },
-          label: { type: 'string', description: 'Optional short label for completion messages' },
-          model: { type: 'string', description: 'Optional model override for delegated run(s)' },
+          prompt: {
+            type: 'string',
+            description:
+              'Single-mode task instructions. Must be self-contained and specific.',
+          },
+          label: {
+            type: 'string',
+            description: 'Optional short label for completion messages',
+          },
+          model: {
+            type: 'string',
+            description: 'Optional model override for delegated run(s)',
+          },
           tasks: {
             type: 'array',
-            description: 'Parallel-mode independent tasks (1-6 items). Each task must be self-contained.',
+            description:
+              'Parallel-mode independent tasks (1-6 items). Each task must be self-contained.',
             minItems: 1,
             maxItems: 6,
             items: {
               type: 'object',
               properties: {
-                prompt: { type: 'string', description: 'Task instructions with explicit goal/scope/constraints.' },
+                prompt: {
+                  type: 'string',
+                  description:
+                    'Task instructions with explicit goal/scope/constraints.',
+                },
                 label: { type: 'string', description: 'Optional task label' },
-                model: { type: 'string', description: 'Optional per-task model override' },
+                model: {
+                  type: 'string',
+                  description: 'Optional per-task model override',
+                },
               },
               required: ['prompt'],
             },
           },
           chain: {
             type: 'array',
-            description: 'Chain-mode dependent steps (1-6 items). Use `{previous}` to inject prior step output.',
+            description:
+              'Chain-mode dependent steps (1-6 items). Use `{previous}` to inject prior step output.',
             minItems: 1,
             maxItems: 6,
             items: {
               type: 'object',
               properties: {
-                prompt: { type: 'string', description: 'Step instructions (supports `{previous}`) with expected output.' },
+                prompt: {
+                  type: 'string',
+                  description:
+                    'Step instructions (supports `{previous}`) with expected output.',
+                },
                 label: { type: 'string', description: 'Optional step label' },
-                model: { type: 'string', description: 'Optional per-step model override' },
+                model: {
+                  type: 'string',
+                  description: 'Optional per-step model override',
+                },
               },
               required: ['prompt'],
             },
@@ -1828,12 +2181,33 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       parameters: {
         type: 'object',
         properties: {
-          action: { type: 'string', description: 'Action to perform: "list", "add", or "remove"' },
-          prompt: { type: 'string', description: 'Task prompt / reminder text (required for "add")' },
-          at: { type: 'string', description: 'ISO-8601 timestamp for one-shot schedule (e.g. "2025-01-15T14:30:00Z")' },
-          cron: { type: 'string', description: 'Cron expression for recurring schedule (e.g. "0 9 * * *")' },
-          every: { type: 'number', description: 'Interval in seconds for simple recurring schedule (minimum 10)' },
-          taskId: { type: 'number', description: 'Task ID to remove (required for "remove")' },
+          action: {
+            type: 'string',
+            description: 'Action to perform: "list", "add", or "remove"',
+          },
+          prompt: {
+            type: 'string',
+            description: 'Task prompt / reminder text (required for "add")',
+          },
+          at: {
+            type: 'string',
+            description:
+              'ISO-8601 timestamp for one-shot schedule (e.g. "2025-01-15T14:30:00Z")',
+          },
+          cron: {
+            type: 'string',
+            description:
+              'Cron expression for recurring schedule (e.g. "0 9 * * *")',
+          },
+          every: {
+            type: 'number',
+            description:
+              'Interval in seconds for simple recurring schedule (minimum 10)',
+          },
+          taskId: {
+            type: 'number',
+            description: 'Task ID to remove (required for "remove")',
+          },
         },
         required: ['action'],
       },

@@ -1,9 +1,18 @@
-import path from 'path';
-import fs from 'fs';
-import { URL } from 'url';
+import fs from 'node:fs';
+import path from 'node:path';
+import { URL } from 'node:url';
 
-import { emitRuntimeEvent, runAfterToolHooks, runBeforeToolHooks } from './extensions.js';
-import { callHybridAI, callHybridAIStream, HybridAIRequestError } from './hybridai-client.js';
+import { TrustedCoworkerApprovalRuntime } from './approval-policy.js';
+import {
+  emitRuntimeEvent,
+  runAfterToolHooks,
+  runBeforeToolHooks,
+} from './extensions.js';
+import {
+  callHybridAI,
+  callHybridAIStream,
+  HybridAIRequestError,
+} from './hybridai-client.js';
 import { waitForInput, writeOutput } from './ipc.js';
 import {
   accumulateApiUsage,
@@ -36,16 +45,33 @@ import type {
 } from './types.js';
 
 const MAX_ITERATIONS = 20;
-const IDLE_TIMEOUT_MS = parseInt(process.env.CONTAINER_IDLE_TIMEOUT || '300000', 10); // 5 min
+const IDLE_TIMEOUT_MS = parseInt(
+  process.env.CONTAINER_IDLE_TIMEOUT || '300000',
+  10,
+); // 5 min
 const RETRY_ENABLED = process.env.HYBRIDCLAW_RETRY_ENABLED !== 'false';
-const RETRY_MAX_ATTEMPTS = Math.max(1, parseInt(process.env.HYBRIDCLAW_RETRY_MAX_ATTEMPTS || '3', 10));
-const RETRY_BASE_DELAY_MS = Math.max(100, parseInt(process.env.HYBRIDCLAW_RETRY_BASE_DELAY_MS || '2000', 10));
-const RETRY_MAX_DELAY_MS = Math.max(RETRY_BASE_DELAY_MS, parseInt(process.env.HYBRIDCLAW_RETRY_MAX_DELAY_MS || '8000', 10));
-const RAW_RALPH_MAX_EXTRA_ITERATIONS = Number.parseInt(process.env.HYBRIDCLAW_RALPH_MAX_ITERATIONS || '0', 10);
-const RALPH_MAX_EXTRA_ITERATIONS = Number.isFinite(RAW_RALPH_MAX_EXTRA_ITERATIONS)
-  ? (RAW_RALPH_MAX_EXTRA_ITERATIONS === -1
+const RETRY_MAX_ATTEMPTS = Math.max(
+  1,
+  parseInt(process.env.HYBRIDCLAW_RETRY_MAX_ATTEMPTS || '3', 10),
+);
+const RETRY_BASE_DELAY_MS = Math.max(
+  100,
+  parseInt(process.env.HYBRIDCLAW_RETRY_BASE_DELAY_MS || '2000', 10),
+);
+const RETRY_MAX_DELAY_MS = Math.max(
+  RETRY_BASE_DELAY_MS,
+  parseInt(process.env.HYBRIDCLAW_RETRY_MAX_DELAY_MS || '8000', 10),
+);
+const RAW_RALPH_MAX_EXTRA_ITERATIONS = Number.parseInt(
+  process.env.HYBRIDCLAW_RALPH_MAX_ITERATIONS || '0',
+  10,
+);
+const RALPH_MAX_EXTRA_ITERATIONS = Number.isFinite(
+  RAW_RALPH_MAX_EXTRA_ITERATIONS,
+)
+  ? RAW_RALPH_MAX_EXTRA_ITERATIONS === -1
     ? -1
-    : Math.max(0, Math.min(64, RAW_RALPH_MAX_EXTRA_ITERATIONS)))
+    : Math.max(0, Math.min(64, RAW_RALPH_MAX_EXTRA_ITERATIONS))
   : 0;
 const RALPH_ENABLED = RALPH_MAX_EXTRA_ITERATIONS !== 0;
 const WORKSPACE_ROOT = '/workspace';
@@ -67,6 +93,7 @@ const DISCORD_CDN_HOST_PATTERNS: RegExp[] = [
   /^cdn\.discordapp\.net$/i,
   /^images-ext-\d+\.discordapp\.net$/i,
 ];
+const approvalRuntime = new TrustedCoworkerApprovalRuntime();
 
 /** API key received once via stdin, held in memory for the container lifetime. */
 let storedApiKey = '';
@@ -97,16 +124,25 @@ function normalizeAllowedLocalImagePath(rawPath: string): string | null {
 
   const candidate = trimmed.startsWith('/')
     ? path.posix.normalize(normalizePathSlashes(trimmed))
-    : path.posix.normalize(path.posix.join(workspace, normalizePathSlashes(trimmed)));
+    : path.posix.normalize(
+        path.posix.join(workspace, normalizePathSlashes(trimmed)),
+      );
 
-  const underWorkspace = candidate === workspace || candidate.startsWith(`${workspace}/`);
-  const underMediaRoot = candidate === mediaRoot || candidate.startsWith(`${mediaRoot}/`);
+  const underWorkspace =
+    candidate === workspace || candidate.startsWith(`${workspace}/`);
+  const underMediaRoot =
+    candidate === mediaRoot || candidate.startsWith(`${mediaRoot}/`);
   if (!underWorkspace && !underMediaRoot) return null;
   return candidate;
 }
 
-function inferImageMimeType(filePath: string, fallbackMime: string | null | undefined): string {
-  const normalizedFallback = String(fallbackMime || '').trim().toLowerCase();
+function inferImageMimeType(
+  filePath: string,
+  fallbackMime: string | null | undefined,
+): string {
+  const normalizedFallback = String(fallbackMime || '')
+    .trim()
+    .toLowerCase();
   if (normalizedFallback.startsWith('image/')) return normalizedFallback;
   const ext = path.posix.extname(filePath).toLowerCase();
   return ARTIFACT_MIME_TYPES[ext] || 'image/png';
@@ -120,46 +156,58 @@ function isSafeDiscordCdnUrl(raw: string): boolean {
     return false;
   }
   if (parsed.protocol !== 'https:') return false;
-  return DISCORD_CDN_HOST_PATTERNS.some((pattern) => pattern.test(parsed.hostname));
+  return DISCORD_CDN_HOST_PATTERNS.some((pattern) =>
+    pattern.test(parsed.hostname),
+  );
 }
 
 function modelSupportsNativeVision(model: string): boolean {
   const normalized = model.toLowerCase();
   if (!normalized) return false;
   if (
-    normalized.includes('gpt-5')
-    || normalized.includes('gpt-4o')
-    || normalized.includes('gpt-4.1')
-    || normalized.includes('o1')
-    || normalized.includes('o3')
-    || normalized.includes('vision')
-    || normalized.includes('multimodal')
-    || normalized.includes('gemini')
-    || normalized.includes('claude-3')
+    normalized.includes('gpt-5') ||
+    normalized.includes('gpt-4o') ||
+    normalized.includes('gpt-4.1') ||
+    normalized.includes('o1') ||
+    normalized.includes('o3') ||
+    normalized.includes('vision') ||
+    normalized.includes('multimodal') ||
+    normalized.includes('gemini') ||
+    normalized.includes('claude-3')
   ) {
     return true;
   }
   return false;
 }
 
-async function resolveMediaImagePartUrl(item: MediaContextItem): Promise<string | null> {
-  const localPath = item.path ? normalizeAllowedLocalImagePath(item.path) : null;
+async function resolveMediaImagePartUrl(
+  item: MediaContextItem,
+): Promise<string | null> {
+  const localPath = item.path
+    ? normalizeAllowedLocalImagePath(item.path)
+    : null;
   if (localPath) {
     try {
       const image = await fs.promises.readFile(localPath);
       if (image.length > NATIVE_VISION_MAX_IMAGE_BYTES) {
-        console.error(`[media] skipping ${localPath}: ${image.length}B exceeds native vision max`);
+        console.error(
+          `[media] skipping ${localPath}: ${image.length}B exceeds native vision max`,
+        );
       } else {
         const mimeType = inferImageMimeType(localPath, item.mimeType);
         const base64 = image.toString('base64');
         return `data:${mimeType};base64,${base64}`;
       }
     } catch (err) {
-      console.error(`[media] failed to read local media ${localPath}: ${err instanceof Error ? err.message : String(err)}`);
+      console.error(
+        `[media] failed to read local media ${localPath}: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
-  const fallbackCandidates = [item.url, item.originalUrl].map((value) => String(value || '').trim()).filter(Boolean);
+  const fallbackCandidates = [item.url, item.originalUrl]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
   for (const candidate of fallbackCandidates) {
     if (!isSafeDiscordCdnUrl(candidate)) continue;
     return candidate;
@@ -193,12 +241,17 @@ async function injectNativeVisionContent(
   if (latestUserIndex < 0) return messages;
 
   const cloned = messages.map((msg) => ({ ...msg }));
-  const existingText = normalizeMessageContentToText(cloned[latestUserIndex].content);
+  const existingText = normalizeMessageContentToText(
+    cloned[latestUserIndex].content,
+  );
   const contentParts: ChatContentPart[] = [];
   const nativeVisionHint =
     '[NativeVision] Image parts are attached in this message. Analyze them directly and skip extra vision tool pre-analysis unless explicitly required.';
   if (existingText) {
-    contentParts.push({ type: 'text', text: `${existingText}\n\n${nativeVisionHint}` });
+    contentParts.push({
+      type: 'text',
+      text: `${existingText}\n\n${nativeVisionHint}`,
+    });
   } else {
     contentParts.push({ type: 'text', text: nativeVisionHint });
   }
@@ -207,7 +260,9 @@ async function injectNativeVisionContent(
     ...cloned[latestUserIndex],
     content: contentParts,
   };
-  console.error(`[media] injected ${imageParts.length} native vision image part(s) for model ${model}`);
+  console.error(
+    `[media] injected ${imageParts.length} native vision image part(s) for model ${model}`,
+  );
   return cloned;
 }
 
@@ -254,26 +309,63 @@ function isRetryableError(err: unknown): boolean {
     return err.status === 429 || (err.status >= 500 && err.status <= 504);
   }
   const message = err instanceof Error ? err.message : String(err);
-  return /fetch failed|network|socket|timeout|timed out|ECONNRESET|ECONNREFUSED|EAI_AGAIN/i.test(message);
+  return /fetch failed|network|socket|timeout|timed out|ECONNRESET|ECONNREFUSED|EAI_AGAIN/i.test(
+    message,
+  );
 }
 
 function inferToolError(result: string, blockedReason: string | null): boolean {
   if (blockedReason) return true;
-  return /\b(error|failed|denied|forbidden|timed out|timeout|exception|invalid)\b/i.test(result);
+  return /\b(error|failed|denied|forbidden|timed out|timeout|exception|invalid)\b/i.test(
+    result,
+  );
 }
 
 function latestUserPrompt(messages: ChatMessage[]): string {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
     if (message.role !== 'user') continue;
-    const text = normalizeMessageContentToText(message.content).replace(/\s+/g, ' ').trim();
+    const text = normalizeMessageContentToText(message.content)
+      .replace(/\s+/g, ' ')
+      .trim();
     if (!text) continue;
     return text.slice(0, 1_200);
   }
   return 'Continue the task';
 }
 
-function parseRalphChoice(content: ChatMessageContent): 'CONTINUE' | 'STOP' | null {
+function cloneMessageWithTextContent(
+  message: ChatMessage,
+  text: string,
+): ChatMessage {
+  if (typeof message.content === 'string' || message.content == null) {
+    return {
+      ...message,
+      content: text,
+    };
+  }
+  return {
+    ...message,
+    content: [{ type: 'text', text }],
+  };
+}
+
+function replaceLatestUserPrompt(
+  messages: ChatMessage[],
+  prompt: string,
+): ChatMessage[] {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role !== 'user') continue;
+    const cloned = messages.map((entry) => ({ ...entry }));
+    cloned[i] = cloneMessageWithTextContent(cloned[i], prompt);
+    return cloned;
+  }
+  return [...messages, { role: 'user', content: prompt }];
+}
+
+function parseRalphChoice(
+  content: ChatMessageContent,
+): 'CONTINUE' | 'STOP' | null {
   const normalizedContent = normalizeMessageContentToText(content);
   if (!normalizedContent) return null;
   const re = /<choice>\s*([^<]*)\s*<\/choice>/gi;
@@ -299,7 +391,9 @@ function stripRalphChoiceTags(content: ChatMessageContent): string | null {
 }
 
 function buildRalphPrompt(taskPrompt: string, missingChoice: boolean): string {
-  const punctuatedPrompt = /[.!?]$/.test(taskPrompt) ? taskPrompt : `${taskPrompt}.`;
+  const punctuatedPrompt = /[.!?]$/.test(taskPrompt)
+    ? taskPrompt
+    : `${taskPrompt}.`;
   const lines = [
     `${punctuatedPrompt} (You are running in an automated loop where the same prompt is fed repeatedly. Only choose STOP when the task is fully complete. Including it will stop further iterations. If you are not 100% sure, choose CONTINUE.)`,
     '',
@@ -311,7 +405,9 @@ function buildRalphPrompt(taskPrompt: string, missingChoice: boolean): string {
   ];
   if (missingChoice) {
     lines.push('');
-    lines.push('Your last response did not include a valid choice. Include exactly one: CONTINUE or STOP.');
+    lines.push(
+      'Your last response did not include a valid choice. Include exactly one: CONTINUE or STOP.',
+    );
   }
   return lines.join('\n');
 }
@@ -333,7 +429,10 @@ function normalizeArtifactPath(rawPath: unknown): string | null {
   const normalized = value.replace(/\\/g, '/');
   if (path.posix.isAbsolute(normalized)) {
     const cleanAbs = path.posix.normalize(normalized);
-    if (cleanAbs === WORKSPACE_ROOT || cleanAbs.startsWith(`${WORKSPACE_ROOT}/`)) {
+    if (
+      cleanAbs === WORKSPACE_ROOT ||
+      cleanAbs.startsWith(`${WORKSPACE_ROOT}/`)
+    ) {
       return cleanAbs;
     }
     return null;
@@ -344,7 +443,10 @@ function normalizeArtifactPath(rawPath: unknown): string | null {
   return path.posix.join(WORKSPACE_ROOT, clean);
 }
 
-function extractToolArtifacts(toolName: string, result: string): ArtifactMetadata[] {
+function extractToolArtifacts(
+  toolName: string,
+  result: string,
+): ArtifactMetadata[] {
   let parsed: Record<string, unknown> | null = null;
   try {
     const value = JSON.parse(result) as unknown;
@@ -358,7 +460,11 @@ function extractToolArtifacts(toolName: string, result: string): ArtifactMetadat
   if (!parsed || parsed.success !== true) return [];
   const artifacts: ArtifactMetadata[] = [];
 
-  const addArtifact = (rawPath: unknown, rawFilename?: unknown, rawMimeType?: unknown): void => {
+  const addArtifact = (
+    rawPath: unknown,
+    rawFilename?: unknown,
+    rawMimeType?: unknown,
+  ): void => {
     const normalizedPath = normalizeArtifactPath(rawPath);
     if (!normalizedPath) return;
     const filename =
@@ -414,7 +520,7 @@ async function callHybridAIWithRetry(params: {
     attempt += 1;
     await emitRuntimeEvent({ event: 'before_model_call', attempt });
     try {
-      let response;
+      let response: Awaited<ReturnType<typeof callHybridAI>>;
       if (onTextDelta) {
         try {
           response = await callHybridAIStream(
@@ -429,20 +535,41 @@ async function callHybridAIWithRetry(params: {
           );
         } catch (streamErr) {
           const fallbackEligible =
-            streamErr instanceof HybridAIRequestError
-            && streamErr.status >= 400
-            && streamErr.status < 500
-            && streamErr.status !== 429;
+            streamErr instanceof HybridAIRequestError &&
+            streamErr.status >= 400 &&
+            streamErr.status < 500 &&
+            streamErr.status !== 429;
           if (!fallbackEligible) throw streamErr;
-          response = await callHybridAI(baseUrl, apiKey, model, chatbotId, enableRag, history, tools);
+          response = await callHybridAI(
+            baseUrl,
+            apiKey,
+            model,
+            chatbotId,
+            enableRag,
+            history,
+            tools,
+          );
         }
       } else {
-        response = await callHybridAI(baseUrl, apiKey, model, chatbotId, enableRag, history, tools);
+        response = await callHybridAI(
+          baseUrl,
+          apiKey,
+          model,
+          chatbotId,
+          enableRag,
+          history,
+          tools,
+        );
       }
-      await emitRuntimeEvent({ event: 'after_model_call', attempt, toolCallCount: response.choices[0]?.message?.tool_calls?.length || 0 });
+      await emitRuntimeEvent({
+        event: 'after_model_call',
+        attempt,
+        toolCallCount: response.choices[0]?.message?.tool_calls?.length || 0,
+      });
       return response;
     } catch (err) {
-      const retryable = RETRY_ENABLED && isRetryableError(err) && attempt < RETRY_MAX_ATTEMPTS;
+      const retryable =
+        RETRY_ENABLED && isRetryableError(err) && attempt < RETRY_MAX_ATTEMPTS;
       await emitRuntimeEvent({
         event: retryable ? 'model_retry' : 'model_error',
         attempt,
@@ -467,15 +594,21 @@ async function processRequest(
   chatbotId: string,
   enableRag: boolean,
   tools: ToolDefinition[],
+  effectiveUserPromptOverride?: string,
 ): Promise<ContainerOutput> {
-  await emitRuntimeEvent({ event: 'before_agent_start', messageCount: messages.length });
+  await emitRuntimeEvent({
+    event: 'before_agent_start',
+    messageCount: messages.length,
+  });
   const history: ChatMessage[] = [...messages];
   const toolsUsed: string[] = [];
   const toolExecutions: ToolExecution[] = [];
   const artifacts: ArtifactMetadata[] = [];
   const artifactPaths = new Set<string>();
   const tokenUsage = createTokenUsageStats();
-  const ralphSeedPrompt = RALPH_ENABLED ? latestUserPrompt(messages) : '';
+  const effectiveUserPrompt =
+    effectiveUserPromptOverride || latestUserPrompt(messages);
+  const ralphSeedPrompt = RALPH_ENABLED ? effectiveUserPrompt : '';
   const maxModelTurns = resolveMaxModelTurns();
   let ralphExtraIterations = 0;
   let iterations = 0;
@@ -485,7 +618,7 @@ async function processRequest(
     tokenUsage.modelCalls += 1;
     tokenUsage.estimatedPromptTokens += estimateMessageTokens(history);
 
-    let response;
+    let response: Awaited<ReturnType<typeof callHybridAIWithRetry>>;
     try {
       response = await callHybridAIWithRetry({
         baseUrl,
@@ -507,7 +640,11 @@ async function processRequest(
         tokenUsage: finalizeTokenUsage(tokenUsage),
         error: `API error: ${err instanceof Error ? err.message : String(err)}`,
       };
-      await emitRuntimeEvent({ event: 'turn_end', status: failed.status, toolsUsed });
+      await emitRuntimeEvent({
+        event: 'turn_end',
+        status: failed.status,
+        toolsUsed,
+      });
       return failed;
     }
 
@@ -524,13 +661,21 @@ async function processRequest(
         tokenUsage: finalizeTokenUsage(tokenUsage),
         error: 'No response from API',
       };
-      await emitRuntimeEvent({ event: 'turn_end', status: failed.status, toolsUsed });
+      await emitRuntimeEvent({
+        event: 'turn_end',
+        status: failed.status,
+        toolsUsed,
+      });
       return failed;
     }
 
-    tokenUsage.estimatedCompletionTokens += estimateTextTokens(choice.message.content);
+    tokenUsage.estimatedCompletionTokens += estimateTextTokens(
+      choice.message.content,
+    );
     if (choice.message.tool_calls?.length) {
-      tokenUsage.estimatedCompletionTokens += estimateTextTokens(JSON.stringify(choice.message.tool_calls));
+      tokenUsage.estimatedCompletionTokens += estimateTextTokens(
+        JSON.stringify(choice.message.tool_calls),
+      );
     }
 
     const assistantMessage: ChatMessage = {
@@ -556,12 +701,19 @@ async function processRequest(
             ...(artifacts.length > 0 ? { artifacts } : {}),
             toolExecutions,
             tokenUsage: finalizeTokenUsage(tokenUsage),
+            effectiveUserPrompt,
           };
-          await emitRuntimeEvent({ event: 'turn_end', status: completed.status, toolsUsed: completed.toolsUsed });
+          await emitRuntimeEvent({
+            event: 'turn_end',
+            status: completed.status,
+            toolsUsed: completed.toolsUsed,
+          });
           return completed;
         }
 
-        const canContinue = RALPH_MAX_EXTRA_ITERATIONS < 0 || ralphExtraIterations < RALPH_MAX_EXTRA_ITERATIONS;
+        const canContinue =
+          RALPH_MAX_EXTRA_ITERATIONS < 0 ||
+          ralphExtraIterations < RALPH_MAX_EXTRA_ITERATIONS;
         if (canContinue) {
           ralphExtraIterations += 1;
           history.push({
@@ -569,8 +721,10 @@ async function processRequest(
             content: buildRalphPrompt(ralphSeedPrompt, branchChoice == null),
           });
           console.error(
-            `[ralph] continue ${ralphExtraIterations}`
-            + (RALPH_MAX_EXTRA_ITERATIONS < 0 ? '' : `/${RALPH_MAX_EXTRA_ITERATIONS}`),
+            `[ralph] continue ${ralphExtraIterations}` +
+              (RALPH_MAX_EXTRA_ITERATIONS < 0
+                ? ''
+                : `/${RALPH_MAX_EXTRA_ITERATIONS}`),
           );
           continue;
         }
@@ -583,24 +737,121 @@ async function processRequest(
         ...(artifacts.length > 0 ? { artifacts } : {}),
         toolExecutions,
         tokenUsage: finalizeTokenUsage(tokenUsage),
+        effectiveUserPrompt,
       };
-      await emitRuntimeEvent({ event: 'turn_end', status: completed.status, toolsUsed: completed.toolsUsed });
+      await emitRuntimeEvent({
+        event: 'turn_end',
+        status: completed.status,
+        toolsUsed: completed.toolsUsed,
+      });
       return completed;
     }
 
     for (const call of toolCalls) {
       const toolName = call.function.name;
+      const approval = approvalRuntime.evaluateToolCall({
+        toolName,
+        argsJson: call.function.arguments,
+        latestUserPrompt: effectiveUserPrompt,
+      });
+
       toolsUsed.push(toolName);
-      console.error(`[tool] ${toolName}: ${call.function.arguments.slice(0, 100)}`);
+      const toolPreview =
+        approval.tier === 'yellow'
+          ? approvalRuntime.formatYellowNarration(approval)
+          : call.function.arguments.slice(0, 100);
+      console.error(`[tool] ${toolName}: ${toolPreview}`);
       const toolStart = Date.now();
-      const blockedReason = await runBeforeToolHooks(toolName, call.function.arguments);
+      if (approval.decision === 'required') {
+        const toolDuration = Date.now() - toolStart;
+        const prompt = approvalRuntime.formatApprovalRequest(approval);
+        toolExecutions.push({
+          name: toolName,
+          arguments: call.function.arguments,
+          result: prompt,
+          durationMs: toolDuration,
+          isError: false,
+          blocked: true,
+          blockedReason: approval.reason,
+          approvalTier: approval.tier,
+          approvalBaseTier: approval.baseTier,
+          approvalDecision: approval.decision,
+          approvalActionKey: approval.actionKey,
+          approvalReason: approval.reason,
+          approvalRequestId: approval.requestId,
+        });
+        const waitingForApproval: ContainerOutput = {
+          status: 'success',
+          result: prompt,
+          toolsUsed: [...new Set(toolsUsed)],
+          ...(artifacts.length > 0 ? { artifacts } : {}),
+          toolExecutions,
+          tokenUsage: finalizeTokenUsage(tokenUsage),
+          effectiveUserPrompt,
+        };
+        await emitRuntimeEvent({
+          event: 'turn_end',
+          status: waitingForApproval.status,
+          toolsUsed: waitingForApproval.toolsUsed,
+        });
+        return waitingForApproval;
+      }
+      if (approval.decision === 'denied') {
+        const toolDuration = Date.now() - toolStart;
+        const denialText = `Approval denied: ${approval.reason}`;
+        toolExecutions.push({
+          name: toolName,
+          arguments: call.function.arguments,
+          result: denialText,
+          durationMs: toolDuration,
+          isError: true,
+          blocked: true,
+          blockedReason: approval.reason,
+          approvalTier: approval.tier,
+          approvalBaseTier: approval.baseTier,
+          approvalDecision: approval.decision,
+          approvalActionKey: approval.actionKey,
+          approvalReason: approval.reason,
+          approvalRequestId: approval.requestId,
+        });
+        const denied: ContainerOutput = {
+          status: 'success',
+          result: denialText,
+          toolsUsed: [...new Set(toolsUsed)],
+          ...(artifacts.length > 0 ? { artifacts } : {}),
+          toolExecutions,
+          tokenUsage: finalizeTokenUsage(tokenUsage),
+          effectiveUserPrompt,
+        };
+        await emitRuntimeEvent({
+          event: 'turn_end',
+          status: denied.status,
+          toolsUsed: denied.toolsUsed,
+        });
+        return denied;
+      }
+      if (
+        approval.tier === 'yellow' &&
+        approval.implicitDelayMs &&
+        approval.implicitDelayMs > 0
+      ) {
+        await sleep(approval.implicitDelayMs);
+      }
+      const blockedReason = await runBeforeToolHooks(
+        toolName,
+        call.function.arguments,
+      );
       const result = blockedReason
         ? `Tool blocked by security hook: ${blockedReason}`
         : await executeTool(toolName, call.function.arguments);
       const toolDuration = Date.now() - toolStart;
       const isError = inferToolError(result, blockedReason);
+      const succeeded = !blockedReason && !isError;
+      approvalRuntime.afterToolExecution(approval, succeeded);
       await runAfterToolHooks(toolName, call.function.arguments, result);
-      console.error(`[tool] ${toolName} result (${toolDuration}ms): ${result.slice(0, 100)}`);
+      console.error(
+        `[tool] ${toolName} result (${toolDuration}ms): ${result.slice(0, 100)}`,
+      );
       toolExecutions.push({
         name: toolName,
         arguments: call.function.arguments,
@@ -609,6 +860,12 @@ async function processRequest(
         isError,
         blocked: Boolean(blockedReason),
         blockedReason: blockedReason || undefined,
+        approvalTier: approval.tier,
+        approvalBaseTier: approval.baseTier,
+        approvalDecision: blockedReason ? 'denied' : approval.decision,
+        approvalActionKey: approval.actionKey,
+        approvalReason: approval.reason,
+        approvalRequestId: approval.requestId,
       });
       for (const artifact of extractToolArtifacts(toolName, result)) {
         if (artifactPaths.has(artifact.path)) continue;
@@ -627,8 +884,13 @@ async function processRequest(
           toolExecutions,
           tokenUsage: finalizeTokenUsage(tokenUsage),
           error: result,
+          effectiveUserPrompt,
         };
-        await emitRuntimeEvent({ event: 'turn_end', status: failed.status, toolsUsed });
+        await emitRuntimeEvent({
+          event: 'turn_end',
+          status: failed.status,
+          toolsUsed,
+        });
         return failed;
       }
     }
@@ -637,13 +899,20 @@ async function processRequest(
   const lastAssistant = history.filter((m) => m.role === 'assistant').pop();
   const completed: ContainerOutput = {
     status: 'success',
-    result: stripRalphChoiceTags(lastAssistant?.content || null) || 'Max tool iterations reached.',
+    result:
+      stripRalphChoiceTags(lastAssistant?.content || null) ||
+      'Max tool iterations reached.',
     toolsUsed: [...new Set(toolsUsed)],
     ...(artifacts.length > 0 ? { artifacts } : {}),
     toolExecutions,
     tokenUsage: finalizeTokenUsage(tokenUsage),
+    effectiveUserPrompt,
   };
-  await emitRuntimeEvent({ event: 'turn_end', status: completed.status, toolsUsed: completed.toolsUsed });
+  await emitRuntimeEvent({
+    event: 'turn_end',
+    status: completed.status,
+    toolsUsed: completed.toolsUsed,
+  });
   return completed;
 }
 
@@ -652,7 +921,9 @@ async function processRequest(
  */
 function resolveTools(input: ContainerInput): ToolDefinition[] {
   let tools = input.allowedTools
-    ? TOOL_DEFINITIONS.filter((t) => input.allowedTools!.includes(t.function.name))
+    ? TOOL_DEFINITIONS.filter((t) =>
+        input.allowedTools?.includes(t.function.name),
+      )
     : [...TOOL_DEFINITIONS];
   if (Array.isArray(input.blockedTools) && input.blockedTools.length > 0) {
     const blocked = new Set(
@@ -671,66 +942,105 @@ function shouldRetryWithoutNativeVision(error: string | undefined): boolean {
   const normalized = String(error || '').toLowerCase();
   if (!normalized) return false;
   return (
-    normalized.includes('image_url')
-    || normalized.includes('unsupported image')
-    || normalized.includes('unsupported content')
-    || normalized.includes('vision')
-    || normalized.includes('multimodal')
-    || normalized.includes('content part')
+    normalized.includes('image_url') ||
+    normalized.includes('unsupported image') ||
+    normalized.includes('unsupported content') ||
+    normalized.includes('vision') ||
+    normalized.includes('multimodal') ||
+    normalized.includes('content part')
   );
 }
 
 async function main(): Promise<void> {
-  console.error(`[hybridclaw-agent] started, idle timeout ${IDLE_TIMEOUT_MS}ms`);
+  console.error(
+    `[hybridclaw-agent] started, idle timeout ${IDLE_TIMEOUT_MS}ms`,
+  );
 
   // First request arrives via stdin (contains apiKey — never written to disk)
   const stdinData = await readStdinLine();
   const firstInput: ContainerInput = JSON.parse(stdinData);
   storedApiKey = firstInput.apiKey;
 
-  console.error(`[hybridclaw-agent] processing first request (${firstInput.messages.length} messages)`);
+  console.error(
+    `[hybridclaw-agent] processing first request (${firstInput.messages.length} messages)`,
+  );
 
   resetSideEffects();
   setScheduledTasks(firstInput.scheduledTasks);
   setSessionContext(firstInput.sessionId);
-  setGatewayContext(firstInput.gatewayBaseUrl, firstInput.gatewayApiToken, firstInput.channelId);
-  setModelContext(firstInput.baseUrl, storedApiKey, firstInput.model, firstInput.chatbotId);
+  setGatewayContext(
+    firstInput.gatewayBaseUrl,
+    firstInput.gatewayApiToken,
+    firstInput.channelId,
+  );
+  setModelContext(
+    firstInput.baseUrl,
+    storedApiKey,
+    firstInput.model,
+    firstInput.chatbotId,
+  );
   setMediaContext(firstInput.media);
   const firstMessages = await injectNativeVisionContent(
     firstInput.messages,
     firstInput.model,
     firstInput.media,
   );
+  const firstPrelude = approvalRuntime.handleApprovalResponse(firstMessages);
+  const firstPromptOverride = firstPrelude?.replayPrompt;
+  const firstPreparedMessages = firstPromptOverride
+    ? replaceLatestUserPrompt(firstMessages, firstPromptOverride)
+    : firstMessages;
 
-  let firstOutput = await processRequest(
-    firstMessages,
-    storedApiKey,
-    firstInput.baseUrl,
-    firstInput.model,
-    firstInput.chatbotId,
-    firstInput.enableRag,
-    resolveTools(firstInput),
-  );
-  if (
-    firstMessages !== firstInput.messages
-    && firstOutput.status === 'error'
-    && shouldRetryWithoutNativeVision(firstOutput.error)
-  ) {
-    console.error('[media] native vision injection rejected by model; retrying without image parts');
+  let firstOutput: ContainerOutput;
+  if (firstPrelude?.immediateMessage && !firstPromptOverride) {
+    firstOutput = {
+      status: 'success',
+      result: firstPrelude.immediateMessage,
+      toolsUsed: [],
+      toolExecutions: [],
+      effectiveUserPrompt: latestUserPrompt(firstPreparedMessages),
+    };
+    console.error('[approval] resolved user response without model run');
+  } else {
     firstOutput = await processRequest(
-      firstInput.messages,
+      firstPreparedMessages,
       storedApiKey,
       firstInput.baseUrl,
       firstInput.model,
       firstInput.chatbotId,
       firstInput.enableRag,
       resolveTools(firstInput),
+      firstPromptOverride,
     );
+    if (
+      firstPreparedMessages !== firstInput.messages &&
+      firstOutput.status === 'error' &&
+      shouldRetryWithoutNativeVision(firstOutput.error)
+    ) {
+      console.error(
+        '[media] native vision injection rejected by model; retrying without image parts',
+      );
+      const firstRetryMessages = firstPromptOverride
+        ? replaceLatestUserPrompt(firstInput.messages, firstPromptOverride)
+        : firstInput.messages;
+      firstOutput = await processRequest(
+        firstRetryMessages,
+        storedApiKey,
+        firstInput.baseUrl,
+        firstInput.model,
+        firstInput.chatbotId,
+        firstInput.enableRag,
+        resolveTools(firstInput),
+        firstPromptOverride,
+      );
+    }
   }
 
   firstOutput.sideEffects = getPendingSideEffects();
   writeOutput(firstOutput);
-  console.error(`[hybridclaw-agent] first request complete: ${firstOutput.status}`);
+  console.error(
+    `[hybridclaw-agent] first request complete: ${firstOutput.status}`,
+  );
 
   // Subsequent requests come via IPC file polling
   while (true) {
@@ -744,12 +1054,18 @@ async function main(): Promise<void> {
     // Use stored apiKey — IPC file no longer contains it
     const apiKey = input.apiKey || storedApiKey;
 
-    console.error(`[hybridclaw-agent] processing request (${input.messages.length} messages)`);
+    console.error(
+      `[hybridclaw-agent] processing request (${input.messages.length} messages)`,
+    );
 
     resetSideEffects();
     setScheduledTasks(input.scheduledTasks);
     setSessionContext(input.sessionId);
-    setGatewayContext(input.gatewayBaseUrl, input.gatewayApiToken, input.channelId);
+    setGatewayContext(
+      input.gatewayBaseUrl,
+      input.gatewayApiToken,
+      input.channelId,
+    );
     setModelContext(input.baseUrl, apiKey, input.model, input.chatbotId);
     setMediaContext(input.media);
     const preparedMessages = await injectNativeVisionContent(
@@ -757,30 +1073,56 @@ async function main(): Promise<void> {
       input.model,
       input.media,
     );
+    const prelude = approvalRuntime.handleApprovalResponse(preparedMessages);
+    const promptOverride = prelude?.replayPrompt;
+    const messagesForRequest = promptOverride
+      ? replaceLatestUserPrompt(preparedMessages, promptOverride)
+      : preparedMessages;
+
+    if (prelude?.immediateMessage && !promptOverride) {
+      const immediate: ContainerOutput = {
+        status: 'success',
+        result: prelude.immediateMessage,
+        toolsUsed: [],
+        toolExecutions: [],
+        effectiveUserPrompt: latestUserPrompt(messagesForRequest),
+      };
+      immediate.sideEffects = getPendingSideEffects();
+      writeOutput(immediate);
+      console.error('[approval] resolved user response without model run');
+      continue;
+    }
 
     let output = await processRequest(
-      preparedMessages,
+      messagesForRequest,
       apiKey,
       input.baseUrl,
       input.model,
       input.chatbotId,
       input.enableRag,
       resolveTools(input),
+      promptOverride,
     );
     if (
-      preparedMessages !== input.messages
-      && output.status === 'error'
-      && shouldRetryWithoutNativeVision(output.error)
+      messagesForRequest !== input.messages &&
+      output.status === 'error' &&
+      shouldRetryWithoutNativeVision(output.error)
     ) {
-      console.error('[media] native vision injection rejected by model; retrying without image parts');
+      console.error(
+        '[media] native vision injection rejected by model; retrying without image parts',
+      );
+      const retryMessages = promptOverride
+        ? replaceLatestUserPrompt(input.messages, promptOverride)
+        : input.messages;
       output = await processRequest(
-        input.messages,
+        retryMessages,
         apiKey,
         input.baseUrl,
         input.model,
         input.chatbotId,
         input.enableRag,
         resolveTools(input),
+        promptOverride,
       );
     }
 

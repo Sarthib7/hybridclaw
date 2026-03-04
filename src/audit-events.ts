@@ -1,4 +1,10 @@
-import { appendAuditEvent, createAuditRunId, parseJsonObject, truncateAuditText, type AuditEventPayload } from './audit-trail.js';
+import {
+  type AuditEventPayload,
+  appendAuditEvent,
+  createAuditRunId,
+  parseJsonObject,
+  truncateAuditText,
+} from './audit-trail.js';
 import { logStructuredAuditEvent } from './db.js';
 import { logger } from './logger.js';
 import type { ToolExecution } from './types.js';
@@ -35,7 +41,8 @@ function summarizeToolResult(text: string): string {
   return truncateAuditText(text, 280);
 }
 
-const SENSITIVE_ARG_KEY_RE = /(pass(word)?|secret|token|api[_-]?key|authorization|cookie|credential|session)/i;
+const SENSITIVE_ARG_KEY_RE =
+  /(pass(word)?|secret|token|api[_-]?key|authorization|cookie|credential|session)/i;
 
 function sanitizeAuditArguments(toolName: string, value: unknown): unknown {
   if (Array.isArray(value)) {
@@ -69,7 +76,10 @@ export function emitToolExecutionAuditEvents(input: {
   toolExecutions.forEach((execution, index) => {
     const toolCallId = `${runId}:tool:${index + 1}`;
     const argumentsObject = parseJsonObject(execution.arguments || '{}');
-    const auditArguments = sanitizeAuditArguments(execution.name, argumentsObject);
+    const auditArguments = sanitizeAuditArguments(
+      execution.name,
+      argumentsObject,
+    );
 
     recordAuditEvent({
       sessionId,
@@ -90,11 +100,65 @@ export function emitToolExecutionAuditEvents(input: {
         action: `tool:${execution.name}`,
         resource: 'container.sandbox',
         allowed: !execution.blocked,
-        reason: execution.blockedReason || 'allowed',
+        reason:
+          execution.blockedReason ||
+          execution.approvalReason ||
+          (execution.approvalDecision
+            ? `approval:${execution.approvalDecision}`
+            : 'allowed'),
       },
     });
 
-    if (execution.blocked) {
+    const isRedApprovalAction =
+      execution.approvalTier === 'red' || execution.approvalBaseTier === 'red';
+    const hasApprovalDecision = typeof execution.approvalDecision === 'string';
+    if (isRedApprovalAction || hasApprovalDecision) {
+      const description =
+        execution.approvalReason ||
+        execution.blockedReason ||
+        `Approval flow for tool ${execution.name}`;
+      recordAuditEvent({
+        sessionId,
+        runId,
+        event: {
+          type: 'approval.request',
+          toolCallId,
+          action: execution.approvalActionKey || `tool:${execution.name}`,
+          description,
+          policyName: 'trusted-coworker',
+        },
+      });
+
+      const decision = execution.approvalDecision;
+      const approved =
+        decision === 'approved_once' ||
+        decision === 'approved_session' ||
+        decision === 'approved_agent' ||
+        decision === 'promoted';
+      const pending = decision === 'required';
+      if (decision && decision !== 'auto' && decision !== 'implicit') {
+        recordAuditEvent({
+          sessionId,
+          runId,
+          event: {
+            type: 'approval.response',
+            toolCallId,
+            action: execution.approvalActionKey || `tool:${execution.name}`,
+            description: pending
+              ? `${description} (pending user response)`
+              : description,
+            approved,
+            approvedBy: pending
+              ? 'pending-user-response'
+              : approved
+                ? 'local-user'
+                : 'policy-engine',
+            method: pending || approved ? 'prompt' : 'policy',
+            policyName: 'trusted-coworker',
+          },
+        });
+      }
+    } else if (execution.blocked) {
       recordAuditEvent({
         sessionId,
         runId,

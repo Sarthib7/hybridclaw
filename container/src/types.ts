@@ -86,7 +86,16 @@ export interface ContainerInput {
   gatewayApiToken?: string;
   model: string;
   channelId: string;
-  scheduledTasks?: { id: number; cronExpr: string; runAt: string | null; everyMs: number | null; prompt: string; enabled: number; lastRun: string | null; createdAt: string }[];
+  scheduledTasks?: {
+    id: number;
+    cronExpr: string;
+    runAt: string | null;
+    everyMs: number | null;
+    prompt: string;
+    enabled: number;
+    lastRun: string | null;
+    createdAt: string;
+  }[];
   allowedTools?: string[];
   blockedTools?: string[];
   media?: MediaContextItem[];
@@ -109,6 +118,20 @@ export interface ToolExecution {
   isError?: boolean;
   blocked?: boolean;
   blockedReason?: string;
+  approvalTier?: 'green' | 'yellow' | 'red';
+  approvalBaseTier?: 'green' | 'yellow' | 'red';
+  approvalDecision?:
+    | 'auto'
+    | 'implicit'
+    | 'approved_once'
+    | 'approved_session'
+    | 'approved_agent'
+    | 'promoted'
+    | 'required'
+    | 'denied';
+  approvalActionKey?: string;
+  approvalReason?: string;
+  approvalRequestId?: string;
 }
 
 export interface TokenUsageStats {
@@ -136,6 +159,7 @@ export interface ContainerOutput {
   toolExecutions?: ToolExecution[];
   tokenUsage?: TokenUsageStats;
   error?: string;
+  effectiveUserPrompt?: string;
   sideEffects?: {
     schedules?: ScheduleSideEffect[];
     delegations?: DelegationSideEffect[];
@@ -143,7 +167,13 @@ export interface ContainerOutput {
 }
 
 export type ScheduleSideEffect =
-  | { action: 'add'; cronExpr?: string; runAt?: string; everyMs?: number; prompt: string }
+  | {
+      action: 'add';
+      cronExpr?: string;
+      runAt?: string;
+      everyMs?: number;
+      prompt: string;
+    }
   | { action: 'remove'; taskId: number };
 
 export interface DelegationTaskSpec {

@@ -1,4 +1,8 @@
-import type { ChatCompletionResponse, ChatMessage, TokenUsageStats } from './types.js';
+import type {
+  ChatCompletionResponse,
+  ChatMessage,
+  TokenUsageStats,
+} from './types.js';
 
 const CHARS_PER_TOKEN = 4;
 
@@ -56,7 +60,8 @@ export function estimateMessageTokens(messages: ChatMessage[]): number {
     total += 4;
     total += estimateTextTokens(message.role);
     total += estimateTextTokens(normalizeContentText(message.content));
-    if (message.tool_calls) total += estimateTextTokens(JSON.stringify(message.tool_calls));
+    if (message.tool_calls)
+      total += estimateTextTokens(JSON.stringify(message.tool_calls));
     if (message.tool_call_id) total += estimateTextTokens(message.tool_call_id);
   }
   return total;
@@ -70,15 +75,19 @@ export function accumulateApiUsage(
   if (!usage) return;
 
   const hasUsageFields =
-    usage.prompt_tokens != null
-    || usage.completion_tokens != null
-    || usage.total_tokens != null
-    || usage.input_tokens != null
-    || usage.output_tokens != null;
+    usage.prompt_tokens != null ||
+    usage.completion_tokens != null ||
+    usage.total_tokens != null ||
+    usage.input_tokens != null ||
+    usage.output_tokens != null;
   if (!hasUsageFields) return;
 
-  const promptTokens = parseUsageNumber(usage.prompt_tokens ?? usage.input_tokens);
-  const completionTokens = parseUsageNumber(usage.completion_tokens ?? usage.output_tokens);
+  const promptTokens = parseUsageNumber(
+    usage.prompt_tokens ?? usage.input_tokens,
+  );
+  const completionTokens = parseUsageNumber(
+    usage.completion_tokens ?? usage.output_tokens,
+  );
   let totalTokens = parseUsageNumber(usage.total_tokens);
   if (totalTokens === 0 && (promptTokens > 0 || completionTokens > 0)) {
     totalTokens = promptTokens + completionTokens;
@@ -91,7 +100,8 @@ export function accumulateApiUsage(
 }
 
 export function finalizeTokenUsage(stats: TokenUsageStats): TokenUsageStats {
-  const estimatedTotalTokens = stats.estimatedPromptTokens + stats.estimatedCompletionTokens;
+  const estimatedTotalTokens =
+    stats.estimatedPromptTokens + stats.estimatedCompletionTokens;
   let apiTotalTokens = stats.apiTotalTokens;
   if (stats.apiUsageAvailable && apiTotalTokens === 0) {
     apiTotalTokens = stats.apiPromptTokens + stats.apiCompletionTokens;

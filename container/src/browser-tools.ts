@@ -1,10 +1,10 @@
-import { execFile, spawnSync } from 'child_process';
-import { createHash } from 'crypto';
-import { lookup } from 'dns/promises';
-import fs from 'fs';
-import net from 'net';
-import path from 'path';
-import { promisify } from 'util';
+import { execFile, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { lookup } from 'node:dns/promises';
+import fs from 'node:fs';
+import net from 'node:net';
+import path from 'node:path';
+import { promisify } from 'node:util';
 
 import type { ToolDefinition } from './types.js';
 
@@ -19,8 +19,14 @@ const BROWSER_RUNTIME_ROOT = path.join(WORKSPACE_ROOT, '.hybridclaw-runtime');
 const BROWSER_TMP_HOME = path.join(BROWSER_RUNTIME_ROOT, 'home');
 const BROWSER_NPM_CACHE = path.join(BROWSER_RUNTIME_ROOT, 'npm-cache');
 const BROWSER_XDG_CACHE = path.join(BROWSER_RUNTIME_ROOT, 'cache');
-const BROWSER_PLAYWRIGHT_CACHE = path.join(BROWSER_RUNTIME_ROOT, 'ms-playwright');
-const BROWSER_PROFILE_ROOT = path.join(BROWSER_RUNTIME_ROOT, 'browser-profiles');
+const BROWSER_PLAYWRIGHT_CACHE = path.join(
+  BROWSER_RUNTIME_ROOT,
+  'ms-playwright',
+);
+const BROWSER_PROFILE_ROOT = path.join(
+  BROWSER_RUNTIME_ROOT,
+  'browser-profiles',
+);
 const ENV_FALSEY = new Set(['0', 'false', 'no', 'off']);
 const BOT_DETECTION_PATTERNS = [
   'access denied',
@@ -134,7 +140,9 @@ export function setBrowserModelContext(
   chatbotId: string,
 ): void {
   currentBrowserModelContext = {
-    baseUrl: String(baseUrl || '').trim().replace(/\/+$/, ''),
+    baseUrl: String(baseUrl || '')
+      .trim()
+      .replace(/\/+$/, ''),
     apiKey: String(apiKey || '').trim(),
     model: String(model || '').trim(),
     chatbotId: String(chatbotId || '').trim(),
@@ -178,7 +186,9 @@ function shouldPersistSessionState(): boolean {
 function resolveProfileRoot(): string {
   const configured = String(process.env.BROWSER_PROFILE_ROOT || '').trim();
   if (!configured) return ensureWritableDir(BROWSER_PROFILE_ROOT);
-  const resolved = path.isAbsolute(configured) ? configured : path.resolve(WORKSPACE_ROOT, configured);
+  const resolved = path.isAbsolute(configured)
+    ? configured
+    : path.resolve(WORKSPACE_ROOT, configured);
   return ensureWritableDir(resolved);
 }
 
@@ -206,7 +216,9 @@ function resolveRunner(): BrowserRunner | null {
     return cachedRunner;
   }
 
-  const whichAgentBrowser = spawnSync('which', ['agent-browser'], { encoding: 'utf-8' });
+  const whichAgentBrowser = spawnSync('which', ['agent-browser'], {
+    encoding: 'utf-8',
+  });
   if (whichAgentBrowser.status === 0 && whichAgentBrowser.stdout.trim()) {
     cachedRunner = { cmd: whichAgentBrowser.stdout.trim(), prefixArgs: [] };
     return cachedRunner;
@@ -214,7 +226,10 @@ function resolveRunner(): BrowserRunner | null {
 
   const whichNpx = spawnSync('which', ['npx'], { encoding: 'utf-8' });
   if (whichNpx.status === 0 && whichNpx.stdout.trim()) {
-    cachedRunner = { cmd: whichNpx.stdout.trim(), prefixArgs: ['--yes', 'agent-browser'] };
+    cachedRunner = {
+      cmd: whichNpx.stdout.trim(),
+      prefixArgs: ['--yes', 'agent-browser'],
+    };
     return cachedRunner;
   }
 
@@ -238,14 +253,18 @@ function getSession(sessionId: string): BrowserSession {
   let profileDir: string | undefined;
   if (shouldPersistProfiles()) {
     try {
-      profileDir = ensureWritableDir(path.join(resolveProfileRoot(), runtimeKey));
+      profileDir = ensureWritableDir(
+        path.join(resolveProfileRoot(), runtimeKey),
+      );
     } catch {
       // Fallback to ephemeral browser context if profile dir cannot be created.
       profileDir = undefined;
     }
   }
 
-  const stateName = shouldPersistSessionState() ? deriveStableId(sessionKey, 48) : undefined;
+  const stateName = shouldPersistSessionState()
+    ? deriveStableId(sessionKey, 48)
+    : undefined;
 
   const session: BrowserSession = {
     sessionKey,
@@ -304,7 +323,10 @@ function removeSession(sessionId: string): void {
 
 function isPrivateIpv4(ip: string): boolean {
   const parts = ip.split('.').map((part) => Number.parseInt(part, 10));
-  if (parts.length !== 4 || parts.some((part) => Number.isNaN(part) || part < 0 || part > 255)) {
+  if (
+    parts.length !== 4 ||
+    parts.some((part) => Number.isNaN(part) || part < 0 || part > 255)
+  ) {
     return false;
   }
   const [a, b] = parts;
@@ -340,7 +362,12 @@ function isPrivateIp(ip: string): boolean {
 async function isPrivateHost(hostname: string): Promise<boolean> {
   const host = hostname.trim().toLowerCase();
   if (!host) return true;
-  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return true;
+  if (
+    host === 'localhost' ||
+    host.endsWith('.localhost') ||
+    host.endsWith('.local')
+  )
+    return true;
   if (net.isIP(host) > 0) return isPrivateIp(host);
   try {
     const resolved = await lookup(host, { all: true, verbatim: true });
@@ -371,7 +398,9 @@ async function assertNavigationUrl(raw: unknown): Promise<URL> {
     throw new Error(`Unsupported URL protocol: ${parsed.protocol}`);
   }
 
-  const allowPrivate = String(process.env.BROWSER_ALLOW_PRIVATE_NETWORK || '').toLowerCase() === 'true';
+  const allowPrivate =
+    String(process.env.BROWSER_ALLOW_PRIVATE_NETWORK || '').toLowerCase() ===
+    'true';
   if (!allowPrivate && (await isPrivateHost(parsed.hostname))) {
     throw new Error(
       `Navigation blocked by SSRF guard: private or loopback host (${parsed.hostname}). ` +
@@ -409,7 +438,9 @@ function resolveOutputPath(rawPath: unknown, extension: 'png' | 'pdf'): string {
   }
 
   if (path.isAbsolute(requested)) {
-    throw new Error('Absolute output paths are not allowed. Use a relative path.');
+    throw new Error(
+      'Absolute output paths are not allowed. Use a relative path.',
+    );
   }
   const normalized = requested.replace(/\\/g, '/');
   const clean = path.posix.normalize(normalized);
@@ -417,7 +448,9 @@ function resolveOutputPath(rawPath: unknown, extension: 'png' | 'pdf'): string {
     throw new Error('Output path escapes browser artifacts directory.');
   }
 
-  const withExt = clean.endsWith(`.${extension}`) ? clean : `${clean}.${extension}`;
+  const withExt = clean.endsWith(`.${extension}`)
+    ? clean
+    : `${clean}.${extension}`;
   const resolved = path.resolve(BROWSER_ARTIFACT_ROOT, withExt);
   const root = path.resolve(BROWSER_ARTIFACT_ROOT);
   if (resolved !== root && !resolved.startsWith(root + path.sep)) {
@@ -430,7 +463,10 @@ function resolveOutputPath(rawPath: unknown, extension: 'png' | 'pdf'): string {
 function createTempScreenshotPath(prefix: string): string {
   fs.mkdirSync(BROWSER_ARTIFACT_ROOT, { recursive: true });
   const nonce = Math.random().toString(36).slice(2, 10);
-  return path.join(BROWSER_ARTIFACT_ROOT, `${prefix}-${Date.now()}-${nonce}.png`);
+  return path.join(
+    BROWSER_ARTIFACT_ROOT,
+    `${prefix}-${Date.now()}-${nonce}.png`,
+  );
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -441,7 +477,8 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 function normalizeSnapshotMode(rawMode: unknown): SnapshotMode {
   if (rawMode == null || String(rawMode).trim() === '') return 'default';
   const mode = String(rawMode).trim().toLowerCase();
-  if (mode === 'default' || mode === 'interactive' || mode === 'full') return mode;
+  if (mode === 'default' || mode === 'interactive' || mode === 'full')
+    return mode;
   throw new Error('mode must be one of "default", "interactive", or "full"');
 }
 
@@ -455,12 +492,17 @@ function parseOptionalFrame(raw: unknown): FrameTarget | null {
   };
 }
 
-async function applyFrameTarget(sessionId: string, target: FrameTarget | null): Promise<void> {
+async function applyFrameTarget(
+  sessionId: string,
+  target: FrameTarget | null,
+): Promise<void> {
   if (!target) return;
   const commandArgs = target.isMain ? ['main'] : [target.raw];
   const frameResult = await runAgentBrowser(sessionId, 'frame', commandArgs);
   if (!frameResult.success) {
-    throw new Error(frameResult.error || `failed to switch to frame "${target.raw}"`);
+    throw new Error(
+      frameResult.error || `failed to switch to frame "${target.raw}"`,
+    );
   }
 }
 
@@ -469,7 +511,9 @@ async function runBrowserEval(
   script: string,
   timeoutMs = 30_000,
 ): Promise<{ success: boolean; result?: unknown; error?: string }> {
-  const response = await runAgentBrowser(sessionId, 'eval', [script], { timeoutMs });
+  const response = await runAgentBrowser(sessionId, 'eval', [script], {
+    timeoutMs,
+  });
   if (!response.success) {
     return { success: false, error: response.error || 'browser eval failed' };
   }
@@ -483,7 +527,10 @@ function normalizeFrameMetadata(raw: unknown): Record<string, unknown>[] {
   for (const item of raw) {
     const entry = asRecord(item);
     if (!entry) continue;
-    const index = typeof entry.index === 'number' && Number.isFinite(entry.index) ? entry.index : null;
+    const index =
+      typeof entry.index === 'number' && Number.isFinite(entry.index)
+        ? entry.index
+        : null;
     const id = typeof entry.id === 'string' ? entry.id : null;
     const name = typeof entry.name === 'string' ? entry.name : null;
     const title = typeof entry.title === 'string' ? entry.title : null;
@@ -503,8 +550,14 @@ function normalizeImageList(raw: unknown): Record<string, unknown>[] {
     const src = typeof entry.src === 'string' ? entry.src : '';
     if (!src || src.startsWith('data:')) continue;
     const alt = typeof entry.alt === 'string' ? entry.alt : '';
-    const width = typeof entry.width === 'number' && Number.isFinite(entry.width) ? entry.width : null;
-    const height = typeof entry.height === 'number' && Number.isFinite(entry.height) ? entry.height : null;
+    const width =
+      typeof entry.width === 'number' && Number.isFinite(entry.width)
+        ? entry.width
+        : null;
+    const height =
+      typeof entry.height === 'number' && Number.isFinite(entry.height)
+        ? entry.height
+        : null;
     images.push({ src, alt, width, height });
   }
   return images;
@@ -519,8 +572,12 @@ function normalizeTrackedRequests(raw: unknown): Record<string, unknown>[] {
     const url = typeof entry.url === 'string' ? entry.url : '';
     if (!url) continue;
     const method = typeof entry.method === 'string' ? entry.method : null;
-    const type = typeof entry.resourceType === 'string' ? entry.resourceType : null;
-    const timestamp = typeof entry.timestamp === 'number' && Number.isFinite(entry.timestamp) ? entry.timestamp : null;
+    const type =
+      typeof entry.resourceType === 'string' ? entry.resourceType : null;
+    const timestamp =
+      typeof entry.timestamp === 'number' && Number.isFinite(entry.timestamp)
+        ? entry.timestamp
+        : null;
     requests.push({
       url,
       method,
@@ -534,7 +591,10 @@ function normalizeTrackedRequests(raw: unknown): Record<string, unknown>[] {
   return requests;
 }
 
-function normalizePerformanceRequests(raw: unknown, filter?: string): Record<string, unknown>[] {
+function normalizePerformanceRequests(
+  raw: unknown,
+  filter?: string,
+): Record<string, unknown>[] {
   if (!Array.isArray(raw)) return [];
   const loweredFilter = (filter || '').toLowerCase();
   const requests: Record<string, unknown>[] = [];
@@ -545,10 +605,19 @@ function normalizePerformanceRequests(raw: unknown, filter?: string): Record<str
     if (!url) continue;
     if (loweredFilter && !url.toLowerCase().includes(loweredFilter)) continue;
     const type = typeof entry.type === 'string' ? entry.type : null;
-    const duration = typeof entry.duration === 'number' && Number.isFinite(entry.duration) ? entry.duration : null;
+    const duration =
+      typeof entry.duration === 'number' && Number.isFinite(entry.duration)
+        ? entry.duration
+        : null;
     const transferSize =
-      typeof entry.transfer_size === 'number' && Number.isFinite(entry.transfer_size) ? entry.transfer_size : null;
-    const startTime = typeof entry.start_time === 'number' && Number.isFinite(entry.start_time) ? entry.start_time : null;
+      typeof entry.transfer_size === 'number' &&
+      Number.isFinite(entry.transfer_size)
+        ? entry.transfer_size
+        : null;
+    const startTime =
+      typeof entry.start_time === 'number' && Number.isFinite(entry.start_time)
+        ? entry.start_time
+        : null;
     requests.push({
       url,
       method: 'GET',
@@ -563,11 +632,15 @@ function normalizePerformanceRequests(raw: unknown, filter?: string): Record<str
   return requests;
 }
 
-function buildBotDetectionWarning(titleValue: unknown): Record<string, unknown> | null {
+function buildBotDetectionWarning(
+  titleValue: unknown,
+): Record<string, unknown> | null {
   const title = String(titleValue || '').trim();
   if (!title) return null;
   const lower = title.toLowerCase();
-  const matched = BOT_DETECTION_PATTERNS.find((pattern) => lower.includes(pattern));
+  const matched = BOT_DETECTION_PATTERNS.find((pattern) =>
+    lower.includes(pattern),
+  );
   if (!matched) return null;
   const hintOverride = String(process.env.BROWSER_STEALTH_HINT || '').trim();
   const hint =
@@ -611,22 +684,33 @@ function extractVisionTextContent(content: unknown): string {
   return chunks.join('\n').trim();
 }
 
-async function callVisionModel(question: string, imageBase64: string): Promise<{ model: string; analysis: string }> {
+async function callVisionModel(
+  question: string,
+  imageBase64: string,
+): Promise<{ model: string; analysis: string }> {
   const apiKey = currentBrowserModelContext.apiKey;
   const baseUrl = currentBrowserModelContext.baseUrl;
   const model = currentBrowserModelContext.model;
   const chatbotId = currentBrowserModelContext.chatbotId;
   if (!apiKey) {
-    throw new Error('browser_vision is not configured: missing active request API key context.');
+    throw new Error(
+      'browser_vision is not configured: missing active request API key context.',
+    );
   }
   if (!baseUrl) {
-    throw new Error('browser_vision is not configured: missing active request base URL context.');
+    throw new Error(
+      'browser_vision is not configured: missing active request base URL context.',
+    );
   }
   if (!model) {
-    throw new Error('browser_vision is not configured: missing active request model context.');
+    throw new Error(
+      'browser_vision is not configured: missing active request model context.',
+    );
   }
   if (!chatbotId) {
-    throw new Error('browser_vision is not configured: missing active request chatbot_id context.');
+    throw new Error(
+      'browser_vision is not configured: missing active request chatbot_id context.',
+    );
   }
   const endpoint = `${baseUrl}/v1/chat/completions`;
   const payload = {
@@ -638,7 +722,10 @@ async function callVisionModel(question: string, imageBase64: string): Promise<{
         role: 'user',
         content: [
           { type: 'text', text: question },
-          { type: 'image_url', image_url: { url: `data:image/png;base64,${imageBase64}` } },
+          {
+            type: 'image_url',
+            image_url: { url: `data:image/png;base64,${imageBase64}` },
+          },
         ],
       },
     ],
@@ -655,8 +742,11 @@ async function callVisionModel(question: string, imageBase64: string): Promise<{
 
   const bodyText = await response.text();
   if (!response.ok) {
-    const details = bodyText.length > 600 ? `${bodyText.slice(0, 600)}...` : bodyText;
-    throw new Error(`vision API request failed (${response.status}): ${details}`);
+    const details =
+      bodyText.length > 600 ? `${bodyText.slice(0, 600)}...` : bodyText;
+    throw new Error(
+      `vision API request failed (${response.status}): ${details}`,
+    );
   }
 
   let parsed: unknown;
@@ -697,7 +787,10 @@ async function runAgentBrowser(
     };
   }
 
-  const timeoutMs = Math.max(1_000, Math.min(options.timeoutMs ?? BROWSER_DEFAULT_TIMEOUT_MS, 180_000));
+  const timeoutMs = Math.max(
+    1_000,
+    Math.min(options.timeoutMs ?? BROWSER_DEFAULT_TIMEOUT_MS, 180_000),
+  );
   const session = getSession(sessionId);
   const homeDir = resolveWritableHome();
   const npmCacheDir = ensureWritableDir(BROWSER_NPM_CACHE);
@@ -742,27 +835,47 @@ async function runAgentBrowser(
       return { success: true, data: {} };
     }
 
-    let parsed: any;
+    let parsed: unknown;
     try {
       parsed = JSON.parse(output);
     } catch {
       return { success: true, data: { raw: output } };
     }
 
-    if (parsed && typeof parsed === 'object' && parsed.success === false) {
-      return { success: false, error: String(parsed.error || 'browser command failed') };
-    }
-    if (parsed && typeof parsed === 'object' && 'data' in parsed) {
-      return { success: true, data: parsed.data };
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const parsedRecord = parsed as Record<string, unknown>;
+      if (parsedRecord.success === false) {
+        return {
+          success: false,
+          error: String(parsedRecord.error || 'browser command failed'),
+        };
+      }
+      if ('data' in parsedRecord) {
+        return { success: true, data: parsedRecord.data };
+      }
     }
     return { success: true, data: parsed };
-  } catch (err: any) {
-    const stderr = typeof err?.stderr === 'string' ? err.stderr.trim() : '';
-    const stdout = typeof err?.stdout === 'string' ? err.stdout.trim() : '';
+  } catch (err: unknown) {
+    const errorRecord = err as {
+      stderr?: unknown;
+      stdout?: unknown;
+      code?: unknown;
+      message?: unknown;
+    };
+    const stderr =
+      typeof errorRecord.stderr === 'string' ? errorRecord.stderr.trim() : '';
+    const stdout =
+      typeof errorRecord.stdout === 'string' ? errorRecord.stdout.trim() : '';
     const timeoutHint =
-      err?.code === 'ETIMEDOUT' || /timed out/i.test(String(err?.message || '')) ? ` (timeout ${timeoutMs}ms)` : '';
-    const msg = stderr || stdout || String(err?.message || err);
-    return { success: false, error: `browser command failed${timeoutHint}: ${msg}` };
+      errorRecord.code === 'ETIMEDOUT' ||
+      /timed out/i.test(String(errorRecord.message || ''))
+        ? ` (timeout ${timeoutMs}ms)`
+        : '';
+    const msg = stderr || stdout || String(errorRecord.message || err);
+    return {
+      success: false,
+      error: `browser command failed${timeoutHint}: ${msg}`,
+    };
   }
 }
 
@@ -774,38 +887,63 @@ function failure(message: string): string {
   return JSON.stringify({ success: false, error: message }, null, 2);
 }
 
-export async function executeBrowserTool(name: string, args: Record<string, unknown>, sessionId: string): Promise<string> {
+export async function executeBrowserTool(
+  name: string,
+  args: Record<string, unknown>,
+  sessionId: string,
+): Promise<string> {
   try {
     const effectiveSessionId = normalizeSessionKey(sessionId || 'default');
     switch (name) {
       case 'browser_navigate': {
         const parsed = await assertNavigationUrl(args.url);
-        const result = await runAgentBrowser(effectiveSessionId, 'open', [parsed.toString()], { timeoutMs: 60_000 });
-        if (!result.success) return failure(result.error || 'navigation failed');
+        const result = await runAgentBrowser(
+          effectiveSessionId,
+          'open',
+          [parsed.toString()],
+          { timeoutMs: 60_000 },
+        );
+        if (!result.success)
+          return failure(result.error || 'navigation failed');
         const data = (result.data || {}) as Record<string, unknown>;
         const title = String(data.title || '');
         const botWarning = buildBotDetectionWarning(title);
-        const textEval = await runBrowserEval(effectiveSessionId, EXTRACT_TEXT_PREVIEW_SCRIPT, 20_000);
+        const textEval = await runBrowserEval(
+          effectiveSessionId,
+          EXTRACT_TEXT_PREVIEW_SCRIPT,
+          20_000,
+        );
         const textData = textEval.success ? asRecord(textEval.result) : null;
-        const contentPreview = typeof textData?.preview === 'string' ? textData.preview : '';
+        const contentPreview =
+          typeof textData?.preview === 'string' ? textData.preview : '';
         const contentLength =
-          typeof textData?.text_length === 'number' && Number.isFinite(textData.text_length)
+          typeof textData?.text_length === 'number' &&
+          Number.isFinite(textData.text_length)
             ? Math.max(0, Math.floor(textData.text_length))
             : 0;
         const contentPreviewTruncated = textData?.preview_truncated === true;
         const hasNoscript = textData?.has_noscript === true;
         const rootShell = textData?.root_shell === true;
-        const readyState = typeof textData?.ready_state === 'string' ? textData.ready_state : '';
-        const extractionHint = buildReadExtractionHint({ contentLength, hasNoscript, rootShell });
+        const readyState =
+          typeof textData?.ready_state === 'string' ? textData.ready_state : '';
+        const extractionHint = buildReadExtractionHint({
+          contentLength,
+          hasNoscript,
+          rootShell,
+        });
         // Best-effort priming so browser_network has request listeners active quickly.
-        await runAgentBrowser(effectiveSessionId, 'network', ['requests']).catch(() => undefined);
+        await runAgentBrowser(effectiveSessionId, 'network', [
+          'requests',
+        ]).catch(() => undefined);
         return success({
           url: data.url || parsed.toString(),
           title,
           session_id: effectiveSessionId,
           content_text_length: contentLength,
           ...(contentPreview ? { content_preview: contentPreview } : {}),
-          ...(contentPreview ? { content_preview_truncated: contentPreviewTruncated } : {}),
+          ...(contentPreview
+            ? { content_preview_truncated: contentPreviewTruncated }
+            : {}),
           ...(readyState ? { ready_state: readyState } : {}),
           ...(hasNoscript ? { has_noscript: true } : {}),
           ...(rootShell ? { root_shell: true } : {}),
@@ -822,18 +960,31 @@ export async function executeBrowserTool(name: string, args: Record<string, unkn
         else if (mode === 'full') commandArgs = [];
         else commandArgs = full ? [] : ['-i', '-c'];
 
-        const result = await runAgentBrowser(effectiveSessionId, 'snapshot', commandArgs, { timeoutMs: 45_000 });
+        const result = await runAgentBrowser(
+          effectiveSessionId,
+          'snapshot',
+          commandArgs,
+          { timeoutMs: 45_000 },
+        );
         if (!result.success) return failure(result.error || 'snapshot failed');
         const data = (result.data || {}) as Record<string, unknown>;
         const rawSnapshot = String(data.snapshot || '');
         const truncated = truncateSnapshot(rawSnapshot);
-        const frameEval = await runBrowserEval(effectiveSessionId, EXTRACT_IFRAMES_SCRIPT, 15_000);
-        const frames = frameEval.success ? normalizeFrameMetadata(frameEval.result) : [];
+        const frameEval = await runBrowserEval(
+          effectiveSessionId,
+          EXTRACT_IFRAMES_SCRIPT,
+          15_000,
+        );
+        const frames = frameEval.success
+          ? normalizeFrameMetadata(frameEval.result)
+          : [];
         return success({
           snapshot: truncated.text,
           truncated: truncated.truncated,
           element_count:
-            data.refs && typeof data.refs === 'object' ? Object.keys(data.refs as Record<string, unknown>).length : 0,
+            data.refs && typeof data.refs === 'object'
+              ? Object.keys(data.refs as Record<string, unknown>).length
+              : 0,
           url: data.url || data.origin || '',
           mode,
           ...(frames.length > 0 ? { frames, frame_count: frames.length } : {}),
@@ -844,8 +995,11 @@ export async function executeBrowserTool(name: string, args: Record<string, unkn
         const ref = ensureRef(args.ref);
         const frame = parseOptionalFrame(args.frame);
         await applyFrameTarget(effectiveSessionId, frame);
-        const result = await runAgentBrowser(effectiveSessionId, 'click', [ref]);
-        if (!result.success) return failure(result.error || `failed to click ${ref}`);
+        const result = await runAgentBrowser(effectiveSessionId, 'click', [
+          ref,
+        ]);
+        if (!result.success)
+          return failure(result.error || `failed to click ${ref}`);
         return success({
           clicked: ref,
           ...(frame ? { frame: frame.raw } : {}),
@@ -858,8 +1012,12 @@ export async function executeBrowserTool(name: string, args: Record<string, unkn
         if (!text) return failure('text is required');
         const frame = parseOptionalFrame(args.frame);
         await applyFrameTarget(effectiveSessionId, frame);
-        const result = await runAgentBrowser(effectiveSessionId, 'fill', [ref, text]);
-        if (!result.success) return failure(result.error || `failed to fill ${ref}`);
+        const result = await runAgentBrowser(effectiveSessionId, 'fill', [
+          ref,
+          text,
+        ]);
+        if (!result.success)
+          return failure(result.error || `failed to fill ${ref}`);
         return success({
           element: ref,
           typed_chars: text.length,
@@ -872,8 +1030,11 @@ export async function executeBrowserTool(name: string, args: Record<string, unkn
         if (!key) return failure('key is required');
         const frame = parseOptionalFrame(args.frame);
         await applyFrameTarget(effectiveSessionId, frame);
-        const result = await runAgentBrowser(effectiveSessionId, 'press', [key]);
-        if (!result.success) return failure(result.error || `failed to press ${key}`);
+        const result = await runAgentBrowser(effectiveSessionId, 'press', [
+          key,
+        ]);
+        if (!result.success)
+          return failure(result.error || `failed to press ${key}`);
         return success({
           key,
           ...(frame ? { frame: frame.raw } : {}),
@@ -881,20 +1042,30 @@ export async function executeBrowserTool(name: string, args: Record<string, unkn
       }
 
       case 'browser_scroll': {
-        const direction = String(args.direction || '').trim().toLowerCase();
+        const direction = String(args.direction || '')
+          .trim()
+          .toLowerCase();
         if (direction !== 'up' && direction !== 'down') {
           return failure('direction must be "up" or "down"');
         }
         const pixelsRaw = Number(args.pixels);
-        const pixels = Number.isFinite(pixelsRaw) && pixelsRaw > 0 ? Math.floor(pixelsRaw) : 800;
-        const result = await runAgentBrowser(effectiveSessionId, 'scroll', [direction, String(pixels)]);
-        if (!result.success) return failure(result.error || `failed to scroll ${direction}`);
+        const pixels =
+          Number.isFinite(pixelsRaw) && pixelsRaw > 0
+            ? Math.floor(pixelsRaw)
+            : 800;
+        const result = await runAgentBrowser(effectiveSessionId, 'scroll', [
+          direction,
+          String(pixels),
+        ]);
+        if (!result.success)
+          return failure(result.error || `failed to scroll ${direction}`);
         return success({ direction, pixels });
       }
 
       case 'browser_back': {
         const result = await runAgentBrowser(effectiveSessionId, 'back', []);
-        if (!result.success) return failure(result.error || 'failed to navigate back');
+        if (!result.success)
+          return failure(result.error || 'failed to navigate back');
         const data = (result.data || {}) as Record<string, unknown>;
         return success({ url: data.url || '' });
       }
@@ -903,8 +1074,14 @@ export async function executeBrowserTool(name: string, args: Record<string, unkn
         const outPath = resolveOutputPath(args.path, 'png');
         const fullPage = args.fullPage === true;
         const commandArgs = fullPage ? ['--full', outPath] : [outPath];
-        const result = await runAgentBrowser(effectiveSessionId, 'screenshot', commandArgs, { timeoutMs: 60_000 });
-        if (!result.success) return failure(result.error || 'failed to capture screenshot');
+        const result = await runAgentBrowser(
+          effectiveSessionId,
+          'screenshot',
+          commandArgs,
+          { timeoutMs: 60_000 },
+        );
+        if (!result.success)
+          return failure(result.error || 'failed to capture screenshot');
         return success({
           path: path.relative(WORKSPACE_ROOT, outPath),
           full_page: fullPage,
@@ -913,8 +1090,14 @@ export async function executeBrowserTool(name: string, args: Record<string, unkn
 
       case 'browser_pdf': {
         const outPath = resolveOutputPath(args.path, 'pdf');
-        const result = await runAgentBrowser(effectiveSessionId, 'pdf', [outPath], { timeoutMs: 60_000 });
-        if (!result.success) return failure(result.error || 'failed to generate pdf');
+        const result = await runAgentBrowser(
+          effectiveSessionId,
+          'pdf',
+          [outPath],
+          { timeoutMs: 60_000 },
+        );
+        if (!result.success)
+          return failure(result.error || 'failed to generate pdf');
         return success({ path: path.relative(WORKSPACE_ROOT, outPath) });
       }
 
@@ -924,11 +1107,19 @@ export async function executeBrowserTool(name: string, args: Record<string, unkn
 
         const tempPath = createTempScreenshotPath('browser-vision');
         try {
-          const screenshotResult = await runAgentBrowser(effectiveSessionId, 'screenshot', [tempPath], {
-            timeoutMs: 60_000,
-          });
+          const screenshotResult = await runAgentBrowser(
+            effectiveSessionId,
+            'screenshot',
+            [tempPath],
+            {
+              timeoutMs: 60_000,
+            },
+          );
           if (!screenshotResult.success) {
-            return failure(screenshotResult.error || 'failed to capture screenshot for vision analysis');
+            return failure(
+              screenshotResult.error ||
+                'failed to capture screenshot for vision analysis',
+            );
           }
 
           const imageBuffer = await fs.promises.readFile(tempPath);
@@ -944,8 +1135,13 @@ export async function executeBrowserTool(name: string, args: Record<string, unkn
       }
 
       case 'browser_get_images': {
-        const evalResult = await runBrowserEval(effectiveSessionId, EXTRACT_IMAGES_SCRIPT, 20_000);
-        if (!evalResult.success) return failure(evalResult.error || 'failed to extract images');
+        const evalResult = await runBrowserEval(
+          effectiveSessionId,
+          EXTRACT_IMAGES_SCRIPT,
+          20_000,
+        );
+        if (!evalResult.success)
+          return failure(evalResult.error || 'failed to extract images');
         const images = normalizeImageList(evalResult.result);
         return success({ count: images.length, images });
       }
@@ -953,8 +1149,14 @@ export async function executeBrowserTool(name: string, args: Record<string, unkn
       case 'browser_console': {
         const clear = args.clear === true;
         const commandArgs = clear ? ['--clear'] : [];
-        const result = await runAgentBrowser(effectiveSessionId, 'console', commandArgs, { timeoutMs: 20_000 });
-        if (!result.success) return failure(result.error || 'failed to read console logs');
+        const result = await runAgentBrowser(
+          effectiveSessionId,
+          'console',
+          commandArgs,
+          { timeoutMs: 20_000 },
+        );
+        if (!result.success)
+          return failure(result.error || 'failed to read console logs');
         const data = asRecord(result.data) || {};
         if (clear) {
           return success({ cleared: true, count: 0, messages: [] });
@@ -967,11 +1169,22 @@ export async function executeBrowserTool(name: string, args: Record<string, unkn
             const text = typeof entry.text === 'string' ? entry.text : '';
             const level = typeof entry.type === 'string' ? entry.type : 'log';
             const timestamp =
-              typeof entry.timestamp === 'number' && Number.isFinite(entry.timestamp) ? entry.timestamp : null;
+              typeof entry.timestamp === 'number' &&
+              Number.isFinite(entry.timestamp)
+                ? entry.timestamp
+                : null;
             if (!text) return null;
             return { level, text, timestamp };
           })
-          .filter((item): item is { level: string; text: string; timestamp: number | null } => item !== null);
+          .filter(
+            (
+              item,
+            ): item is {
+              level: string;
+              text: string;
+              timestamp: number | null;
+            } => item !== null,
+          );
         return success({
           messages,
           count: messages.length,
@@ -983,39 +1196,70 @@ export async function executeBrowserTool(name: string, args: Record<string, unkn
         const clear = args.clear === true;
         const filter = String(args.filter || '').trim();
         if (clear) {
-          const clearRequestsResult = await runAgentBrowser(effectiveSessionId, 'network', ['requests', '--clear'], {
-            timeoutMs: 20_000,
-          });
+          const clearRequestsResult = await runAgentBrowser(
+            effectiveSessionId,
+            'network',
+            ['requests', '--clear'],
+            {
+              timeoutMs: 20_000,
+            },
+          );
           if (!clearRequestsResult.success) {
-            return failure(clearRequestsResult.error || 'failed to clear network request history');
+            return failure(
+              clearRequestsResult.error ||
+                'failed to clear network request history',
+            );
           }
-          await runBrowserEval(effectiveSessionId, CLEAR_NETWORK_TIMINGS_SCRIPT, 10_000).catch(() => undefined);
+          await runBrowserEval(
+            effectiveSessionId,
+            CLEAR_NETWORK_TIMINGS_SCRIPT,
+            10_000,
+          ).catch(() => undefined);
           return success({ cleared: true, count: 0, requests: [] });
         }
 
         const networkArgs = ['requests'];
         if (filter) networkArgs.push('--filter', filter);
-        const trackedResult = await runAgentBrowser(effectiveSessionId, 'network', networkArgs, { timeoutMs: 20_000 });
+        const trackedResult = await runAgentBrowser(
+          effectiveSessionId,
+          'network',
+          networkArgs,
+          { timeoutMs: 20_000 },
+        );
         const trackedData = asRecord(trackedResult.data);
-        const trackedRequests = trackedResult.success ? normalizeTrackedRequests(trackedData?.requests) : [];
+        const trackedRequests = trackedResult.success
+          ? normalizeTrackedRequests(trackedData?.requests)
+          : [];
 
-        const timingsEval = await runBrowserEval(effectiveSessionId, NETWORK_TIMINGS_SCRIPT, 20_000);
-        const perfRequests = timingsEval.success ? normalizePerformanceRequests(timingsEval.result, filter) : [];
+        const timingsEval = await runBrowserEval(
+          effectiveSessionId,
+          NETWORK_TIMINGS_SCRIPT,
+          20_000,
+        );
+        const perfRequests = timingsEval.success
+          ? normalizePerformanceRequests(timingsEval.result, filter)
+          : [];
 
         if (!trackedResult.success && !timingsEval.success) {
-          return failure(trackedResult.error || timingsEval.error || 'failed to read network requests');
+          return failure(
+            trackedResult.error ||
+              timingsEval.error ||
+              'failed to read network requests',
+          );
         }
 
         const dedupe = new Set<string>();
-        const requests = [...trackedRequests, ...perfRequests].filter((entry) => {
-          const url = typeof entry.url === 'string' ? entry.url : '';
-          const method = typeof entry.method === 'string' ? entry.method : '';
-          const type = typeof entry.type === 'string' ? entry.type : '';
-          const key = `${method}|${type}|${url}`;
-          if (!url || dedupe.has(key)) return false;
-          dedupe.add(key);
-          return true;
-        });
+        const requests = [...trackedRequests, ...perfRequests].filter(
+          (entry) => {
+            const url = typeof entry.url === 'string' ? entry.url : '';
+            const method = typeof entry.method === 'string' ? entry.method : '';
+            const type = typeof entry.type === 'string' ? entry.type : '';
+            const key = `${method}|${type}|${url}`;
+            if (!url || dedupe.has(key)) return false;
+            dedupe.add(key);
+            return true;
+          },
+        );
 
         return success({
           count: requests.length,
@@ -1054,7 +1298,10 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
       parameters: {
         type: 'object',
         properties: {
-          url: { type: 'string', description: 'URL to open (http:// or https://)' },
+          url: {
+            type: 'string',
+            description: 'URL to open (http:// or https://)',
+          },
         },
         required: ['url'],
       },
@@ -1069,7 +1316,11 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
       parameters: {
         type: 'object',
         properties: {
-          full: { type: 'boolean', description: 'If true, request fuller snapshot output (default: false).' },
+          full: {
+            type: 'boolean',
+            description:
+              'If true, request fuller snapshot output (default: false).',
+          },
           mode: {
             type: 'string',
             enum: ['default', 'interactive', 'full'],
@@ -1089,10 +1340,14 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
       parameters: {
         type: 'object',
         properties: {
-          ref: { type: 'string', description: 'Element reference from browser_snapshot.' },
+          ref: {
+            type: 'string',
+            description: 'Element reference from browser_snapshot.',
+          },
           frame: {
             type: 'string',
-            description: 'Optional frame selector. Use "main" to target the main document again.',
+            description:
+              'Optional frame selector. Use "main" to target the main document again.',
           },
         },
         required: ['ref'],
@@ -1103,15 +1358,20 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'browser_type',
-      description: 'Type text into an input element by snapshot ref (clears then fills).',
+      description:
+        'Type text into an input element by snapshot ref (clears then fills).',
       parameters: {
         type: 'object',
         properties: {
-          ref: { type: 'string', description: 'Element reference from browser_snapshot.' },
+          ref: {
+            type: 'string',
+            description: 'Element reference from browser_snapshot.',
+          },
           text: { type: 'string', description: 'Text to type.' },
           frame: {
             type: 'string',
-            description: 'Optional frame selector. Use "main" to target the main document again.',
+            description:
+              'Optional frame selector. Use "main" to target the main document again.',
           },
         },
         required: ['ref', 'text'],
@@ -1122,14 +1382,16 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'browser_press',
-      description: 'Press a keyboard key in the active page (Enter, Tab, Escape, etc.).',
+      description:
+        'Press a keyboard key in the active page (Enter, Tab, Escape, etc.).',
       parameters: {
         type: 'object',
         properties: {
           key: { type: 'string', description: 'Keyboard key name.' },
           frame: {
             type: 'string',
-            description: 'Optional frame selector. Use "main" to target the main document again.',
+            description:
+              'Optional frame selector. Use "main" to target the main document again.',
           },
         },
         required: ['key'],
@@ -1144,8 +1406,14 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
       parameters: {
         type: 'object',
         properties: {
-          direction: { type: 'string', description: 'Scroll direction: "up" or "down".' },
-          pixels: { type: 'number', description: 'Optional pixel amount (default: 800).' },
+          direction: {
+            type: 'string',
+            description: 'Scroll direction: "up" or "down".',
+          },
+          pixels: {
+            type: 'number',
+            description: 'Optional pixel amount (default: 800).',
+          },
         },
         required: ['direction'],
       },
@@ -1172,8 +1440,15 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
       parameters: {
         type: 'object',
         properties: {
-          path: { type: 'string', description: 'Optional relative output path under .browser-artifacts.' },
-          fullPage: { type: 'boolean', description: 'Capture full page when true.' },
+          path: {
+            type: 'string',
+            description:
+              'Optional relative output path under .browser-artifacts.',
+          },
+          fullPage: {
+            type: 'boolean',
+            description: 'Capture full page when true.',
+          },
         },
         required: [],
       },
@@ -1188,7 +1463,11 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
       parameters: {
         type: 'object',
         properties: {
-          path: { type: 'string', description: 'Optional relative output path under .browser-artifacts.' },
+          path: {
+            type: 'string',
+            description:
+              'Optional relative output path under .browser-artifacts.',
+          },
         },
         required: [],
       },
@@ -1203,7 +1482,10 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
       parameters: {
         type: 'object',
         properties: {
-          question: { type: 'string', description: 'Question to ask about the current page screenshot.' },
+          question: {
+            type: 'string',
+            description: 'Question to ask about the current page screenshot.',
+          },
         },
         required: ['question'],
       },
@@ -1225,11 +1507,16 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'browser_console',
-      description: 'Return console messages captured from the current page; optionally clear them.',
+      description:
+        'Return console messages captured from the current page; optionally clear them.',
       parameters: {
         type: 'object',
         properties: {
-          clear: { type: 'boolean', description: 'When true, clear stored console messages before returning.' },
+          clear: {
+            type: 'boolean',
+            description:
+              'When true, clear stored console messages before returning.',
+          },
         },
         required: [],
       },
@@ -1244,8 +1531,15 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
       parameters: {
         type: 'object',
         properties: {
-          filter: { type: 'string', description: 'Optional URL substring filter.' },
-          clear: { type: 'boolean', description: 'When true, clear recorded network request history first.' },
+          filter: {
+            type: 'string',
+            description: 'Optional URL substring filter.',
+          },
+          clear: {
+            type: 'boolean',
+            description:
+              'When true, clear recorded network request history first.',
+          },
         },
         required: [],
       },
@@ -1255,7 +1549,8 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'browser_close',
-      description: 'Close the current browser session and release associated resources.',
+      description:
+        'Close the current browser session and release associated resources.',
       parameters: {
         type: 'object',
         properties: {},

@@ -82,7 +82,9 @@ function decodeEntities(value: string): string {
     .replace(/&#39;/gi, "'")
     .replace(/&lt;/gi, '<')
     .replace(/&gt;/gi, '>')
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) =>
+      String.fromCharCode(parseInt(hex, 16)),
+    )
     .replace(/&#(\d+);/gi, (_, dec) => String.fromCharCode(parseInt(dec, 10)));
 }
 
@@ -101,7 +103,9 @@ function normalizeWhitespace(value: string): string {
 
 function htmlToMarkdown(html: string): { text: string; title?: string } {
   const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-  const title = titleMatch ? normalizeWhitespace(stripTags(titleMatch[1])) : undefined;
+  const title = titleMatch
+    ? normalizeWhitespace(stripTags(titleMatch[1]))
+    : undefined;
 
   let text = html
     .replace(/<script[\s\S]*?<\/script>/gi, '')
@@ -109,16 +113,22 @@ function htmlToMarkdown(html: string): { text: string; title?: string } {
     .replace(/<noscript[\s\S]*?<\/noscript>/gi, '');
 
   // Links
-  text = text.replace(/<a\s+[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi, (_, href, body) => {
-    const label = normalizeWhitespace(stripTags(body));
-    return label ? `[${label}](${href})` : href;
-  });
+  text = text.replace(
+    /<a\s+[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi,
+    (_, href, body) => {
+      const label = normalizeWhitespace(stripTags(body));
+      return label ? `[${label}](${href})` : href;
+    },
+  );
 
   // Headings
-  text = text.replace(/<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi, (_, level, body) => {
-    const prefix = '#'.repeat(Math.max(1, Math.min(6, parseInt(level, 10))));
-    return `\n${prefix} ${normalizeWhitespace(stripTags(body))}\n`;
-  });
+  text = text.replace(
+    /<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi,
+    (_, level, body) => {
+      const prefix = '#'.repeat(Math.max(1, Math.min(6, parseInt(level, 10))));
+      return `\n${prefix} ${normalizeWhitespace(stripTags(body))}\n`;
+    },
+  );
 
   // List items
   text = text.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (_, body) => {
@@ -129,7 +139,10 @@ function htmlToMarkdown(html: string): { text: string; title?: string } {
   // Block breaks
   text = text
     .replace(/<(br|hr)\s*\/?>/gi, '\n')
-    .replace(/<\/(p|div|section|article|header|footer|table|tr|ul|ol)>/gi, '\n');
+    .replace(
+      /<\/(p|div|section|article|header|footer|table|tr|ul|ol)>/gi,
+      '\n',
+    );
 
   text = stripTags(text);
   text = normalizeWhitespace(text);
@@ -154,17 +167,22 @@ function markdownToText(markdown: string): string {
 // Readability extraction (lazy-loaded)
 // ---------------------------------------------------------------------------
 
-let readabilityDeps: Promise<{
-  Readability: typeof import('@mozilla/readability').Readability;
-  parseHTML: typeof import('linkedom').parseHTML;
-}> | undefined;
+let readabilityDeps:
+  | Promise<{
+      Readability: typeof import('@mozilla/readability').Readability;
+      parseHTML: typeof import('linkedom').parseHTML;
+    }>
+  | undefined;
 
 function loadReadabilityDeps() {
   if (!readabilityDeps) {
     readabilityDeps = Promise.all([
       import('@mozilla/readability'),
       import('linkedom'),
-    ]).then(([r, l]) => ({ Readability: r.Readability, parseHTML: l.parseHTML }));
+    ]).then(([r, l]) => ({
+      Readability: r.Readability,
+      parseHTML: l.parseHTML,
+    }));
   }
   return readabilityDeps;
 }
@@ -192,7 +210,9 @@ async function extractReadableContent(
     const { document } = parseHTML(html);
     try {
       (document as { baseURI?: string }).baseURI = url;
-    } catch { /* best-effort */ }
+    } catch {
+      /* best-effort */
+    }
 
     const reader = new Readability(document, { charThreshold: 0 });
     const parsed = reader.parse();
@@ -235,18 +255,30 @@ async function readResponseText(
         let chunk = value;
         if (bytesRead + chunk.byteLength > maxBytes) {
           const remaining = Math.max(0, maxBytes - bytesRead);
-          if (remaining <= 0) { truncated = true; break; }
+          if (remaining <= 0) {
+            truncated = true;
+            break;
+          }
           chunk = chunk.subarray(0, remaining);
           truncated = true;
         }
 
         bytesRead += chunk.byteLength;
         parts.push(decoder.decode(chunk, { stream: true }));
-        if (truncated || bytesRead >= maxBytes) { truncated = true; break; }
+        if (truncated || bytesRead >= maxBytes) {
+          truncated = true;
+          break;
+        }
       }
-    } catch { /* return what we have */ } finally {
+    } catch {
+      /* return what we have */
+    } finally {
       if (truncated) {
-        try { await reader.cancel(); } catch { /* ignore */ }
+        try {
+          await reader.cancel();
+        } catch {
+          /* ignore */
+        }
       }
     }
 
@@ -291,7 +323,10 @@ async function fetchWithRedirects(
 }
 
 function normalizeForDetection(value: string): string {
-  return String(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  return String(value || '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function includesAny(haystack: string, needles: readonly string[]): boolean {
@@ -308,7 +343,11 @@ function detectEscalationHint(params: {
   extractedText: string;
 }): WebFetchEscalationHint | undefined {
   const normalizedBody = normalizeForDetection(params.body);
-  if (params.status === 403 || params.status === 429 || includesAny(normalizedBody, BOT_BLOCKED_PATTERNS)) {
+  if (
+    params.status === 403 ||
+    params.status === 429 ||
+    includesAny(normalizedBody, BOT_BLOCKED_PATTERNS)
+  ) {
     return 'bot_blocked';
   }
 
@@ -316,15 +355,20 @@ function detectEscalationHint(params: {
   if (!isHtml) return undefined;
 
   if (
-    /<noscript[\s\S]{0,2000}javascript[\s\S]{0,2000}<\/noscript>/i.test(params.body) ||
+    /<noscript[\s\S]{0,2000}javascript[\s\S]{0,2000}<\/noscript>/i.test(
+      params.body,
+    ) ||
     includesAny(normalizedBody, JAVASCRIPT_REQUIRED_PATTERNS)
   ) {
     return 'javascript_required';
   }
 
   if (
-    /<div[^>]+id=["'](?:root|app|__next)["'][^>]*>\s*<\/div>/i.test(params.body) &&
-    normalizeForDetection(params.extractedText).length < ESCALATION_MIN_TEXT_CHARS
+    /<div[^>]+id=["'](?:root|app|__next)["'][^>]*>\s*<\/div>/i.test(
+      params.body,
+    ) &&
+    normalizeForDetection(params.extractedText).length <
+      ESCALATION_MIN_TEXT_CHARS
   ) {
     return 'spa_shell_only';
   }
@@ -379,7 +423,10 @@ export async function webFetch(params: {
   maxChars?: number;
 }): Promise<WebFetchResult> {
   const extractMode = params.extractMode ?? 'markdown';
-  const maxChars = Math.max(100, Math.min(params.maxChars ?? DEFAULT_MAX_CHARS, DEFAULT_MAX_CHARS));
+  const maxChars = Math.max(
+    100,
+    Math.min(params.maxChars ?? DEFAULT_MAX_CHARS, DEFAULT_MAX_CHARS),
+  );
 
   // Validate URL
   let parsedUrl: URL;
@@ -393,7 +440,8 @@ export async function webFetch(params: {
   }
 
   // Check cache
-  const cacheKey = `fetch:${params.url}:${extractMode}:${maxChars}`.toLowerCase();
+  const cacheKey =
+    `fetch:${params.url}:${extractMode}:${maxChars}`.toLowerCase();
   const cached = readCache(cacheKey);
   if (cached) return { ...cached, cached: true };
 
@@ -408,8 +456,10 @@ export async function webFetch(params: {
       controller.signal,
     );
 
-    const contentType = res.headers.get('content-type') ?? 'application/octet-stream';
-    const normalizedContentType = contentType.split(';')[0]?.trim() || 'application/octet-stream';
+    const contentType =
+      res.headers.get('content-type') ?? 'application/octet-stream';
+    const normalizedContentType =
+      contentType.split(';')[0]?.trim() || 'application/octet-stream';
     const bodyResult = await readResponseText(res, MAX_RESPONSE_BYTES);
     const body = bodyResult.text;
 
@@ -421,7 +471,11 @@ export async function webFetch(params: {
       extractor = 'cf-markdown';
       if (extractMode === 'text') text = markdownToText(body);
     } else if (contentType.includes('text/html')) {
-      const readable = await extractReadableContent(body, finalUrl, extractMode);
+      const readable = await extractReadableContent(
+        body,
+        finalUrl,
+        extractMode,
+      );
       text = readable.text;
       title = readable.title;
       extractor = 'readability';
@@ -452,7 +506,10 @@ export async function webFetch(params: {
 
     const warnings: string[] = [];
     if (!res.ok) warnings.push(`HTTP ${res.status} ${res.statusText}.`);
-    if (bodyResult.truncated) warnings.push(`Response body truncated after ${MAX_RESPONSE_BYTES} bytes.`);
+    if (bodyResult.truncated)
+      warnings.push(
+        `Response body truncated after ${MAX_RESPONSE_BYTES} bytes.`,
+      );
     const warning = warnings.length > 0 ? warnings.join(' ') : undefined;
 
     const result: WebFetchResult = {

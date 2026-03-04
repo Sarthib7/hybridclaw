@@ -1,0 +1,1303 @@
+import { createHash, randomUUID } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import { URL } from 'node:url';
+
+import type { ChatMessage } from './types.js';
+
+export type ApprovalTier = 'green' | 'yellow' | 'red';
+
+export type ApprovalDecision =
+  | 'auto'
+  | 'implicit'
+  | 'approved_once'
+  | 'approved_session'
+  | 'approved_agent'
+  | 'promoted'
+  | 'required'
+  | 'denied';
+
+export interface ApprovalPolicyRule {
+  pattern?: string;
+  paths?: string[];
+  tools?: string[];
+}
+
+export interface ApprovalPolicyConfig {
+  pinnedRed: ApprovalPolicyRule[];
+  workspaceFence: boolean;
+  maxPendingApprovals: number;
+  approvalTimeoutSecs: number;
+  audit: {
+    logAllRed: boolean;
+    logDenials: boolean;
+  };
+}
+
+interface ClassifiedAction {
+  tier: ApprovalTier;
+  actionKey: string;
+  intent: string;
+  consequenceIfDenied: string;
+  reason: string;
+  commandPreview: string;
+  pathHints: string[];
+  hostHints: string[];
+  writeIntent: boolean;
+  promotableRed: boolean;
+  stickyYellow: boolean;
+}
+
+interface PendingApproval {
+  id: string;
+  fingerprint: string;
+  actionKey: string;
+  toolName: string;
+  intent: string;
+  consequenceIfDenied: string;
+  reason: string;
+  commandPreview: string;
+  createdAtMs: number;
+  expiresAtMs: number;
+  originalPrompt: string;
+  pinned: boolean;
+}
+
+export interface ApprovalPrelude {
+  immediateMessage?: string;
+  replayPrompt?: string;
+  approvalMode?: 'once' | 'session' | 'agent';
+  approvedRequestId?: string;
+}
+
+export interface ToolApprovalEvaluation {
+  baseTier: ApprovalTier;
+  tier: ApprovalTier;
+  decision: ApprovalDecision;
+  actionKey: string;
+  fingerprint: string;
+  requestId?: string;
+  intent: string;
+  consequenceIfDenied: string;
+  reason: string;
+  commandPreview: string;
+  pinned: boolean;
+  implicitDelayMs?: number;
+  hostHints: string[];
+}
+
+const POLICY_PATH = path.posix.join('/workspace', '.hybridclaw', 'policy.yaml');
+const TRUST_STORE_PATH = path.posix.join(
+  '/workspace',
+  '.hybridclaw',
+  'approval-trust.json',
+);
+const YELLOW_IMPLICIT_DELAY_MS = 5_000;
+const YELLOW_IMPLICIT_DELAY_SECS = Math.max(
+  1,
+  Math.round(YELLOW_IMPLICIT_DELAY_MS / 1_000),
+);
+const MAX_PROMPT_CHARS = 1_200;
+const MAX_COMMAND_PREVIEW_CHARS = 160;
+
+const DEFAULT_POLICY: ApprovalPolicyConfig = {
+  pinnedRed: [
+    { pattern: 'rm\\s+-rf\\s+/' },
+    { paths: ['~/.ssh/**', '/etc/**', '.env*'] },
+    { tools: ['force_push'] },
+  ],
+  workspaceFence: true,
+  maxPendingApprovals: 3,
+  approvalTimeoutSecs: 120,
+  audit: {
+    logAllRed: true,
+    logDenials: true,
+  },
+};
+
+const CRITICAL_BASH_RE =
+  /\b(sudo|mkfs(?:\.[a-z0-9_+-]+)?|shutdown|reboot|poweroff)\b|:\(\)\s*\{.*\};\s*:|\bchmod\s+777\b|\bcurl\b[^\n|]*\|\s*(sh|bash|zsh)\b|\bwget\b[^\n|]*\|\s*(sh|bash|zsh)\b/i;
+const FORCE_PUSH_RE = /\bgit\s+push\s+--force(?:-with-lease)?\b/i;
+const DELETE_RE = /\brm\s+-[^\n;|&]*\b|\bfind\b[^\n]*\s-delete\b/i;
+const WRITE_INTENT_RE =
+  /\b(mkdir|touch|mv|cp|chmod|chown|tee)\b|(^|[^>])>>?[^>]|sed\s+-i|perl\s+-pi/i;
+const INSTALL_RE = /\b(npm|pnpm|yarn|bun)\s+(install|add)\b/i;
+const GIT_WRITE_RE =
+  /\bgit\s+(add|commit|checkout\s+-b|branch|merge|rebase|tag)\b/i;
+const UNKNOWN_SCRIPT_RE =
+  /(^|\s)(\.[/\\][^\s]+|bash\s+[^\s]+\.sh|zsh\s+[^\s]+\.sh|sh\s+[^\s]+\.sh)(\s|$)/i;
+const READ_ONLY_BASH_RE =
+  /^\s*(ls|pwd|cat|head|tail|wc|rg|grep|find|git\s+(status|log|diff|show)|npm\s+test|pnpm\s+test|yarn\s+test|vitest|pytest|phpunit|node\s+--version|npm\s+--version|pnpm\s+--version|yarn\s+--version)\b/i;
+const NETWORK_COMMAND_RE = /\b(curl|wget|http|https|ssh|scp)\b/i;
+const ABS_PATH_RE = /(^|\s)(\/[^\s"'`;,|&()<>]+)/g;
+const URL_RE = /https?:\/\/[^\s"'`<>]+/gi;
+const HOST_RE =
+  /\b(?:ssh|scp)\s+[^\s@]*@?([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})(?::\S+)?/g;
+const APPROVE_RE =
+  /^(?:\/?(?:approve|yes|y))(?:\s+([a-f0-9-]{6,64}))?(?:\s+(for\s+session|session|always|for\s+agent|agent))?$/i;
+const DENY_RE = /^(?:\/?(?:deny|reject|skip|no|n))(?:\s+([a-f0-9-]{6,64}))?$/i;
+const MENU_SELECTION_RE = /^([1-4])(?:\s+([a-f0-9-]{6,64}))?$/i;
+
+function normalizeText(value: unknown): string {
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function normalizePrompt(value: string): string {
+  return normalizeText(value).slice(0, MAX_PROMPT_CHARS);
+}
+
+function normalizePreview(value: string): string {
+  const clean = normalizeText(value);
+  if (!clean) return '(no command preview)';
+  return clean.length > MAX_COMMAND_PREVIEW_CHARS
+    ? `${clean.slice(0, MAX_COMMAND_PREVIEW_CHARS - 1)}...`
+    : clean;
+}
+
+function stableHash(input: string): string {
+  return createHash('sha256').update(input).digest('hex').slice(0, 16);
+}
+
+function parseJsonObject(raw: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    // ignore
+  }
+  return {};
+}
+
+function parseInlineList(raw: string): string[] {
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith('[') || !trimmed.endsWith(']')) return [];
+  const inner = trimmed.slice(1, -1).trim();
+  if (!inner) return [];
+  return inner
+    .split(',')
+    .map((item) => item.trim().replace(/^['"]|['"]$/g, ''))
+    .filter(Boolean);
+}
+
+function parseBool(raw: string | undefined, fallback: boolean): boolean {
+  if (!raw) return fallback;
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === 'true') return true;
+  if (normalized === 'false') return false;
+  return fallback;
+}
+
+function parseIntStrict(raw: string | undefined, fallback: number): number {
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw.trim(), 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function globPatternToRegExp(pattern: string): RegExp {
+  const escaped = pattern
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*\*/g, '::DOUBLE_STAR::')
+    .replace(/\*/g, '[^/]*')
+    .replace(/::DOUBLE_STAR::/g, '.*');
+  return new RegExp(`^${escaped}$`, 'i');
+}
+
+function normalizePathValue(rawPath: string): string {
+  const value = rawPath.trim().replace(/\\/g, '/');
+  const withoutWorkspace = value.startsWith('/workspace/')
+    ? value.slice('/workspace/'.length)
+    : value;
+  return withoutWorkspace.replace(/^\.\/+/, '').replace(/^\/+/, '');
+}
+
+function matchesPathPattern(candidatePath: string, pattern: string): boolean {
+  const normalizedCandidate = normalizePathValue(candidatePath);
+  const normalizedPattern = pattern.trim().replace(/\\/g, '/');
+  if (!normalizedPattern) return false;
+
+  // Relative patterns (e.g. ".env*") should match both root and any nested path.
+  if (
+    !normalizedPattern.startsWith('/') &&
+    !normalizedPattern.startsWith('~/')
+  ) {
+    const relRe = globPatternToRegExp(normalizedPattern.replace(/^\.\//, ''));
+    if (relRe.test(normalizedCandidate)) return true;
+    const basename = path.posix.basename(normalizedCandidate);
+    if (relRe.test(basename)) return true;
+    return false;
+  }
+
+  const absoluteCandidate = candidatePath.trim().replace(/\\/g, '/');
+  const absoluteRe = globPatternToRegExp(normalizedPattern);
+  return absoluteRe.test(absoluteCandidate);
+}
+
+function parsePolicyYaml(raw: string): Partial<ApprovalPolicyConfig> {
+  const policy: Partial<ApprovalPolicyConfig> = {};
+  const lines = raw.split(/\r?\n/);
+
+  let section: 'approval' | 'audit' | '' = '';
+  let inPinnedRed = false;
+  let pinnedRuleIndent = -1;
+  let currentRule: ApprovalPolicyRule | null = null;
+  let currentListKey: 'tools' | 'paths' | null = null;
+  const pinnedRules: ApprovalPolicyRule[] = [];
+
+  const flushRule = (): void => {
+    if (!currentRule) return;
+    const hasContent = Boolean(
+      currentRule.pattern?.trim() ||
+        (Array.isArray(currentRule.paths) && currentRule.paths.length > 0) ||
+        (Array.isArray(currentRule.tools) && currentRule.tools.length > 0),
+    );
+    if (hasContent) pinnedRules.push(currentRule);
+    currentRule = null;
+    currentListKey = null;
+  };
+
+  const applyRuleField = (
+    rule: ApprovalPolicyRule,
+    key: string,
+    rawValue: string,
+  ): void => {
+    const value = rawValue.trim();
+    if (key === 'pattern') {
+      rule.pattern = value.replace(/^['"]|['"]$/g, '');
+      return;
+    }
+    if (key === 'tools' || key === 'paths') {
+      const parsed = parseInlineList(value);
+      if (parsed.length > 0) {
+        if (key === 'tools') rule.tools = parsed;
+        if (key === 'paths') rule.paths = parsed;
+        currentListKey = null;
+      } else {
+        if (key === 'tools') rule.tools = [];
+        if (key === 'paths') rule.paths = [];
+        currentListKey = key;
+      }
+    }
+  };
+
+  for (const rawLine of lines) {
+    const noComment = rawLine.replace(/\s+#.*$/, '');
+    if (!noComment.trim()) continue;
+    const indent = noComment.match(/^ */)?.[0].length || 0;
+    const line = noComment.trim();
+
+    if (line === 'approval:') {
+      flushRule();
+      section = 'approval';
+      inPinnedRed = false;
+      continue;
+    }
+    if (line === 'audit:') {
+      flushRule();
+      section = 'audit';
+      inPinnedRed = false;
+      continue;
+    }
+    if (section === '' && line.endsWith(':')) continue;
+
+    if (section === 'approval') {
+      if (line === 'pinned_red:') {
+        flushRule();
+        inPinnedRed = true;
+        pinnedRuleIndent = -1;
+        continue;
+      }
+      if (inPinnedRed && line.startsWith('-')) {
+        if (pinnedRuleIndent < 0) pinnedRuleIndent = indent;
+        if (indent <= pinnedRuleIndent) {
+          flushRule();
+          currentRule = {};
+          const rest = line.slice(1).trim();
+          if (!rest) continue;
+          const kv = rest.match(/^([a-zA-Z_]+)\s*:\s*(.*)$/);
+          if (!kv) continue;
+          applyRuleField(currentRule, kv[1], kv[2]);
+          continue;
+        }
+      }
+      if (inPinnedRed && currentRule) {
+        if (line.startsWith('-') && currentListKey) {
+          const item = line
+            .slice(1)
+            .trim()
+            .replace(/^['"]|['"]$/g, '');
+          if (item) {
+            if (currentListKey === 'tools') {
+              currentRule.tools = [...(currentRule.tools || []), item];
+            } else {
+              currentRule.paths = [...(currentRule.paths || []), item];
+            }
+          }
+          continue;
+        }
+        const kv = line.match(/^([a-zA-Z_]+)\s*:\s*(.*)$/);
+        if (kv) {
+          applyRuleField(currentRule, kv[1], kv[2]);
+          continue;
+        }
+      }
+      if (inPinnedRed && indent <= pinnedRuleIndent && !line.startsWith('-')) {
+        flushRule();
+        inPinnedRed = false;
+      }
+      const simpleKv = line.match(/^([a-zA-Z_]+)\s*:\s*(.*)$/);
+      if (!simpleKv) continue;
+      const [, key, rawValue] = simpleKv;
+      if (key === 'workspace_fence') {
+        policy.workspaceFence = parseBool(
+          rawValue,
+          DEFAULT_POLICY.workspaceFence,
+        );
+      } else if (key === 'max_pending_approvals') {
+        policy.maxPendingApprovals = Math.max(
+          1,
+          parseIntStrict(rawValue, DEFAULT_POLICY.maxPendingApprovals),
+        );
+      } else if (key === 'approval_timeout_secs') {
+        policy.approvalTimeoutSecs = Math.max(
+          5,
+          parseIntStrict(rawValue, DEFAULT_POLICY.approvalTimeoutSecs),
+        );
+      }
+      continue;
+    }
+
+    if (section === 'audit') {
+      const kv = line.match(/^([a-zA-Z_]+)\s*:\s*(.*)$/);
+      if (!kv) continue;
+      const [, key, rawValue] = kv;
+      const audit = policy.audit || {
+        logAllRed: DEFAULT_POLICY.audit.logAllRed,
+        logDenials: DEFAULT_POLICY.audit.logDenials,
+      };
+      if (key === 'log_all_red') {
+        audit.logAllRed = parseBool(rawValue, DEFAULT_POLICY.audit.logAllRed);
+      } else if (key === 'log_denials') {
+        audit.logDenials = parseBool(rawValue, DEFAULT_POLICY.audit.logDenials);
+      }
+      policy.audit = audit;
+    }
+  }
+
+  flushRule();
+  if (pinnedRules.length > 0) policy.pinnedRed = pinnedRules;
+  return policy;
+}
+
+function loadPolicyFromDisk(policyPath: string): ApprovalPolicyConfig {
+  let filePolicy: Partial<ApprovalPolicyConfig> = {};
+  try {
+    if (fs.existsSync(policyPath)) {
+      const raw = fs.readFileSync(policyPath, 'utf-8');
+      filePolicy = parsePolicyYaml(raw);
+    }
+  } catch {
+    filePolicy = {};
+  }
+
+  return {
+    pinnedRed:
+      Array.isArray(filePolicy.pinnedRed) && filePolicy.pinnedRed.length > 0
+        ? filePolicy.pinnedRed
+        : DEFAULT_POLICY.pinnedRed,
+    workspaceFence:
+      typeof filePolicy.workspaceFence === 'boolean'
+        ? filePolicy.workspaceFence
+        : DEFAULT_POLICY.workspaceFence,
+    maxPendingApprovals:
+      typeof filePolicy.maxPendingApprovals === 'number'
+        ? Math.max(1, filePolicy.maxPendingApprovals)
+        : DEFAULT_POLICY.maxPendingApprovals,
+    approvalTimeoutSecs:
+      typeof filePolicy.approvalTimeoutSecs === 'number'
+        ? Math.max(5, filePolicy.approvalTimeoutSecs)
+        : DEFAULT_POLICY.approvalTimeoutSecs,
+    audit: {
+      logAllRed:
+        typeof filePolicy.audit?.logAllRed === 'boolean'
+          ? filePolicy.audit.logAllRed
+          : DEFAULT_POLICY.audit.logAllRed,
+      logDenials:
+        typeof filePolicy.audit?.logDenials === 'boolean'
+          ? filePolicy.audit.logDenials
+          : DEFAULT_POLICY.audit.logDenials,
+    },
+  };
+}
+
+function latestUserMessageText(messages: ChatMessage[]): string {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i].role !== 'user') continue;
+    const content = messages[i].content;
+    if (typeof content === 'string') return normalizePrompt(content);
+    if (!Array.isArray(content)) continue;
+    const textParts: string[] = [];
+    for (const part of content) {
+      if (!part || typeof part !== 'object') continue;
+      if (part.type !== 'text') continue;
+      if (typeof part.text !== 'string') continue;
+      const trimmed = part.text.trim();
+      if (trimmed) textParts.push(trimmed);
+    }
+    if (textParts.length > 0) {
+      return normalizePrompt(textParts.join('\n'));
+    }
+  }
+  return '';
+}
+
+function extractHostsFromUrlLikeText(input: string): string[] {
+  const hosts = new Set<string>();
+  for (const match of input.matchAll(URL_RE)) {
+    const raw = match[0];
+    try {
+      const parsed = new URL(raw);
+      if (parsed.hostname) hosts.add(parsed.hostname.toLowerCase());
+    } catch {
+      // ignore
+    }
+  }
+  for (const match of input.matchAll(HOST_RE)) {
+    const host = String(match[1] || '')
+      .trim()
+      .toLowerCase();
+    if (host) hosts.add(host);
+  }
+  return [...hosts];
+}
+
+function extractAbsolutePaths(input: string): string[] {
+  const paths = new Set<string>();
+  for (const match of input.matchAll(ABS_PATH_RE)) {
+    const candidate = String(match[2] || '').trim();
+    if (!candidate) continue;
+    paths.add(candidate);
+  }
+  return [...paths];
+}
+
+function primaryPathKey(rawPath: string): string {
+  const normalized = normalizePathValue(rawPath);
+  if (!normalized) return 'root';
+  const [first] = normalized.split('/');
+  return first || 'root';
+}
+
+function parseModeFromApproveMatch(
+  match: RegExpMatchArray | null,
+): 'once' | 'session' | 'agent' {
+  const scope = String(match?.[2] || '').toLowerCase();
+  if (scope.includes('agent')) return 'agent';
+  if (scope.includes('session') || scope.includes('always')) return 'session';
+  return 'once';
+}
+
+function parseApprovalUserResponse(input: string): {
+  kind: 'approve' | 'deny';
+  mode?: 'once' | 'session' | 'agent';
+  requestId: string;
+} | null {
+  const menuMatch = input.match(MENU_SELECTION_RE);
+  if (menuMatch) {
+    const requestId = String(menuMatch[2] || '').trim();
+    const selection = menuMatch[1];
+    if (selection === '1') return { kind: 'approve', mode: 'once', requestId };
+    if (selection === '2')
+      return { kind: 'approve', mode: 'session', requestId };
+    if (selection === '3') return { kind: 'approve', mode: 'agent', requestId };
+    return { kind: 'deny', requestId };
+  }
+
+  const approveMatch = input.match(APPROVE_RE);
+  if (approveMatch) {
+    return {
+      kind: 'approve',
+      mode: parseModeFromApproveMatch(approveMatch),
+      requestId: String(approveMatch[1] || '').trim(),
+    };
+  }
+
+  const denyMatch = input.match(DENY_RE);
+  if (denyMatch) {
+    return {
+      kind: 'deny',
+      requestId: String(denyMatch[1] || '').trim(),
+    };
+  }
+
+  return null;
+}
+
+interface PersistedApprovalTrustStore {
+  version: 1;
+  trustedActions: string[];
+  trustedFingerprints: string[];
+  updatedAt: string;
+}
+
+function parsePersistedTrustStore(
+  raw: string,
+): PersistedApprovalTrustStore | null {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+      return null;
+    const record = parsed as Record<string, unknown>;
+    const trustedActions = Array.isArray(record.trustedActions)
+      ? record.trustedActions
+          .map((value) => String(value || '').trim())
+          .filter(Boolean)
+      : [];
+    const trustedFingerprints = Array.isArray(record.trustedFingerprints)
+      ? record.trustedFingerprints
+          .map((value) => String(value || '').trim())
+          .filter(Boolean)
+      : [];
+    return {
+      version: 1,
+      trustedActions,
+      trustedFingerprints,
+      updatedAt:
+        typeof record.updatedAt === 'string'
+          ? record.updatedAt
+          : new Date().toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export class TrustedCoworkerApprovalRuntime {
+  private readonly policyPath: string;
+  private readonly trustStorePath: string;
+  private loadedPolicy: ApprovalPolicyConfig = DEFAULT_POLICY;
+  private policyMtimeMs = -1;
+  private readonly pending = new Map<string, PendingApproval>();
+  private readonly actionExecutionCounts = new Map<string, number>();
+  private readonly explicitApprovalCounts = new Map<string, number>();
+  private readonly oneShotFingerprints = new Set<string>();
+  private readonly sessionTrustedActions = new Set<string>();
+  private readonly agentTrustedActions = new Set<string>();
+  private readonly agentTrustedFingerprints = new Set<string>();
+  private readonly seenNetworkHosts = new Set<string>();
+
+  constructor(policyPath = POLICY_PATH, trustStorePath = TRUST_STORE_PATH) {
+    this.policyPath = policyPath;
+    this.trustStorePath = trustStorePath;
+    this.reloadPolicyIfNeeded(true);
+    this.loadAgentTrustStore();
+  }
+
+  reloadPolicyIfNeeded(force = false): ApprovalPolicyConfig {
+    let mtimeMs = -1;
+    try {
+      if (fs.existsSync(this.policyPath)) {
+        mtimeMs = fs.statSync(this.policyPath).mtimeMs;
+      }
+    } catch {
+      mtimeMs = -1;
+    }
+    if (force || mtimeMs !== this.policyMtimeMs) {
+      this.loadedPolicy = loadPolicyFromDisk(this.policyPath);
+      this.policyMtimeMs = mtimeMs;
+    }
+    return this.loadedPolicy;
+  }
+
+  private loadAgentTrustStore(): void {
+    this.agentTrustedActions.clear();
+    this.agentTrustedFingerprints.clear();
+    try {
+      if (!fs.existsSync(this.trustStorePath)) return;
+      const raw = fs.readFileSync(this.trustStorePath, 'utf-8');
+      const parsed = parsePersistedTrustStore(raw);
+      if (!parsed) return;
+      for (const actionKey of parsed.trustedActions) {
+        this.agentTrustedActions.add(actionKey);
+      }
+      for (const fingerprint of parsed.trustedFingerprints) {
+        this.agentTrustedFingerprints.add(fingerprint);
+      }
+    } catch {
+      // ignore malformed trust state; session trust still applies
+    }
+  }
+
+  private persistAgentTrustStore(): void {
+    const payload: PersistedApprovalTrustStore = {
+      version: 1,
+      trustedActions: [...this.agentTrustedActions].sort(),
+      trustedFingerprints: [...this.agentTrustedFingerprints].sort(),
+      updatedAt: new Date().toISOString(),
+    };
+    try {
+      const dir = path.posix.dirname(this.trustStorePath);
+      fs.mkdirSync(dir, { recursive: true });
+      const tmpPath = `${this.trustStorePath}.tmp`;
+      fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2), 'utf-8');
+      fs.renameSync(tmpPath, this.trustStorePath);
+    } catch {
+      // ignore persistence failures and continue with in-memory trust
+    }
+  }
+
+  handleApprovalResponse(messages: ChatMessage[]): ApprovalPrelude | null {
+    this.reloadPolicyIfNeeded();
+    this.cleanupExpiredPending();
+
+    const latest = latestUserMessageText(messages);
+    if (!latest) return null;
+
+    const parsedResponse = parseApprovalUserResponse(latest);
+    if (!parsedResponse) return null;
+    if (this.pending.size === 0) {
+      return {
+        immediateMessage: 'There is no pending approval request right now.',
+      };
+    }
+
+    const target = this.resolvePendingTarget(parsedResponse.requestId);
+    if (!target) {
+      return {
+        immediateMessage: `No pending approval found for id "${parsedResponse.requestId}".`,
+      };
+    }
+
+    if (parsedResponse.kind === 'deny') {
+      this.pending.delete(target.id);
+      return {
+        immediateMessage: `Skipped \`${target.intent}\`. I will continue without that action.`,
+      };
+    }
+
+    const requestedMode = parsedResponse.mode || 'once';
+    let mode: 'once' | 'session' | 'agent' = requestedMode;
+    this.pending.delete(target.id);
+    if (requestedMode === 'session') {
+      if (target.pinned) {
+        // Pinned-red actions are never session-trusted. Approve only this single run.
+        this.oneShotFingerprints.add(target.fingerprint);
+        mode = 'once';
+      } else {
+        this.sessionTrustedActions.add(target.actionKey);
+        this.sessionTrustedActions.add(target.fingerprint);
+      }
+    } else if (requestedMode === 'agent') {
+      if (target.pinned) {
+        // Pinned-red actions are never promoted to durable trust.
+        this.oneShotFingerprints.add(target.fingerprint);
+        mode = 'once';
+      } else {
+        this.agentTrustedActions.add(target.actionKey);
+        this.agentTrustedFingerprints.add(target.fingerprint);
+        this.persistAgentTrustStore();
+      }
+    } else {
+      this.oneShotFingerprints.add(target.fingerprint);
+    }
+    this.bumpCount(this.explicitApprovalCounts, target.actionKey);
+
+    const modeSummary =
+      mode === 'session'
+        ? 'session trust'
+        : mode === 'agent'
+          ? 'agent trust'
+          : 'once';
+    const replayPrompt = normalizePrompt(target.originalPrompt);
+    return {
+      replayPrompt: replayPrompt || undefined,
+      approvalMode: mode,
+      approvedRequestId: target.id,
+      immediateMessage: replayPrompt
+        ? undefined
+        : `Approved \`${target.intent}\` (${modeSummary}).`,
+    };
+  }
+
+  evaluateToolCall(params: {
+    toolName: string;
+    argsJson: string;
+    latestUserPrompt: string;
+  }): ToolApprovalEvaluation {
+    this.reloadPolicyIfNeeded();
+    this.cleanupExpiredPending();
+    const args = parseJsonObject(params.argsJson);
+    const classified = this.classifyAction(params.toolName, args);
+
+    const fingerprint = stableHash(
+      [
+        params.toolName,
+        classified.actionKey,
+        normalizePreview(classified.commandPreview),
+        normalizeText(JSON.stringify(args)),
+      ].join('|'),
+    );
+
+    const pinnedByPolicy = this.isPinnedRed({
+      toolName: params.toolName,
+      preview: classified.commandPreview,
+      pathHints: classified.pathHints,
+      args,
+    });
+    const baseTier: ApprovalTier =
+      pinnedByPolicy || classified.tier === 'red' ? 'red' : classified.tier;
+
+    let tier: ApprovalTier = baseTier;
+    let decision: ApprovalDecision = 'auto';
+
+    if (baseTier === 'red') {
+      const oneShotApproved = this.oneShotFingerprints.has(fingerprint);
+      const sessionApproved =
+        !pinnedByPolicy &&
+        (this.sessionTrustedActions.has(classified.actionKey) ||
+          this.sessionTrustedActions.has(fingerprint));
+      const agentApproved =
+        !pinnedByPolicy &&
+        (this.agentTrustedActions.has(classified.actionKey) ||
+          this.agentTrustedFingerprints.has(fingerprint));
+      const promotable =
+        !pinnedByPolicy &&
+        classified.promotableRed &&
+        (this.explicitApprovalCounts.get(classified.actionKey) || 0) > 0;
+
+      if (oneShotApproved) {
+        this.oneShotFingerprints.delete(fingerprint);
+        tier = pinnedByPolicy ? 'red' : 'yellow';
+        decision = 'approved_once';
+      } else if (sessionApproved) {
+        tier = 'yellow';
+        decision = 'approved_session';
+      } else if (agentApproved) {
+        tier = 'yellow';
+        decision = 'approved_agent';
+      } else if (promotable) {
+        tier = 'yellow';
+        decision = 'promoted';
+      } else {
+        if (this.pending.size >= this.loadedPolicy.maxPendingApprovals) {
+          return {
+            baseTier,
+            tier: 'red',
+            decision: 'denied',
+            actionKey: classified.actionKey,
+            fingerprint,
+            intent: classified.intent,
+            consequenceIfDenied:
+              'If this is denied, I will continue with non-destructive alternatives only.',
+            reason: `Approval queue is full (${this.loadedPolicy.maxPendingApprovals} pending).`,
+            commandPreview: classified.commandPreview,
+            pinned: pinnedByPolicy,
+            hostHints: classified.hostHints,
+          };
+        }
+        const request = this.getOrCreatePending({
+          fingerprint,
+          actionKey: classified.actionKey,
+          toolName: params.toolName,
+          intent: classified.intent,
+          consequenceIfDenied: classified.consequenceIfDenied,
+          reason: classified.reason,
+          commandPreview: classified.commandPreview,
+          originalPrompt: params.latestUserPrompt,
+          pinned: pinnedByPolicy,
+        });
+        return {
+          baseTier,
+          tier: 'red',
+          decision: 'required',
+          actionKey: classified.actionKey,
+          fingerprint,
+          requestId: request.id,
+          intent: classified.intent,
+          consequenceIfDenied: classified.consequenceIfDenied,
+          reason: classified.reason,
+          commandPreview: classified.commandPreview,
+          pinned: pinnedByPolicy,
+          hostHints: classified.hostHints,
+        };
+      }
+    }
+
+    if (tier === 'yellow') {
+      const executions =
+        this.actionExecutionCounts.get(classified.actionKey) || 0;
+      if (!classified.stickyYellow && executions >= 1) {
+        tier = 'green';
+        if (decision === 'auto') decision = 'promoted';
+      } else if (decision === 'auto') {
+        decision = 'implicit';
+      }
+    }
+
+    if (tier === 'green' && decision === 'auto') {
+      decision = 'auto';
+    }
+
+    return {
+      baseTier,
+      tier,
+      decision,
+      actionKey: classified.actionKey,
+      fingerprint,
+      intent: classified.intent,
+      consequenceIfDenied: classified.consequenceIfDenied,
+      reason: classified.reason,
+      commandPreview: classified.commandPreview,
+      pinned: pinnedByPolicy,
+      implicitDelayMs: tier === 'yellow' ? YELLOW_IMPLICIT_DELAY_MS : undefined,
+      hostHints: classified.hostHints,
+    };
+  }
+
+  afterToolExecution(
+    evaluation: ToolApprovalEvaluation,
+    succeeded: boolean,
+  ): void {
+    if (!succeeded) return;
+    this.bumpCount(this.actionExecutionCounts, evaluation.actionKey);
+    if (evaluation.hostHints.length > 0) {
+      for (const host of evaluation.hostHints) {
+        this.seenNetworkHosts.add(host.toLowerCase());
+      }
+    }
+  }
+
+  formatYellowNarration(evaluation: ToolApprovalEvaluation): string {
+    return `${evaluation.intent}. Waiting ${YELLOW_IMPLICIT_DELAY_SECS}s for interruption before running.`;
+  }
+
+  formatApprovalRequest(evaluation: ToolApprovalEvaluation): string {
+    const expiresIn = this.loadedPolicy.approvalTimeoutSecs;
+    const requestLabel = evaluation.requestId
+      ? `Approval ID: ${evaluation.requestId}`
+      : '';
+    const trustHint = evaluation.pinned
+      ? 'This action is pinned sensitive, so session/agent trust is disabled.'
+      : 'Reply `yes for session` (or `2`) to trust this action for this session, or `yes for agent` (or `3`) to trust it for this agent.';
+    return [
+      `I need your approval before I ${evaluation.intent.toLowerCase()}.`,
+      `Why: ${evaluation.reason}`,
+      `If you skip this, ${evaluation.consequenceIfDenied.charAt(0).toLowerCase()}${evaluation.consequenceIfDenied.slice(1)}`,
+      requestLabel,
+      `Reply \`yes\` (or \`1\`) to approve once, or \`skip\` (or \`4\`) to deny.`,
+      trustHint,
+      `Approval expires in ${expiresIn}s.`,
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  private getOrCreatePending(
+    input: Omit<PendingApproval, 'id' | 'createdAtMs' | 'expiresAtMs'>,
+  ): PendingApproval {
+    for (const pending of this.pending.values()) {
+      if (pending.fingerprint === input.fingerprint) return pending;
+    }
+    const createdAtMs = Date.now();
+    const pending: PendingApproval = {
+      ...input,
+      id: randomUUID().slice(0, 8),
+      createdAtMs,
+      expiresAtMs: createdAtMs + this.loadedPolicy.approvalTimeoutSecs * 1_000,
+    };
+    this.pending.set(pending.id, pending);
+    return pending;
+  }
+
+  private resolvePendingTarget(requestedId: string): PendingApproval | null {
+    if (requestedId) {
+      const direct = this.pending.get(requestedId);
+      if (direct) return direct;
+      return null;
+    }
+    let latest: PendingApproval | null = null;
+    for (const pending of this.pending.values()) {
+      if (!latest || pending.createdAtMs > latest.createdAtMs) latest = pending;
+    }
+    return latest;
+  }
+
+  private cleanupExpiredPending(): void {
+    const now = Date.now();
+    for (const [id, pending] of this.pending.entries()) {
+      if (pending.expiresAtMs <= now) {
+        this.pending.delete(id);
+      }
+    }
+  }
+
+  private bumpCount(map: Map<string, number>, key: string): void {
+    map.set(key, (map.get(key) || 0) + 1);
+  }
+
+  private classifyAction(
+    toolName: string,
+    args: Record<string, unknown>,
+  ): ClassifiedAction {
+    const lowerTool = toolName.toLowerCase();
+
+    if (
+      lowerTool === 'read' ||
+      lowerTool === 'glob' ||
+      lowerTool === 'grep' ||
+      lowerTool === 'session_search'
+    ) {
+      return {
+        tier: 'green',
+        actionKey: lowerTool,
+        intent: `run ${toolName}`,
+        consequenceIfDenied: 'I will continue without this lookup.',
+        reason: 'this is a read-only operation',
+        commandPreview: normalizePreview(JSON.stringify(args)),
+        pathHints: [],
+        hostHints: [],
+        writeIntent: false,
+        promotableRed: false,
+        stickyYellow: false,
+      };
+    }
+
+    if (lowerTool === 'delete') {
+      const rawPath = normalizeText(args.path);
+      const key = rawPath
+        ? `delete:${primaryPathKey(rawPath)}`
+        : 'delete:unknown';
+      const promotable = /(node_modules|dist|build|coverage|\.cache)/i.test(
+        rawPath,
+      );
+      return {
+        tier: 'red',
+        actionKey: key,
+        intent: `delete \`${rawPath || '(unknown path)'}\``,
+        consequenceIfDenied: 'the file will remain unchanged.',
+        reason: 'deletion is destructive',
+        commandPreview: normalizePreview(rawPath),
+        pathHints: rawPath ? [rawPath] : [],
+        hostHints: [],
+        writeIntent: true,
+        promotableRed: promotable,
+        stickyYellow: promotable,
+      };
+    }
+
+    if (
+      lowerTool === 'write' ||
+      lowerTool === 'edit' ||
+      lowerTool === 'memory'
+    ) {
+      const rawPath = normalizeText(
+        args.path || args.file_path || args.target || args.action,
+      );
+      const keyBase =
+        lowerTool === 'memory'
+          ? 'memory'
+          : `${lowerTool}:${primaryPathKey(rawPath || 'workspace')}`;
+      return {
+        tier: 'yellow',
+        actionKey: keyBase,
+        intent:
+          lowerTool === 'memory'
+            ? 'update durable memory'
+            : `${lowerTool === 'write' ? 'write' : 'edit'} \`${rawPath || '(unknown path)'}\``,
+        consequenceIfDenied:
+          lowerTool === 'memory'
+            ? 'new memory will not be persisted.'
+            : 'the file will stay unchanged.',
+        reason: 'this modifies project files',
+        commandPreview: normalizePreview(rawPath || JSON.stringify(args)),
+        pathHints: rawPath ? [rawPath] : [],
+        hostHints: [],
+        writeIntent: true,
+        promotableRed: false,
+        stickyYellow: false,
+      };
+    }
+
+    if (lowerTool === 'web_fetch' || lowerTool === 'browser_navigate') {
+      const rawUrl = normalizeText(args.url);
+      const hosts = extractHostsFromUrlLikeText(rawUrl);
+      const primaryHost = hosts[0] || 'unknown-host';
+      const unseen = hosts.filter((host) => !this.seenNetworkHosts.has(host));
+      return {
+        tier: unseen.length > 0 ? 'red' : 'yellow',
+        actionKey: `network:${primaryHost}`,
+        intent: `access ${primaryHost}`,
+        consequenceIfDenied:
+          'I will avoid contacting that host and use existing local context only.',
+        reason:
+          unseen.length > 0
+            ? 'this would contact a new external host'
+            : 'this is an external network action',
+        commandPreview: normalizePreview(rawUrl),
+        pathHints: [],
+        hostHints: hosts,
+        writeIntent: false,
+        promotableRed: unseen.length > 0,
+        stickyYellow: true,
+      };
+    }
+
+    if (
+      lowerTool.startsWith('browser_') ||
+      lowerTool === 'vision_analyze' ||
+      lowerTool === 'image'
+    ) {
+      return {
+        tier: 'yellow',
+        actionKey: lowerTool,
+        intent: `run ${toolName}`,
+        consequenceIfDenied:
+          'I will continue without browser/vision interaction.',
+        reason: 'this action interacts with external runtime state',
+        commandPreview: normalizePreview(JSON.stringify(args)),
+        pathHints: [],
+        hostHints: [],
+        writeIntent: false,
+        promotableRed: false,
+        stickyYellow: false,
+      };
+    }
+
+    if (lowerTool === 'bash') {
+      return this.classifyBashAction(args);
+    }
+
+    return {
+      tier: 'yellow',
+      actionKey: lowerTool,
+      intent: `run ${toolName}`,
+      consequenceIfDenied: 'I will continue without this action.',
+      reason: 'this action may have side effects',
+      commandPreview: normalizePreview(JSON.stringify(args)),
+      pathHints: [],
+      hostHints: [],
+      writeIntent: false,
+      promotableRed: false,
+      stickyYellow: false,
+    };
+  }
+
+  private classifyBashAction(args: Record<string, unknown>): ClassifiedAction {
+    const command = normalizeText(args.command);
+    const lower = command.toLowerCase();
+    const hosts = extractHostsFromUrlLikeText(command);
+    const unseenHosts = hosts.filter(
+      (host) => !this.seenNetworkHosts.has(host),
+    );
+    const absPaths = extractAbsolutePaths(command);
+    const writeIntent =
+      WRITE_INTENT_RE.test(command) ||
+      DELETE_RE.test(command) ||
+      INSTALL_RE.test(command) ||
+      GIT_WRITE_RE.test(command);
+
+    if (CRITICAL_BASH_RE.test(command) || FORCE_PUSH_RE.test(command)) {
+      return {
+        tier: 'red',
+        actionKey: 'bash:critical',
+        intent: `run \`${normalizePreview(command)}\``,
+        consequenceIfDenied:
+          'I will not execute that command and will propose a safer alternative.',
+        reason: 'the command is high-risk or security-sensitive',
+        commandPreview: normalizePreview(command),
+        pathHints: absPaths,
+        hostHints: hosts,
+        writeIntent,
+        promotableRed: false,
+        stickyYellow: true,
+      };
+    }
+
+    if (this.loadedPolicy.workspaceFence && writeIntent) {
+      const outsideWorkspace = absPaths.find(
+        (entry) =>
+          !entry.startsWith('/workspace') && !entry.startsWith('/dev/null'),
+      );
+      if (outsideWorkspace) {
+        return {
+          tier: 'red',
+          actionKey: 'bash:workspace-fence',
+          intent: `write outside workspace (\`${outsideWorkspace}\`)`,
+          consequenceIfDenied: 'writes outside the workspace will be skipped.',
+          reason: 'workspace fence blocks writes outside /workspace',
+          commandPreview: normalizePreview(command),
+          pathHints: absPaths,
+          hostHints: hosts,
+          writeIntent,
+          promotableRed: false,
+          stickyYellow: true,
+        };
+      }
+    }
+
+    if (DELETE_RE.test(command)) {
+      const promotable = /(node_modules|dist|build|coverage|\.cache)/i.test(
+        lower,
+      );
+      return {
+        tier: 'red',
+        actionKey: promotable ? 'bash:delete-cache' : 'bash:delete',
+        intent: `run destructive command \`${normalizePreview(command)}\``,
+        consequenceIfDenied: 'I will continue without deleting files.',
+        reason: 'the command deletes files',
+        commandPreview: normalizePreview(command),
+        pathHints: absPaths,
+        hostHints: hosts,
+        writeIntent: true,
+        promotableRed: promotable,
+        stickyYellow: promotable,
+      };
+    }
+
+    if (UNKNOWN_SCRIPT_RE.test(command)) {
+      return {
+        tier: 'red',
+        actionKey: 'bash:script',
+        intent: `run script \`${normalizePreview(command)}\``,
+        consequenceIfDenied: 'I will avoid executing unknown scripts.',
+        reason: 'script execution is treated as high risk',
+        commandPreview: normalizePreview(command),
+        pathHints: absPaths,
+        hostHints: hosts,
+        writeIntent,
+        promotableRed: false,
+        stickyYellow: true,
+      };
+    }
+
+    if (unseenHosts.length > 0 && NETWORK_COMMAND_RE.test(command)) {
+      return {
+        tier: 'red',
+        actionKey: `bash:network:${unseenHosts[0]}`,
+        intent: `contact new host ${unseenHosts[0]}`,
+        consequenceIfDenied: 'I will keep the task local and avoid that host.',
+        reason: 'the command reaches a new network host',
+        commandPreview: normalizePreview(command),
+        pathHints: absPaths,
+        hostHints: hosts,
+        writeIntent,
+        promotableRed: true,
+        stickyYellow: true,
+      };
+    }
+
+    if (INSTALL_RE.test(command)) {
+      return {
+        tier: 'yellow',
+        actionKey: 'bash:install-deps',
+        intent: `install dependencies with \`${normalizePreview(command)}\``,
+        consequenceIfDenied: 'dependency installation will be skipped.',
+        reason: 'this changes the local dependency state',
+        commandPreview: normalizePreview(command),
+        pathHints: absPaths,
+        hostHints: hosts,
+        writeIntent: true,
+        promotableRed: false,
+        stickyYellow: false,
+      };
+    }
+
+    if (GIT_WRITE_RE.test(command) || WRITE_INTENT_RE.test(command)) {
+      return {
+        tier: 'yellow',
+        actionKey: 'bash:write-op',
+        intent: `run mutating command \`${normalizePreview(command)}\``,
+        consequenceIfDenied: 'I will continue without mutating the workspace.',
+        reason: 'this command has write side effects',
+        commandPreview: normalizePreview(command),
+        pathHints: absPaths,
+        hostHints: hosts,
+        writeIntent: true,
+        promotableRed: false,
+        stickyYellow: false,
+      };
+    }
+
+    if (READ_ONLY_BASH_RE.test(command)) {
+      return {
+        tier: 'green',
+        actionKey: 'bash:read-only',
+        intent: `run read-only command \`${normalizePreview(command)}\``,
+        consequenceIfDenied: 'I will continue without that check.',
+        reason: 'this command is read-only',
+        commandPreview: normalizePreview(command),
+        pathHints: absPaths,
+        hostHints: hosts,
+        writeIntent: false,
+        promotableRed: false,
+        stickyYellow: false,
+      };
+    }
+
+    return {
+      tier: 'yellow',
+      actionKey: 'bash:other',
+      intent: `run shell command \`${normalizePreview(command)}\``,
+      consequenceIfDenied: 'I will continue without running that command.',
+      reason: 'this command may change local state',
+      commandPreview: normalizePreview(command),
+      pathHints: absPaths,
+      hostHints: hosts,
+      writeIntent,
+      promotableRed: false,
+      stickyYellow: false,
+    };
+  }
+
+  private isPinnedRed(input: {
+    toolName: string;
+    preview: string;
+    pathHints: string[];
+    args: Record<string, unknown>;
+  }): boolean {
+    const fullText =
+      `${input.toolName} ${input.preview} ${normalizeText(JSON.stringify(input.args))}`.toLowerCase();
+
+    // Hard-coded pinned path safety net.
+    const hardPinnedPaths = ['.env*', '/etc/**', '~/.ssh/**'];
+    for (const pathHint of input.pathHints) {
+      if (
+        hardPinnedPaths.some((pattern) => matchesPathPattern(pathHint, pattern))
+      )
+        return true;
+    }
+    if (fullText.includes('git push --force')) return true;
+
+    for (const rule of this.loadedPolicy.pinnedRed) {
+      if (
+        Array.isArray(rule.tools) &&
+        rule.tools.some(
+          (tool) => tool.toLowerCase() === input.toolName.toLowerCase(),
+        )
+      ) {
+        return true;
+      }
+      if (rule.pattern) {
+        try {
+          const re = new RegExp(rule.pattern, 'i');
+          if (re.test(fullText)) return true;
+        } catch {
+          // ignore invalid policy regex
+        }
+      }
+      if (Array.isArray(rule.paths) && rule.paths.length > 0) {
+        for (const pathHint of input.pathHints) {
+          if (
+            rule.paths.some((pattern) => matchesPathPattern(pathHint, pattern))
+          ) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+}

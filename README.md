@@ -11,7 +11,16 @@ npm install -g @hybridaione/hybridclaw
 hybridclaw onboarding
 ```
 
-Latest release: [v0.2.4](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.2.4)
+Latest release: [v0.2.5](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.2.5)
+
+## What's new in v0.2.5
+
+- Added trusted-coworker approval controls with `yes`, `yes for session`, `yes for agent`, and `skip` flows for red-tier actions
+- Added TUI approval menu shortcuts (`1/2/3/4`) and request-id aware approval replies
+- Added agent-scoped approval trust persistence in `.hybridclaw/approval-trust.json`
+- Moved approval policy path from `.claude/policy.yaml` to `.hybridclaw/policy.yaml`
+- Updated yellow-tier implicit approval window to 5s
+- Added CI enforcement for changed-file Biome checks plus root/container TypeScript lint before unit tests
 
 ## What's new in v0.2.3
 
@@ -99,6 +108,7 @@ HybridClaw best-in-class capabilities:
 - token-efficient context assembly: per-message history truncation, hard history budgets with head/tail preservation, and head/tail truncation for oversized bootstrap files
 - runtime self-awareness in prompts: exact HybridClaw version/date, model, and runtime host metadata injected each turn for reliable "what version/model are you?" answers
 - proactive runtime layer with active-hours gating, push delegation (`single`/`parallel`/`chain`), depth-aware tool policy, and retry controls
+- trusted-coworker approval model for tool execution: Green (`just run`), Yellow (`narrate + 5s interrupt window`), Red (`explicit approval`) with `yes` (once), `yes for session`, `yes for agent`, and `skip` (also `1/2/3/4`) plus pinned-red protections
 - structured audit trail: append-only hash-chained wire logs (`data/audit/<session>/wire.jsonl`) with tamper-evident immutability, normalized SQLite audit tables, and verification/search CLI commands
 - observability export: incremental `events:batch` forwarding with durable cursor tracking and bot-scoped ingest token lifecycle via `ingest-token:ensure`
 - model token telemetry in audit/observability events (`model.usage`) with API usage + deterministic fallback estimates
@@ -122,6 +132,7 @@ HybridClaw uses typed runtime config in `config.json` (auto-created on first run
 - `discord.typingMode` controls typing indicator lifecycle (`instant|thinking|streaming|never`)
 - `discord.presence.*` enables dynamic self-presence health states (healthy/degraded/exhausted mapped to `online|idle|dnd`, plus maintenance `invisible` during shutdown)
 - `discord.lifecycleReactions.*` enables phase emoji transitions (`queued|thinking|toolUse|streaming|done|error`)
+- approval policy layer is configured via `.hybridclaw/policy.yaml` (`approval.pinned_red`, `workspace_fence`, pending/timeout controls, audit toggles)
 - `discord.ackReaction`, `discord.ackReactionScope`, and `discord.removeAckAfterReply` control acknowledgment reaction behavior
 - `discord.debounceMs` controls default inbound debounce; channel overrides can tune noisy channels
 - `discord.rateLimitPerUser` and `discord.rateLimitExemptRoles` enforce per-user sliding-window limits

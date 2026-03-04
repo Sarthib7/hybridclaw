@@ -40,6 +40,23 @@ Before tool execution, HybridClaw applies policy hooks that block known dangerou
 
 Implementation: [container/src/extensions.ts](./container/src/extensions.ts)
 
+### 2.1) Trusted-Coworker Approvals
+
+Tool actions are risk-tiered at runtime:
+
+- Green: execute silently (read/search/status checks)
+- Yellow: execute with narrated intent and a short interrupt window
+- Red: explicit user approval required (`yes` / `yes for session` / `yes for agent` / `skip`, or `1/2/3/4`)
+
+The policy layer is repo-controlled through `.hybridclaw/policy.yaml`:
+
+- `approval.pinned_red` (never auto-promoted high-risk actions)
+- `approval.workspace_fence` (no writes outside workspace fence)
+- `approval.max_pending_approvals` and `approval.approval_timeout_secs`
+- `audit.log_all_red` and `audit.log_denials`
+
+Implementation: [container/src/approval-policy.ts](./container/src/approval-policy.ts)
+
 ### 3) Container Isolation
 
 Tool execution runs inside Docker with sandbox constraints:

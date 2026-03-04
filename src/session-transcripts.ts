@@ -21,14 +21,20 @@ function safeSessionFilename(sessionId: string): string {
   return normalized || 'session';
 }
 
-export function appendSessionTranscript(agentId: string, entry: TranscriptEntry): void {
+export function appendSessionTranscript(
+  agentId: string,
+  entry: TranscriptEntry,
+): void {
   try {
     ensureAgentDirs(agentId);
     const workspace = agentWorkspaceDir(agentId);
     const transcriptDir = path.join(workspace, TRANSCRIPTS_DIR_NAME);
     fs.mkdirSync(transcriptDir, { recursive: true });
 
-    const filePath = path.join(transcriptDir, `${safeSessionFilename(entry.sessionId)}.jsonl`);
+    const filePath = path.join(
+      transcriptDir,
+      `${safeSessionFilename(entry.sessionId)}.jsonl`,
+    );
     const row = {
       sessionId: entry.sessionId,
       channelId: entry.channelId,
@@ -40,6 +46,9 @@ export function appendSessionTranscript(agentId: string, entry: TranscriptEntry)
     };
     fs.appendFileSync(filePath, JSON.stringify(row) + '\n', 'utf-8');
   } catch (err) {
-    logger.debug({ agentId, sessionId: entry.sessionId, err }, 'Failed to append session transcript');
+    logger.debug(
+      { agentId, sessionId: entry.sessionId, err },
+      'Failed to append session transcript',
+    );
   }
 }

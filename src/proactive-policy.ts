@@ -29,7 +29,9 @@ export function isWithinActiveHours(now = new Date()): boolean {
   const end = Math.max(0, Math.min(23, PROACTIVE_ACTIVE_HOURS_END));
   if (start === end) return true;
 
-  const hour = resolveHourInTimezone(now, PROACTIVE_ACTIVE_HOURS_TIMEZONE) ?? now.getHours();
+  const hour =
+    resolveHourInTimezone(now, PROACTIVE_ACTIVE_HOURS_TIMEZONE) ??
+    now.getHours();
 
   if (start < end) {
     return hour >= start && hour < end;

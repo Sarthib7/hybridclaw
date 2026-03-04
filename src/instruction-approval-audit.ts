@@ -22,7 +22,10 @@ function ensureAuditReady(): boolean {
     initDatabase({ quiet: true });
     auditReady = true;
   } catch (err) {
-    logger.warn({ err }, 'Failed to initialize DB for instruction approval audit');
+    logger.warn(
+      { err },
+      'Failed to initialize DB for instruction approval audit',
+    );
     auditReady = false;
   }
   return auditReady;

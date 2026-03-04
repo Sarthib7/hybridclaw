@@ -2,19 +2,42 @@
 
 ## [Unreleased]
 
+No unreleased changes.
+
 ## [0.2.6](https://github.com/HybridAIOne/hybridclaw/tree/v0.2.6)
 
 ### Added
 
-- **Canonical cross-channel sessions**: Added `canonical_sessions` persistence keyed by `(agent_id, user_id)` with recent-window retention and compacted summary support for cross-channel continuity.
+- **Memory consolidation runtime controls**: Added `memory.decayRate` and `memory.consolidationIntervalHours` config support, plus gateway-managed periodic consolidation scheduling.
+- **Scheduler job runtime metadata**: Added optional `scheduler.jobs[].name` / `description`, persisted `nextRunAt`, and scheduler status surfaces for runtime visibility.
+- **Scheduler status API typing**: Added gateway status typing for scheduler jobs (`id`, `name`, `description`, `enabled`, `lastRun`, `lastStatus`, `nextRunAt`, `disabled`, `consecutiveErrors`).
+- **CLI version flag**: Added top-level `hybridclaw --version` / `-v`.
+- **Memory substrate architecture**: Added full SQLite-backed memory layers for structured KV (`kv_store`), semantic memory (`semantic_memories` with optional embeddings), knowledge graph (`entities` + `relations`), canonical cross-channel sessions, and usage events.
+- **Knowledge graph model + APIs**: Added typed entity/relation enums (with custom value support), relation traversal query APIs, and normalized serialization/parsing for graph properties.
+- **Canonical cross-channel sessions**: Added `canonical_sessions` persistence keyed by `(agent_id, user_id)` with rolling window retention, compaction summaries, and current-session exclusion support at recall time.
 - **Usage aggregation layer**: Added `usage_events` persistence plus aggregation queries (daily/monthly totals, by-agent, by-model, and daily breakdown) and gateway `usage` command surface.
 - **JSONL session export tools**: Added manual `export session [sessionId]` command and automatic compaction exports to `.session-exports/` for debugging and human review.
+- **Memory service abstraction**: Added `MemoryService` + pluggable backend interface for session/memory access, semantic recall, knowledge graph APIs, canonical recall, and compaction helpers.
+- **Memory consolidation engine**: Added consolidation engine + report model for periodic semantic decay operations.
+- **Discord command namespace expansion**: Added `usage` and `export` command parsing support.
+- **Coverage expansion**: Added comprehensive memory/DB unit tests (`tests/memory-service.test.ts`) and Discord parsing coverage for `usage`.
 
 ### Changed
 
+- **Session compaction controls**: Added token-budget compaction knobs (`sessionCompaction.tokenBudget`, `sessionCompaction.budgetRatio`) and exposed them in config normalization + example config.
+- **Gateway runtime scheduling**: Gateway now starts/restarts memory consolidation when runtime config changes and stops it cleanly on shutdown.
+- **Heartbeat memory path**: Heartbeat turns now use `MemoryService` for session retrieval, prompt-memory context, and turn persistence.
+- **Scheduler observability depth**: Scheduler now tracks and persists `nextRunAt`, includes job labels in logs, and keeps runtime state synchronized for status consumers.
+- **Approval UX wording**: Red-tier approval prompt now instructs users to deny with `no` (alias `4`) instead of `skip`.
+- **Prompt wording clarity**: Session summary hook text now explicitly frames memory as compressed/recalled durable context.
+- **Runtime hygiene sweep**: Applied project-wide lint/import-order/format cleanup across gateway/runtime modules (audit, Discord channels, container runtime, onboarding, observability, skills/security, and Vitest configs) without behavior changes.
+- **Schema migrations**: Replaced ad-hoc bootstrapping with versioned `user_version` migrations (including forward-version guard) and migration records.
 - **Memory context injection**: Gateway prompt assembly now includes canonical cross-channel recall (summary + recent messages) while excluding the current session to avoid duplicate context.
 - **SQLite migration baseline**: Introduced schema version `4` with explicit `user_version` migrations for canonical and usage tables.
 - **SQLite concurrency defaults**: Database initialization now enforces `PRAGMA journal_mode=WAL` and `PRAGMA busy_timeout=5000` for better concurrent read behavior.
+- **Gateway memory integration**: Gateway flows now route session/history/memory operations through `MemoryService`, append canonical turns after successful responses, and record usage events from model telemetry.
+- **Compaction instrumentation**: Session maintenance now exports compacted snapshots to JSONL and records richer compaction diagnostics.
+- **Scheduled usage accounting**: Isolated scheduled task runs now record usage events for aggregation parity with interactive turns.
 
 ## [0.2.5](https://github.com/HybridAIOne/hybridclaw/tree/v0.2.5)
 

@@ -15,7 +15,8 @@ export function processSideEffects(
 ): void {
   const schedules = output.sideEffects?.schedules;
   const delegations = output.sideEffects?.delegations || [];
-  if ((!schedules || schedules.length === 0) && delegations.length === 0) return;
+  if ((!schedules || schedules.length === 0) && delegations.length === 0)
+    return;
 
   let changed = false;
 
@@ -31,11 +32,24 @@ export function processSideEffects(
             effect.runAt,
             effect.everyMs,
           );
-          logger.info({ taskId, sessionId, channelId, cronExpr: effect.cronExpr, runAt: effect.runAt, everyMs: effect.everyMs }, 'Side-effect: created task');
+          logger.info(
+            {
+              taskId,
+              sessionId,
+              channelId,
+              cronExpr: effect.cronExpr,
+              runAt: effect.runAt,
+              everyMs: effect.everyMs,
+            },
+            'Side-effect: created task',
+          );
           changed = true;
         } else if (effect.action === 'remove') {
           deleteTask(effect.taskId);
-          logger.info({ taskId: effect.taskId, sessionId }, 'Side-effect: removed task');
+          logger.info(
+            { taskId: effect.taskId, sessionId },
+            'Side-effect: removed task',
+          );
           changed = true;
         }
       } catch (err) {
@@ -54,7 +68,13 @@ export function processSideEffects(
             {
               sessionId,
               channelId,
-              mode: effect.mode || (effect.chain?.length ? 'chain' : effect.tasks?.length ? 'parallel' : 'single'),
+              mode:
+                effect.mode ||
+                (effect.chain?.length
+                  ? 'chain'
+                  : effect.tasks?.length
+                    ? 'parallel'
+                    : 'single'),
               prompt: effect.prompt,
               label: effect.label,
               tasks: effect.tasks?.length,
@@ -64,7 +84,10 @@ export function processSideEffects(
           );
         }
       } catch (err) {
-        logger.error({ effect, err }, 'Failed to process delegation side-effect');
+        logger.error(
+          { effect, err },
+          'Failed to process delegation side-effect',
+        );
       }
     }
   }

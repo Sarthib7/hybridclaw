@@ -12,7 +12,10 @@ export const logger = pino({
 onRuntimeConfigChange((next, prev) => {
   if (next.ops.logLevel !== prev.ops.logLevel) {
     logger.level = next.ops.logLevel;
-    logger.info({ level: next.ops.logLevel }, 'Logger level updated from config.json');
+    logger.info(
+      { level: next.ops.logLevel },
+      'Logger level updated from config.json',
+    );
   }
 });
 

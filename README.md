@@ -24,7 +24,7 @@ Latest release: [v0.2.6](https://github.com/HybridAIOne/hybridclaw/releases/tag/
 
 ## Architecture
 
-- **Gateway service** (Node.js) — shared message/command handlers, SQLite persistence, scheduler, heartbeat, web/API, and optional Discord integration
+- **Gateway service** (Node.js) — shared message/command handlers, SQLite persistence (KV + semantic + knowledge graph + canonical sessions + usage events), scheduler, heartbeat, web/API, and optional Discord integration
 - **TUI client** — thin client over HTTP (`/api/chat`, `/api/command`)
 - **Container** (Docker, ephemeral) — HybridAI API client, sandboxed tool executor, and preinstalled browser automation runtime
 - Communication via file-based IPC (input.json / output.json)
@@ -76,15 +76,18 @@ HybridClaw best-in-class capabilities:
 
 - explicit trust-model acceptance during onboarding (recorded in `config.json`)
 - typed `config.json` runtime settings with defaults, validation, and hot reload
-- formal prompt hook orchestration (`bootstrap`, `memory`, `safety`)
+- formal prompt hook orchestration (`bootstrap`, `memory`, `safety`, `proactivity`)
+- layered memory substrate: structured KV, semantic memory, typed knowledge graph entities/relations, canonical cross-channel sessions, and usage event persistence
+- lightweight DB evolution and concurrency hardening via `PRAGMA user_version` migrations, `journal_mode=WAL`, and `busy_timeout=5000`
 - Discord conversational UX: edit-in-place streaming responses, fence-safe chunking beyond Discord's 2000-char limit, phase-aware typing/reactions, adaptive debounce batching, per-user rate limits, health-driven self-presence, reply-chain-aware context, concise attachment-first screenshot replies, and humanized pacing (time-of-day slowdown, cooldown scaling, selective silence, read-without-reply, startup staggering)
 - token-efficient context assembly: per-message history truncation, hard history budgets with head/tail preservation, and head/tail truncation for oversized bootstrap files
 - runtime self-awareness in prompts: exact HybridClaw version/date, model, and runtime host metadata injected each turn for reliable "what version/model are you?" answers
 - proactive runtime layer with active-hours gating, push delegation (`single`/`parallel`/`chain`), depth-aware tool policy, and retry controls
-- trusted-coworker approval model for tool execution: Green (`just run`), Yellow (`narrate + 5s interrupt window`), Red (`explicit approval`) with `yes` (once), `yes for session`, `yes for agent`, and `skip` (also `1/2/3/4`) plus pinned-red protections
+- trusted-coworker approval model for tool execution: Green (`just run`), Yellow (`narrate + 5s interrupt window`), Red (`explicit approval`) with `yes` (once), `yes for session`, `yes for agent`, and explicit deny (`no`, also `4`) plus pinned-red protections
 - structured audit trail: append-only hash-chained wire logs (`data/audit/<session>/wire.jsonl`) with tamper-evident immutability, normalized SQLite audit tables, and verification/search CLI commands
 - observability export: incremental `events:batch` forwarding with durable cursor tracking and bot-scoped ingest token lifecycle via `ingest-token:ensure`
 - model token telemetry in audit/observability events (`model.usage`) with API usage + deterministic fallback estimates
+- built-in usage aggregation (`usage summary|daily|monthly|model`) plus JSONL session exports (`export session [sessionId]`) for cost/debug visibility
 - gateway lifecycle controls: managed + unmanaged restart/stop flows with graceful shutdown fallback paths
 - instruction-integrity approval flow: core instruction docs (`AGENTS.md`, `SECURITY.md`, `TRUST_MODEL.md`) are hash-verified against a local approved baseline before TUI start
 
@@ -114,8 +117,11 @@ HybridClaw uses typed runtime config in `config.json` (auto-created on first run
 - `discord.guilds.<guildId>.defaultMode` sets that guild's fallback mode in `open` policy (`mention` recommended)
 - `discord.guilds.<guildId>.channels.<channelId>.*` supports per-channel mode and behavior overrides (`mode`, `typingMode`, `debounceMs`, `ackReaction*`, `humanDelay`, `rateLimitPerUser`, `suppressPatterns`, `maxConcurrentPerChannel`)
 - `scheduler.jobs[]` defines config-backed proactive jobs with `schedule.kind` (`cron|every|at`), `action.kind` (`agent_turn|system_event`), and delivery targets (`channel|last-channel|webhook`)
+- `scheduler.jobs[].name` / `scheduler.jobs[].description` add optional human-readable labels for status/log output; runtime status persists `nextRunAt`
 - Config scheduler job metadata (last status, consecutive errors, one-shot completion) persists atomically in `data/scheduler-jobs-state.json`
 - Config scheduler jobs auto-disable after repeated failures (5 consecutive errors) and one-shot jobs retry on a bounded interval until successful
+- `memory.decayRate` and `memory.consolidationIntervalHours` control semantic-memory consolidation intensity/cadence
+- `sessionCompaction.tokenBudget` and `sessionCompaction.budgetRatio` tune compaction token budgeting behavior
 - Built-in Discord humanization behaviors include night/weekend pacing, post-exchange cooldown scaling (after 5+ exchanges, reset after 20 minutes idle), selective silence in active free-mode channels, short-ack read reactions, and reconnect staggered dequeue
 - Per-guild/per-channel mode takes precedence over `discord.respondToAllMessages`
 - Discord slash commands: `/status`, `/channel-mode <off|mention|free>`, and `/channel-policy <open|allowlist|disabled>` (ephemeral replies)
@@ -397,6 +403,7 @@ Test layout and scopes:
 
 CLI runtime commands:
 
+- `hybridclaw --version` / `-v` — Print installed HybridClaw version
 - `hybridclaw gateway start [--foreground]` — Start gateway (backend by default; foreground with flag)
 - `hybridclaw gateway restart [--foreground]` — Restart managed gateway backend process
 - `hybridclaw gateway stop` — Stop managed gateway backend process

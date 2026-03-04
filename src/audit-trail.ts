@@ -92,10 +92,12 @@ function stableStringify(value: unknown): string {
   const type = typeof value;
 
   if (type === 'string') return JSON.stringify(value);
-  if (type === 'number') return Number.isFinite(value as number) ? String(value) : 'null';
+  if (type === 'number')
+    return Number.isFinite(value as number) ? String(value) : 'null';
   if (type === 'boolean') return value ? 'true' : 'false';
   if (type === 'bigint') return JSON.stringify((value as bigint).toString());
-  if (type === 'undefined' || type === 'function' || type === 'symbol') return 'null';
+  if (type === 'undefined' || type === 'function' || type === 'symbol')
+    return 'null';
 
   if (Array.isArray(value)) {
     return `[${value.map((entry) => stableStringify(entry === undefined ? null : entry)).join(',')}]`;
@@ -106,7 +108,12 @@ function stableStringify(value: unknown): string {
   const keys = Object.keys(obj).sort((a, b) => a.localeCompare(b));
   for (const key of keys) {
     const raw = obj[key];
-    if (raw === undefined || typeof raw === 'function' || typeof raw === 'symbol') continue;
+    if (
+      raw === undefined ||
+      typeof raw === 'function' ||
+      typeof raw === 'symbol'
+    )
+      continue;
     parts.push(`${JSON.stringify(key)}:${stableStringify(raw)}`);
   }
   return `{${parts.join(',')}}`;
@@ -167,7 +174,10 @@ function computeWireRecordHash(record: Omit<WireRecord, '_hash'>): string {
   return sha256(stableStringify(record));
 }
 
-function readSessionStateFromDisk(sessionId: string, filePath: string): SessionAuditState {
+function readSessionStateFromDisk(
+  sessionId: string,
+  filePath: string,
+): SessionAuditState {
   if (!fs.existsSync(filePath) || fs.statSync(filePath).size === 0) {
     const metadata: WireMetadataRecord = {
       type: 'metadata',
@@ -184,7 +194,10 @@ function readSessionStateFromDisk(sessionId: string, filePath: string): SessionA
   }
 
   const raw = fs.readFileSync(filePath, 'utf-8');
-  const lines = raw.split('\n').map((line) => line.trim()).filter(Boolean);
+  const lines = raw
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
   if (lines.length === 0) {
     const metadata: WireMetadataRecord = {
       type: 'metadata',
@@ -209,8 +222,14 @@ function readSessionStateFromDisk(sessionId: string, filePath: string): SessionA
       const metadata: WireMetadataRecord = {
         type: 'metadata',
         protocolVersion: AUDIT_PROTOCOL_VERSION,
-        sessionId: typeof firstParsed.sessionId === 'string' ? firstParsed.sessionId : sessionId,
-        createdAt: typeof firstParsed.createdAt === 'string' ? firstParsed.createdAt : new Date().toISOString(),
+        sessionId:
+          typeof firstParsed.sessionId === 'string'
+            ? firstParsed.sessionId
+            : sessionId,
+        createdAt:
+          typeof firstParsed.createdAt === 'string'
+            ? firstParsed.createdAt
+            : new Date().toISOString(),
       };
       lastHash = computeMetadataHash(metadata);
       startIndex = 1;
@@ -223,10 +242,10 @@ function readSessionStateFromDisk(sessionId: string, filePath: string): SessionA
     try {
       const parsed = JSON.parse(lines[i]) as Partial<WireRecord>;
       if (
-        typeof parsed.seq === 'number'
-        && Number.isFinite(parsed.seq)
-        && typeof parsed._hash === 'string'
-        && parsed._hash
+        typeof parsed.seq === 'number' &&
+        Number.isFinite(parsed.seq) &&
+        typeof parsed._hash === 'string' &&
+        parsed._hash
       ) {
         seq = parsed.seq;
         lastHash = parsed._hash;
@@ -319,7 +338,8 @@ export function verifyAuditSessionChain(sessionId: string): AuditVerifyResult {
       const metadata: WireMetadataRecord = {
         type: 'metadata',
         protocolVersion: AUDIT_PROTOCOL_VERSION,
-        sessionId: typeof first.sessionId === 'string' ? first.sessionId : sessionId,
+        sessionId:
+          typeof first.sessionId === 'string' ? first.sessionId : sessionId,
         createdAt: typeof first.createdAt === 'string' ? first.createdAt : '',
       };
       expectedPrevHash = computeMetadataHash(metadata);
@@ -335,12 +355,16 @@ export function verifyAuditSessionChain(sessionId: string): AuditVerifyResult {
     try {
       parsed = JSON.parse(lines[i]) as WireRecord;
     } catch (err) {
-      errors.push(`Line ${lineNo}: invalid JSON (${err instanceof Error ? err.message : 'parse failure'}).`);
+      errors.push(
+        `Line ${lineNo}: invalid JSON (${err instanceof Error ? err.message : 'parse failure'}).`,
+      );
       continue;
     }
 
     if (parsed.version !== AUDIT_PROTOCOL_VERSION) {
-      errors.push(`Line ${lineNo}: unsupported version "${String(parsed.version)}".`);
+      errors.push(
+        `Line ${lineNo}: unsupported version "${String(parsed.version)}".`,
+      );
       continue;
     }
     if (!Number.isFinite(parsed.seq) || parsed.seq <= 0) {
@@ -348,7 +372,9 @@ export function verifyAuditSessionChain(sessionId: string): AuditVerifyResult {
       continue;
     }
     if (parsed.seq !== expectedSeq) {
-      errors.push(`Line ${lineNo}: expected seq ${expectedSeq}, got ${parsed.seq}.`);
+      errors.push(
+        `Line ${lineNo}: expected seq ${expectedSeq}, got ${parsed.seq}.`,
+      );
     }
     if (parsed._prevHash !== expectedPrevHash) {
       errors.push(`Line ${lineNo}: previous hash mismatch.`);

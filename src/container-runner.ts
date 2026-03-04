@@ -2,7 +2,7 @@
  * Container Runner — manages a pool of persistent containers.
  * Containers stay alive between requests and exit after an idle timeout.
  */
-import { ChildProcess, spawn } from 'child_process';
+import { type ChildProcess, spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
@@ -15,6 +15,7 @@ import {
   DATA_DIR,
   GATEWAY_API_TOKEN,
   GATEWAY_BASE_URL,
+  getHybridAIApiKey,
   HYBRIDAI_BASE_URL,
   HYBRIDAI_MODEL,
   MAX_CONCURRENT_CONTAINERS,
@@ -23,9 +24,15 @@ import {
   PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS,
   PROACTIVE_AUTO_RETRY_MAX_DELAY_MS,
   PROACTIVE_RALPH_MAX_ITERATIONS,
-  getHybridAIApiKey,
 } from './config.js';
-import { cleanupIpc, ensureAgentDirs, ensureSessionDirs, getSessionPaths, readOutput, writeInput } from './ipc.js';
+import {
+  cleanupIpc,
+  ensureAgentDirs,
+  ensureSessionDirs,
+  getSessionPaths,
+  readOutput,
+  writeInput,
+} from './ipc.js';
 import { logger } from './logger.js';
 import { validateAdditionalMounts } from './mount-security.js';
 import type {
@@ -52,7 +59,8 @@ interface PoolEntry {
 }
 
 const pool = new Map<string, PoolEntry>();
-const TOOL_RESULT_RE = /^\[tool\]\s+([a-zA-Z0-9_.-]+)\s+result\s+\((\d+)ms\):\s*(.*)$/;
+const TOOL_RESULT_RE =
+  /^\[tool\]\s+([a-zA-Z0-9_.-]+)\s+result\s+\((\d+)ms\):\s*(.*)$/;
 const TOOL_START_RE = /^\[tool\]\s+([a-zA-Z0-9_.-]+):\s*(.*)$/;
 const STREAM_DELTA_RE = /^\[stream\]\s+([A-Za-z0-9+/=]+)$/;
 const CONTAINER_WORKSPACE_ROOT = '/workspace';
@@ -73,7 +81,10 @@ function emitTextDelta(entry: PoolEntry, line: string): void {
     if (!delta) return;
     callback(delta);
   } catch (err) {
-    logger.debug({ sessionId: entry.sessionId, err }, 'Text delta callback failed');
+    logger.debug(
+      { sessionId: entry.sessionId, err },
+      'Text delta callback failed',
+    );
   }
 }
 
@@ -92,7 +103,10 @@ function emitToolProgress(entry: PoolEntry, line: string): void {
         preview: resultMatch[3],
       });
     } catch (err) {
-      logger.debug({ sessionId: entry.sessionId, err }, 'Tool progress callback failed');
+      logger.debug(
+        { sessionId: entry.sessionId, err },
+        'Tool progress callback failed',
+      );
     }
     return;
   }
@@ -107,7 +121,10 @@ function emitToolProgress(entry: PoolEntry, line: string): void {
         preview: startMatch[2],
       });
     } catch (err) {
-      logger.debug({ sessionId: entry.sessionId, err }, 'Tool progress callback failed');
+      logger.debug(
+        { sessionId: entry.sessionId, err },
+        'Tool progress callback failed',
+      );
     }
   }
 }
@@ -119,7 +136,10 @@ export function getActiveContainerCount(): number {
 export function stopSessionContainer(sessionId: string): boolean {
   const entry = pool.get(sessionId);
   if (!entry) return false;
-  logger.info({ sessionId, containerName: entry.containerName }, 'Stopping session container');
+  logger.info(
+    { sessionId, containerName: entry.containerName },
+    'Stopping session container',
+  );
   stopContainer(entry.containerName);
   pool.delete(sessionId);
   return true;
@@ -132,7 +152,10 @@ function stopContainer(containerName: string): void {
   });
 }
 
-function resolveArtifactHostPath(rawPath: string, workspacePath: string): string | null {
+function resolveArtifactHostPath(
+  rawPath: string,
+  workspacePath: string,
+): string | null {
   const input = String(rawPath || '').trim();
   if (!input) return null;
   const normalized = input.replace(/\\/g, '/');
@@ -140,12 +163,20 @@ function resolveArtifactHostPath(rawPath: string, workspacePath: string): string
 
   if (path.posix.isAbsolute(normalized)) {
     const cleanAbs = path.posix.normalize(normalized);
-    if (cleanAbs !== CONTAINER_WORKSPACE_ROOT && !cleanAbs.startsWith(`${CONTAINER_WORKSPACE_ROOT}/`)) {
+    if (
+      cleanAbs !== CONTAINER_WORKSPACE_ROOT &&
+      !cleanAbs.startsWith(`${CONTAINER_WORKSPACE_ROOT}/`)
+    ) {
       return null;
     }
-    const rel = cleanAbs.slice(CONTAINER_WORKSPACE_ROOT.length).replace(/^\/+/, '');
+    const rel = cleanAbs
+      .slice(CONTAINER_WORKSPACE_ROOT.length)
+      .replace(/^\/+/, '');
     const resolved = path.resolve(workspaceRoot, rel);
-    if (resolved === workspaceRoot || resolved.startsWith(`${workspaceRoot}${path.sep}`)) {
+    if (
+      resolved === workspaceRoot ||
+      resolved.startsWith(`${workspaceRoot}${path.sep}`)
+    ) {
       return resolved;
     }
     return null;
@@ -154,21 +185,32 @@ function resolveArtifactHostPath(rawPath: string, workspacePath: string): string
   const cleanRel = path.posix.normalize(normalized);
   if (cleanRel === '..' || cleanRel.startsWith('../')) return null;
   const resolved = path.resolve(workspaceRoot, cleanRel);
-  if (resolved === workspaceRoot || resolved.startsWith(`${workspaceRoot}${path.sep}`)) {
+  if (
+    resolved === workspaceRoot ||
+    resolved.startsWith(`${workspaceRoot}${path.sep}`)
+  ) {
     return resolved;
   }
   return null;
 }
 
-function remapOutputArtifacts(output: ContainerOutput, workspacePath: string): void {
+function remapOutputArtifacts(
+  output: ContainerOutput,
+  workspacePath: string,
+): void {
   if (!Array.isArray(output.artifacts) || output.artifacts.length === 0) return;
   const mapped: ArtifactMetadata[] = [];
   for (const artifact of output.artifacts) {
     const raw = artifact as Partial<ArtifactMetadata>;
-    const hostPath = resolveArtifactHostPath(String(raw.path || ''), workspacePath);
+    const hostPath = resolveArtifactHostPath(
+      String(raw.path || ''),
+      workspacePath,
+    );
     if (!hostPath) continue;
-    const filename = String(raw.filename || '').trim() || path.basename(hostPath);
-    const mimeType = String(raw.mimeType || '').trim() || 'application/octet-stream';
+    const filename =
+      String(raw.filename || '').trim() || path.basename(hostPath);
+    const mimeType =
+      String(raw.mimeType || '').trim() || 'application/octet-stream';
     mapped.push({ path: hostPath, filename, mimeType });
   }
   if (mapped.length === 0) {
@@ -179,7 +221,10 @@ function remapOutputArtifacts(output: ContainerOutput, workspacePath: string): v
 }
 
 function remapHostBaseUrlForContainer(baseUrl: string): string {
-  return baseUrl.replace(/\/\/(localhost|127\.0\.0\.1)([:\/])/, '//host.docker.internal$2');
+  return baseUrl.replace(
+    /\/\/(localhost|127\.0\.0\.1)([:/])/,
+    '//host.docker.internal$2',
+  );
 }
 
 /**
@@ -187,8 +232,15 @@ function remapHostBaseUrlForContainer(baseUrl: string): string {
  */
 function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
   const existing = pool.get(sessionId);
-  if (existing && !existing.process.killed && existing.process.exitCode === null) {
-    logger.debug({ sessionId, containerName: existing.containerName }, 'Reusing container');
+  if (
+    existing &&
+    !existing.process.killed &&
+    existing.process.exitCode === null
+  ) {
+    logger.debug(
+      { sessionId, containerName: existing.containerName },
+      'Reusing container',
+    );
     return existing;
   }
 
@@ -208,23 +260,38 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
     'run',
     '--rm',
     '-i',
-    '--name', containerName,
-    '--memory', CONTAINER_MEMORY,
+    '--name',
+    containerName,
+    '--memory',
+    CONTAINER_MEMORY,
     `--cpus=${CONTAINER_CPUS}`,
     '--read-only',
-    '--tmpfs', '/tmp',
-    '-v', `${workspacePath}:/workspace:rw`,
-    '-v', `${ipcPath}:/ipc:rw`,
-    '-v', `${mediaCacheHostPath}:${CONTAINER_DISCORD_MEDIA_CACHE_ROOT}:ro`,
-    '-e', `HYBRIDAI_BASE_URL=${HYBRIDAI_BASE_URL}`,
-    '-e', `HYBRIDAI_MODEL=${HYBRIDAI_MODEL}`,
-    '-e', `CONTAINER_IDLE_TIMEOUT=${IDLE_TIMEOUT_MS}`,
-    '-e', `HYBRIDCLAW_RETRY_ENABLED=${PROACTIVE_AUTO_RETRY_ENABLED ? 'true' : 'false'}`,
-    '-e', `HYBRIDCLAW_RETRY_MAX_ATTEMPTS=${PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS}`,
-    '-e', `HYBRIDCLAW_RETRY_BASE_DELAY_MS=${PROACTIVE_AUTO_RETRY_BASE_DELAY_MS}`,
-    '-e', `HYBRIDCLAW_RETRY_MAX_DELAY_MS=${PROACTIVE_AUTO_RETRY_MAX_DELAY_MS}`,
-    '-e', `HYBRIDCLAW_RALPH_MAX_ITERATIONS=${PROACTIVE_RALPH_MAX_ITERATIONS}`,
-    '-e', 'PLAYWRIGHT_BROWSERS_PATH=/ms-playwright',
+    '--tmpfs',
+    '/tmp',
+    '-v',
+    `${workspacePath}:/workspace:rw`,
+    '-v',
+    `${ipcPath}:/ipc:rw`,
+    '-v',
+    `${mediaCacheHostPath}:${CONTAINER_DISCORD_MEDIA_CACHE_ROOT}:ro`,
+    '-e',
+    `HYBRIDAI_BASE_URL=${HYBRIDAI_BASE_URL}`,
+    '-e',
+    `HYBRIDAI_MODEL=${HYBRIDAI_MODEL}`,
+    '-e',
+    `CONTAINER_IDLE_TIMEOUT=${IDLE_TIMEOUT_MS}`,
+    '-e',
+    `HYBRIDCLAW_RETRY_ENABLED=${PROACTIVE_AUTO_RETRY_ENABLED ? 'true' : 'false'}`,
+    '-e',
+    `HYBRIDCLAW_RETRY_MAX_ATTEMPTS=${PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS}`,
+    '-e',
+    `HYBRIDCLAW_RETRY_BASE_DELAY_MS=${PROACTIVE_AUTO_RETRY_BASE_DELAY_MS}`,
+    '-e',
+    `HYBRIDCLAW_RETRY_MAX_DELAY_MS=${PROACTIVE_AUTO_RETRY_MAX_DELAY_MS}`,
+    '-e',
+    `HYBRIDCLAW_RALPH_MAX_ITERATIONS=${PROACTIVE_RALPH_MAX_ITERATIONS}`,
+    '-e',
+    'PLAYWRIGHT_BROWSERS_PATH=/ms-playwright',
   ];
 
   // Run as host user so bind-mount file ownership matches
@@ -241,10 +308,16 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
       const requested = JSON.parse(ADDITIONAL_MOUNTS) as AdditionalMount[];
       const validated = validateAdditionalMounts(requested);
       for (const m of validated) {
-        args.push('-v', `${m.hostPath}:${m.containerPath}:${m.readonly ? 'ro' : 'rw'}`);
+        args.push(
+          '-v',
+          `${m.hostPath}:${m.containerPath}:${m.readonly ? 'ro' : 'rw'}`,
+        );
       }
     } catch (err) {
-      logger.warn({ error: err instanceof Error ? err.message : String(err) }, 'Failed to parse ADDITIONAL_MOUNTS');
+      logger.warn(
+        { error: err instanceof Error ? err.message : String(err) },
+        'Failed to parse ADDITIONAL_MOUNTS',
+      );
     }
   }
 
@@ -334,7 +407,10 @@ export async function runContainer(
   cleanupIpc(sessionId);
   ensureSessionDirs(sessionId);
 
-  const isNewContainer = !pool.has(sessionId) || pool.get(sessionId)!.process.killed || pool.get(sessionId)!.process.exitCode !== null;
+  const isNewContainer =
+    !pool.has(sessionId) ||
+    pool.get(sessionId)!.process.killed ||
+    pool.get(sessionId)!.process.exitCode !== null;
 
   let entry: PoolEntry;
   try {
@@ -377,7 +453,10 @@ export async function runContainer(
   entry.onTextDelta = onTextDelta;
   entry.onToolProgress = onToolProgress;
   const onAbort = () => {
-    logger.info({ sessionId, containerName: entry.containerName }, 'Interrupt requested, stopping container');
+    logger.info(
+      { sessionId, containerName: entry.containerName },
+      'Interrupt requested, stopping container',
+    );
     stopContainer(entry.containerName);
   };
   if (abortSignal) {
@@ -397,12 +476,20 @@ export async function runContainer(
     }
 
     // Wait for the container to produce output
-    const output = await readOutput(sessionId, CONTAINER_TIMEOUT, { signal: abortSignal });
+    const output = await readOutput(sessionId, CONTAINER_TIMEOUT, {
+      signal: abortSignal,
+    });
     remapOutputArtifacts(output, workspacePath);
     const duration = Date.now() - startTime;
 
     logger.info(
-      { sessionId, containerName: entry.containerName, duration, status: output.status, toolsUsed: output.toolsUsed },
+      {
+        sessionId,
+        containerName: entry.containerName,
+        duration,
+        status: output.status,
+        toolsUsed: output.toolsUsed,
+      },
       'Request completed',
     );
 
@@ -423,7 +510,10 @@ export async function runContainer(
  */
 export function stopAllContainers(): void {
   for (const [sessionId, entry] of pool) {
-    logger.info({ sessionId, containerName: entry.containerName }, 'Stopping container (shutdown)');
+    logger.info(
+      { sessionId, containerName: entry.containerName },
+      'Stopping container (shutdown)',
+    );
     stopContainer(entry.containerName);
   }
   pool.clear();

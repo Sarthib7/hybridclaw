@@ -46,7 +46,11 @@ export function ensureAgentDirs(agentId: string): void {
  * When omitApiKey is set, the apiKey field is excluded from the file on disk
  * (the container already has the key in memory from the initial stdin payload).
  */
-export function writeInput(sessionId: string, input: ContainerInput, opts?: { omitApiKey?: boolean }): string {
+export function writeInput(
+  sessionId: string,
+  input: ContainerInput,
+  opts?: { omitApiKey?: boolean },
+): string {
   const dir = ipcDir(sessionId);
   const inputPath = path.join(dir, 'input.json');
   const toWrite = opts?.omitApiKey ? { ...input, apiKey: '' } : input;
@@ -67,7 +71,10 @@ function interruptedOutput(): ContainerOutput {
   };
 }
 
-async function sleepWithAbort(ms: number, signal?: AbortSignal): Promise<boolean> {
+async function sleepWithAbort(
+  ms: number,
+  signal?: AbortSignal,
+): Promise<boolean> {
   if (!signal) {
     await new Promise((resolve) => setTimeout(resolve, ms));
     return false;
@@ -109,8 +116,16 @@ export async function readOutput(
       const stat = fs.statSync(outputPath);
       if (stat.size > CONTAINER_MAX_OUTPUT_SIZE) {
         fs.unlinkSync(outputPath);
-        logger.warn({ sessionId, size: stat.size, limit: CONTAINER_MAX_OUTPUT_SIZE }, 'Container output exceeded size limit');
-        return { status: 'error', result: null, toolsUsed: [], error: `Output too large (${stat.size} bytes, limit ${CONTAINER_MAX_OUTPUT_SIZE})` };
+        logger.warn(
+          { sessionId, size: stat.size, limit: CONTAINER_MAX_OUTPUT_SIZE },
+          'Container output exceeded size limit',
+        );
+        return {
+          status: 'error',
+          result: null,
+          toolsUsed: [],
+          error: `Output too large (${stat.size} bytes, limit ${CONTAINER_MAX_OUTPUT_SIZE})`,
+        };
       }
       try {
         const raw = fs.readFileSync(outputPath, 'utf-8');
@@ -152,7 +167,10 @@ export function cleanupIpc(sessionId: string): void {
 /**
  * Get host paths for container mounting.
  */
-export function getSessionPaths(sessionId: string, agentId: string): {
+export function getSessionPaths(
+  sessionId: string,
+  agentId: string,
+): {
   ipcPath: string;
   workspacePath: string;
 } {

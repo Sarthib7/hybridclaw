@@ -73,7 +73,11 @@ export function loadMountAllowlist(): MountAllowlist | null {
 
     cachedAllowlist = allowlist;
     logger.info(
-      { path: MOUNT_ALLOWLIST_PATH, allowedRoots: allowlist.allowedRoots.length, blockedPatterns: allowlist.blockedPatterns.length },
+      {
+        path: MOUNT_ALLOWLIST_PATH,
+        allowedRoots: allowlist.allowedRoots.length,
+        blockedPatterns: allowlist.blockedPatterns.length,
+      },
       'Mount allowlist loaded',
     );
     return cachedAllowlist;
@@ -102,7 +106,10 @@ function getRealPath(p: string): string | null {
   }
 }
 
-function matchesBlockedPattern(realPath: string, blockedPatterns: string[]): string | null {
+function matchesBlockedPattern(
+  realPath: string,
+  blockedPatterns: string[],
+): string | null {
   const pathParts = realPath.split(path.sep);
   for (const pattern of blockedPatterns) {
     for (const part of pathParts) {
@@ -113,7 +120,10 @@ function matchesBlockedPattern(realPath: string, blockedPatterns: string[]): str
   return null;
 }
 
-function findAllowedRoot(realPath: string, allowedRoots: AllowedRoot[]): AllowedRoot | null {
+function findAllowedRoot(
+  realPath: string,
+  allowedRoots: AllowedRoot[],
+): AllowedRoot | null {
   for (const root of allowedRoots) {
     const realRoot = getRealPath(expandPath(root.path));
     if (realRoot === null) continue;
@@ -144,23 +154,38 @@ export interface MountValidationResult {
 export function validateMount(mount: AdditionalMount): MountValidationResult {
   const allowlist = loadMountAllowlist();
   if (allowlist === null) {
-    return { allowed: false, reason: `No mount allowlist configured at ${MOUNT_ALLOWLIST_PATH}` };
+    return {
+      allowed: false,
+      reason: `No mount allowlist configured at ${MOUNT_ALLOWLIST_PATH}`,
+    };
   }
 
   const containerPath = mount.containerPath || path.basename(mount.hostPath);
   if (!isValidContainerPath(containerPath)) {
-    return { allowed: false, reason: `Invalid container path: "${containerPath}" — must be relative, non-empty, and not contain ".."` };
+    return {
+      allowed: false,
+      reason: `Invalid container path: "${containerPath}" — must be relative, non-empty, and not contain ".."`,
+    };
   }
 
   const expandedPath = expandPath(mount.hostPath);
   const realPath = getRealPath(expandedPath);
   if (realPath === null) {
-    return { allowed: false, reason: `Host path does not exist: "${mount.hostPath}" (expanded: "${expandedPath}")` };
+    return {
+      allowed: false,
+      reason: `Host path does not exist: "${mount.hostPath}" (expanded: "${expandedPath}")`,
+    };
   }
 
-  const blockedMatch = matchesBlockedPattern(realPath, allowlist.blockedPatterns);
+  const blockedMatch = matchesBlockedPattern(
+    realPath,
+    allowlist.blockedPatterns,
+  );
   if (blockedMatch !== null) {
-    return { allowed: false, reason: `Path matches blocked pattern "${blockedMatch}": "${realPath}"` };
+    return {
+      allowed: false,
+      reason: `Path matches blocked pattern "${blockedMatch}": "${realPath}"`,
+    };
   }
 
   const allowedRoot = findAllowedRoot(realPath, allowlist.allowedRoots);
@@ -176,7 +201,10 @@ export function validateMount(mount: AdditionalMount): MountValidationResult {
   if (mount.readonly === false && allowedRoot.allowReadWrite) {
     effectiveReadonly = false;
   } else if (mount.readonly === false && !allowedRoot.allowReadWrite) {
-    logger.info({ mount: mount.hostPath, root: allowedRoot.path }, 'Mount forced to read-only — root does not allow read-write');
+    logger.info(
+      { mount: mount.hostPath, root: allowedRoot.path },
+      'Mount forced to read-only — root does not allow read-write',
+    );
   }
 
   return {
@@ -195,7 +223,11 @@ export function validateMount(mount: AdditionalMount): MountValidationResult {
 export function validateAdditionalMounts(
   mounts: AdditionalMount[],
 ): Array<{ hostPath: string; containerPath: string; readonly: boolean }> {
-  const validated: Array<{ hostPath: string; containerPath: string; readonly: boolean }> = [];
+  const validated: Array<{
+    hostPath: string;
+    containerPath: string;
+    readonly: boolean;
+  }> = [];
 
   for (const mount of mounts) {
     const result = validateMount(mount);
@@ -205,12 +237,25 @@ export function validateAdditionalMounts(
         containerPath: `/workspace/extra/${result.resolvedContainerPath}`,
         readonly: result.effectiveReadonly!,
       });
-      logger.debug({ hostPath: result.realHostPath, containerPath: result.resolvedContainerPath, readonly: result.effectiveReadonly }, 'Mount validated');
+      logger.debug(
+        {
+          hostPath: result.realHostPath,
+          containerPath: result.resolvedContainerPath,
+          readonly: result.effectiveReadonly,
+        },
+        'Mount validated',
+      );
     } else {
-      logger.warn({ requestedPath: mount.hostPath, containerPath: mount.containerPath, reason: result.reason }, 'Additional mount REJECTED');
+      logger.warn(
+        {
+          requestedPath: mount.hostPath,
+          containerPath: mount.containerPath,
+          reason: result.reason,
+        },
+        'Additional mount REJECTED',
+      );
     }
   }
 
   return validated;
 }
-

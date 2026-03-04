@@ -21,7 +21,11 @@ export function normalizeMentionAlias(raw: string | null | undefined): string {
   return lowered;
 }
 
-export function addMentionAlias(lookup: MentionLookup, rawAlias: string | null | undefined, userId: string): void {
+export function addMentionAlias(
+  lookup: MentionLookup,
+  rawAlias: string | null | undefined,
+  userId: string,
+): void {
   const alias = normalizeMentionAlias(rawAlias);
   if (!alias) return;
   let ids = lookup.byAlias.get(alias);
@@ -36,7 +40,10 @@ export function extractMentionAliasHints(text: string): MentionAliasHint[] {
   if (!text) return [];
 
   const hints = new Map<string, MentionAliasHint>();
-  const collect = (rawAlias: string | null | undefined, rawUserId: string | null | undefined): void => {
+  const collect = (
+    rawAlias: string | null | undefined,
+    rawUserId: string | null | undefined,
+  ): void => {
     const userId = (rawUserId || '').trim();
     if (!/^\d{16,22}$/.test(userId)) return;
     const alias = normalizeMentionAlias(rawAlias);
@@ -45,13 +52,15 @@ export function extractMentionAliasHints(text: string): MentionAliasHint[] {
     if (!hints.has(key)) hints.set(key, { alias, userId });
   };
 
-  const aliasToId = /(^|[\s,;:.!?])@?([\p{L}\p{N}._-]{2,32})\s*(?:ist|is|=|->|=>|means|heißt)\s*(?:<@!?(\d{16,22})>|(\d{16,22}))/giu;
+  const aliasToId =
+    /(^|[\s,;:.!?])@?([\p{L}\p{N}._-]{2,32})\s*(?:ist|is|=|->|=>|means|heißt)\s*(?:<@!?(\d{16,22})>|(\d{16,22}))/giu;
   let match: RegExpExecArray | null;
   while ((match = aliasToId.exec(text)) !== null) {
     collect(match[2], match[3] || match[4]);
   }
 
-  const idToAlias = /(?:<@!?(\d{16,22})>|(\d{16,22}))\s*(?:ist|is|=|->|=>|means|heißt)\s*@?([\p{L}\p{N}._-]{2,32})/giu;
+  const idToAlias =
+    /(?:<@!?(\d{16,22})>|(\d{16,22}))\s*(?:ist|is|=|->|=>|means|heißt)\s*@?([\p{L}\p{N}._-]{2,32})/giu;
   while ((match = idToAlias.exec(text)) !== null) {
     collect(match[3], match[1] || match[2]);
   }
@@ -59,18 +68,24 @@ export function extractMentionAliasHints(text: string): MentionAliasHint[] {
   return Array.from(hints.values());
 }
 
-export function rewriteUserMentions(text: string, lookup: MentionLookup): string {
+export function rewriteUserMentions(
+  text: string,
+  lookup: MentionLookup,
+): string {
   if (!text) return text;
   if (!lookup.byAlias.size) return text;
-  return text.replace(/(^|[\s([{:>])@([\p{L}\p{N}._-]{2,32})\b/gu, (full, prefix: string, rawAlias: string) => {
-    const alias = normalizeMentionAlias(rawAlias);
-    if (!alias) return full;
-    const ids = lookup.byAlias.get(alias);
-    if (!ids || ids.size !== 1) return full;
-    const [id] = Array.from(ids);
-    if (!id) return full;
-    return `${prefix}<@${id}>`;
-  });
+  return text.replace(
+    /(^|[\s([{:>])@([\p{L}\p{N}._-]{2,32})\b/gu,
+    (full, prefix: string, rawAlias: string) => {
+      const alias = normalizeMentionAlias(rawAlias);
+      if (!alias) return full;
+      const ids = lookup.byAlias.get(alias);
+      if (!ids || ids.size !== 1) return full;
+      const [id] = Array.from(ids);
+      if (!id) return full;
+      return `${prefix}<@${id}>`;
+    },
+  );
 }
 
 function extractMentionAliases(text: string): string[] {
@@ -97,7 +112,10 @@ async function enrichMentionLookupFromGuild(
   for (const alias of aliases) {
     if (lookup.byAlias.has(alias)) continue;
     try {
-      const members = await msg.guild.members.search({ query: alias, limit: 5 });
+      const members = await msg.guild.members.search({
+        query: alias,
+        limit: 5,
+      });
       const exactMatches = Array.from(members.values()).filter((member) => {
         const username = normalizeMentionAlias(member.user?.username || '');
         const displayName = normalizeMentionAlias(member.displayName || '');

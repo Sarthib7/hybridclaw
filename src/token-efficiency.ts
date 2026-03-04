@@ -67,13 +67,17 @@ function trimToRecentWithinBudget(
   return kept.reverse();
 }
 
-export function estimateTokenCountFromText(text: string | null | undefined): number {
+export function estimateTokenCountFromText(
+  text: string | null | undefined,
+): number {
   const normalized = typeof text === 'string' ? text : '';
   if (!normalized) return 0;
   return Math.max(1, Math.ceil(normalized.length / DEFAULT_CHARS_PER_TOKEN));
 }
 
-function normalizeMessageContentToText(content: ChatMessage['content']): string {
+function normalizeMessageContentToText(
+  content: ChatMessage['content'],
+): string {
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return '';
   const chunks: string[] = [];
@@ -98,16 +102,24 @@ export function estimateTokenCountFromMessages(
   for (const message of messages) {
     total += 4; // Approximate per-message framing overhead.
     total += estimateTokenCountFromText(message.role);
-    total += estimateTokenCountFromText(normalizeMessageContentToText(message.content));
+    total += estimateTokenCountFromText(
+      normalizeMessageContentToText(message.content),
+    );
   }
   return total;
 }
 
-export function truncateMessageContent(content: string, maxChars: number): string {
+export function truncateMessageContent(
+  content: string,
+  maxChars: number,
+): string {
   if (!Number.isFinite(maxChars) || maxChars <= 0) return '';
   if (content.length <= maxChars) return content;
 
-  const bodyMax = Math.max(0, Math.floor(maxChars) - MESSAGE_TRUNCATED_MARKER.length);
+  const bodyMax = Math.max(
+    0,
+    Math.floor(maxChars) - MESSAGE_TRUNCATED_MARKER.length,
+  );
   if (bodyMax <= 0) {
     return content.slice(0, Math.floor(maxChars));
   }
@@ -164,15 +176,22 @@ export function optimizeHistoryMessagesForPrompt(
   );
   const protectHeadMessages = Math.max(
     0,
-    Math.floor(options?.protectHeadMessages ?? DEFAULT_HISTORY_PROTECT_HEAD_MESSAGES),
+    Math.floor(
+      options?.protectHeadMessages ?? DEFAULT_HISTORY_PROTECT_HEAD_MESSAGES,
+    ),
   );
   const protectTailMessages = Math.max(
     0,
-    Math.floor(options?.protectTailMessages ?? DEFAULT_HISTORY_PROTECT_TAIL_MESSAGES),
+    Math.floor(
+      options?.protectTailMessages ?? DEFAULT_HISTORY_PROTECT_TAIL_MESSAGES,
+    ),
   );
 
   const originalCount = messages.length;
-  const originalChars = messages.reduce((total, message) => total + message.content.length, 0);
+  const originalChars = messages.reduce(
+    (total, message) => total + message.content.length,
+    0,
+  );
   let perMessageTruncatedCount = 0;
 
   const normalized = messages.map((message) => {
@@ -191,7 +210,10 @@ export function optimizeHistoryMessagesForPrompt(
   if (preBudgetChars > maxTotalChars) {
     middleCompressionApplied = true;
     const headCount = Math.min(protectHeadMessages, normalized.length);
-    const tailCount = Math.min(protectTailMessages, Math.max(0, normalized.length - headCount));
+    const tailCount = Math.min(
+      protectTailMessages,
+      Math.max(0, normalized.length - headCount),
+    );
     const middleStart = headCount;
     const middleEnd = normalized.length - tailCount;
     const head = normalized.slice(0, headCount);

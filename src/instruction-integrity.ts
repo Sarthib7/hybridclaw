@@ -2,9 +2,18 @@ import { createHash } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 
-export const INSTRUCTION_FILES = ['AGENTS.md', 'SECURITY.md', 'TRUST_MODEL.md'] as const;
+export const INSTRUCTION_FILES = [
+  'AGENTS.md',
+  'SECURITY.md',
+  'TRUST_MODEL.md',
+] as const;
 export const INSTRUCTION_BASELINE_VERSION = 1;
-export const INSTRUCTION_BASELINE_PATH = path.join(process.cwd(), 'data', 'audit', 'instruction-hashes.json');
+export const INSTRUCTION_BASELINE_PATH = path.join(
+  process.cwd(),
+  'data',
+  'audit',
+  'instruction-hashes.json',
+);
 
 export interface InstructionHashBaseline {
   version: number;
@@ -29,7 +38,9 @@ export interface InstructionIntegrityResult {
   files: InstructionFileResult[];
 }
 
-export function summarizeInstructionIntegrity(result: InstructionIntegrityResult): string {
+export function summarizeInstructionIntegrity(
+  result: InstructionIntegrityResult,
+): string {
   if (result.baselineError) return `baseline.invalid (${result.baselineError})`;
   if (!result.baseline) return 'baseline.missing';
 
@@ -62,19 +73,24 @@ export function loadInstructionBaseline(): InstructionHashBaseline | null {
 
   const raw = fs.readFileSync(INSTRUCTION_BASELINE_PATH, 'utf-8');
   const parsed = JSON.parse(raw) as unknown;
-  if (!isRecord(parsed)) throw new Error('Instruction baseline is not a JSON object.');
+  if (!isRecord(parsed))
+    throw new Error('Instruction baseline is not a JSON object.');
 
   const version = parsed.version;
   const approvedAt = parsed.approvedAt;
   const files = parsed.files;
-  if (typeof version !== 'number') throw new Error('Instruction baseline is missing numeric `version`.');
+  if (typeof version !== 'number')
+    throw new Error('Instruction baseline is missing numeric `version`.');
   if (version !== INSTRUCTION_BASELINE_VERSION) {
-    throw new Error(`Instruction baseline version ${String(version)} is unsupported.`);
+    throw new Error(
+      `Instruction baseline version ${String(version)} is unsupported.`,
+    );
   }
   if (typeof approvedAt !== 'string' || !approvedAt.trim()) {
     throw new Error('Instruction baseline is missing `approvedAt`.');
   }
-  if (!isRecord(files)) throw new Error('Instruction baseline is missing `files` object.');
+  if (!isRecord(files))
+    throw new Error('Instruction baseline is missing `files` object.');
 
   const normalizedFiles: Record<string, string> = {};
   for (const relPath of INSTRUCTION_FILES) {
@@ -95,7 +111,9 @@ export function approveInstructionBaseline(): InstructionHashBaseline {
   const hashes = computeCurrentHashes();
   const missing = INSTRUCTION_FILES.filter((relPath) => !hashes[relPath]);
   if (missing.length > 0) {
-    throw new Error(`Approval failed: missing instruction files (${missing.join(', ')}).`);
+    throw new Error(
+      `Approval failed: missing instruction files (${missing.join(', ')}).`,
+    );
   }
 
   const baseline: InstructionHashBaseline = {
@@ -165,7 +183,10 @@ export function verifyInstructionBaseline(): InstructionIntegrityResult {
     };
   });
 
-  const ok = baselineError === null && baseline !== null && files.every((file) => file.status === 'ok');
+  const ok =
+    baselineError === null &&
+    baseline !== null &&
+    files.every((file) => file.status === 'ok');
   return {
     ok,
     baselinePath: INSTRUCTION_BASELINE_PATH,

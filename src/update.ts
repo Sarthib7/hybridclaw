@@ -1,6 +1,6 @@
+import { spawn, spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
-import { spawn, spawnSync } from 'child_process';
 import readline from 'readline/promises';
 
 const DEFAULT_PACKAGE_NAME = '@hybridaione/hybridclaw';
@@ -52,8 +52,14 @@ function readPackageInfo(packageJsonPath: string): PackageInfo {
   try {
     const raw = fs.readFileSync(packageJsonPath, 'utf-8');
     const parsed = JSON.parse(raw) as PackageManifest;
-    const name = typeof parsed.name === 'string' && parsed.name.trim() ? parsed.name.trim() : null;
-    const version = typeof parsed.version === 'string' && parsed.version.trim() ? parsed.version.trim() : null;
+    const name =
+      typeof parsed.name === 'string' && parsed.name.trim()
+        ? parsed.name.trim()
+        : null;
+    const version =
+      typeof parsed.version === 'string' && parsed.version.trim()
+        ? parsed.version.trim()
+        : null;
     return { name, version };
   } catch {
     return { name: null, version: null };
@@ -88,9 +94,10 @@ function findNearestPackageRoot(startPath: string | undefined): string | null {
   let current: string;
   try {
     const resolved = path.resolve(startPath);
-    current = fs.existsSync(resolved) && fs.statSync(resolved).isDirectory()
-      ? resolved
-      : path.dirname(resolved);
+    current =
+      fs.existsSync(resolved) && fs.statSync(resolved).isDirectory()
+        ? resolved
+        : path.dirname(resolved);
   } catch {
     return null;
   }
@@ -134,14 +141,24 @@ function detectPackageManager(): PackageManager {
   return 'npm';
 }
 
-function detectInstallContext(packageName: string, entryPath: string | undefined): InstallContext {
+function detectInstallContext(
+  packageName: string,
+  entryPath: string | undefined,
+): InstallContext {
   const preferredManager = detectPackageManager();
   const entryRoot = findNearestPackageRoot(entryPath);
   const cwdRoot = findNearestPackageRoot(process.cwd());
   const cwdInfo = readPackageInfo(path.join(process.cwd(), 'package.json'));
 
-  if (cwdInfo.name === packageName && fs.existsSync(path.join(process.cwd(), '.git'))) {
-    return { kind: 'source', root: process.cwd(), packageManager: preferredManager };
+  if (
+    cwdInfo.name === packageName &&
+    fs.existsSync(path.join(process.cwd(), '.git'))
+  ) {
+    return {
+      kind: 'source',
+      root: process.cwd(),
+      packageManager: preferredManager,
+    };
   }
 
   if (!entryRoot) {
@@ -157,15 +174,27 @@ function detectInstallContext(packageName: string, entryPath: string | undefined
         packageManager: preferredManager,
       };
     }
-    return { kind: 'unknown', root: entryRoot, packageManager: preferredManager };
+    return {
+      kind: 'unknown',
+      root: entryRoot,
+      packageManager: preferredManager,
+    };
   }
 
   if (fs.existsSync(path.join(entryRoot, '.git'))) {
-    return { kind: 'source', root: entryRoot, packageManager: preferredManager };
+    return {
+      kind: 'source',
+      root: entryRoot,
+      packageManager: preferredManager,
+    };
   }
 
   if (entryRoot.includes(`${path.sep}node_modules${path.sep}`)) {
-    return { kind: 'package', root: entryRoot, packageManager: preferredManager };
+    return {
+      kind: 'package',
+      root: entryRoot,
+      packageManager: preferredManager,
+    };
   }
 
   return { kind: 'unknown', root: entryRoot, packageManager: preferredManager };
@@ -179,7 +208,12 @@ function parseSemver(value: string): ParsedSemver | null {
   const major = Number.parseInt(match[1], 10);
   const minor = Number.parseInt(match[2], 10);
   const patch = Number.parseInt(match[3], 10);
-  if (!Number.isFinite(major) || !Number.isFinite(minor) || !Number.isFinite(patch)) return null;
+  if (
+    !Number.isFinite(major) ||
+    !Number.isFinite(minor) ||
+    !Number.isFinite(patch)
+  )
+    return null;
 
   return {
     major,
@@ -239,7 +273,9 @@ function commandAvailable(command: string): boolean {
   return result.status === 0;
 }
 
-function resolveAvailablePackageManager(preferred: PackageManager): PackageManager | null {
+function resolveAvailablePackageManager(
+  preferred: PackageManager,
+): PackageManager | null {
   const order: PackageManager[] = [preferred, 'npm', 'pnpm', 'yarn', 'bun'];
   const checked = new Set<PackageManager>();
   for (const candidate of order) {
@@ -250,7 +286,10 @@ function resolveAvailablePackageManager(preferred: PackageManager): PackageManag
   return null;
 }
 
-function buildUpdateCommand(packageManager: PackageManager, packageName: string): UpdateCommand {
+function buildUpdateCommand(
+  packageManager: PackageManager,
+  packageName: string,
+): UpdateCommand {
   switch (packageManager) {
     case 'pnpm': {
       const args = ['add', '-g', `${packageName}@latest`];
@@ -277,7 +316,9 @@ async function askForConfirmation(message: string): Promise<boolean> {
     output: process.stdout,
   });
   try {
-    const answer = (await rl.question(`${message} [y/N] `)).trim().toLowerCase();
+    const answer = (await rl.question(`${message} [y/N] `))
+      .trim()
+      .toLowerCase();
     return answer === 'y' || answer === 'yes';
   } finally {
     rl.close();
@@ -304,7 +345,10 @@ Options:
   --yes, -y        Skip confirmation prompt before install`);
 }
 
-export async function runUpdateCommand(args: string[], currentVersion: string): Promise<void> {
+export async function runUpdateCommand(
+  args: string[],
+  currentVersion: string,
+): Promise<void> {
   const options = parseUpdateArgs(args);
   if (options.help) {
     printUpdateUsage();
@@ -314,7 +358,9 @@ export async function runUpdateCommand(args: string[], currentVersion: string): 
   const packageName = resolvePackageName(process.argv[1]);
   const install = detectInstallContext(packageName, process.argv[1]);
   const latest = fetchLatestVersion(packageName);
-  const comparison = latest.version ? compareSemver(currentVersion, latest.version) : null;
+  const comparison = latest.version
+    ? compareSemver(currentVersion, latest.version)
+    : null;
 
   console.log(`Current version: ${currentVersion}`);
   if (latest.version) {
@@ -325,7 +371,9 @@ export async function runUpdateCommand(args: string[], currentVersion: string): 
 
   if (install.kind === 'source') {
     console.log('');
-    console.log(`Source checkout detected at ${install.root || process.cwd()}.`);
+    console.log(
+      `Source checkout detected at ${install.root || process.cwd()}.`,
+    );
     console.log('To update, run:');
     console.log('  git pull --rebase');
     console.log('  npm install');
@@ -342,14 +390,20 @@ export async function runUpdateCommand(args: string[], currentVersion: string): 
   } else if (latest.version && comparison === 0) {
     console.log('HybridClaw is already up to date.');
   } else if (latest.version && comparison === 1) {
-    console.log('Installed version is newer than npm latest; skipping automatic update.');
+    console.log(
+      'Installed version is newer than npm latest; skipping automatic update.',
+    );
   } else if (latest.version) {
-    console.log('Version comparison unavailable; semver format not recognized.');
+    console.log(
+      'Version comparison unavailable; semver format not recognized.',
+    );
   }
 
   const manager = resolveAvailablePackageManager(install.packageManager);
   if (!manager) {
-    throw new Error('No supported package manager found (npm, pnpm, yarn, bun).');
+    throw new Error(
+      'No supported package manager found (npm, pnpm, yarn, bun).',
+    );
   }
   const updateCommand = buildUpdateCommand(manager, packageName);
 
@@ -370,7 +424,9 @@ export async function runUpdateCommand(args: string[], currentVersion: string): 
   console.log(`Update command: ${updateCommand.display}`);
   if (!options.yes) {
     if (!process.stdin.isTTY || !process.stdout.isTTY) {
-      console.log('Non-interactive shell detected. Re-run with `--yes` to apply the update.');
+      console.log(
+        'Non-interactive shell detected. Re-run with `--yes` to apply the update.',
+      );
       return;
     }
     const confirmed = await askForConfirmation('Proceed with update now?');

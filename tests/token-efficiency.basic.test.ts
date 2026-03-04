@@ -1,6 +1,9 @@
 import { expect, test } from 'vitest';
 
-import { estimateTokenCountFromMessages, estimateTokenCountFromText } from '../src/token-efficiency.js';
+import {
+  estimateTokenCountFromMessages,
+  estimateTokenCountFromText,
+} from '../src/token-efficiency.js';
 import type { ChatMessage } from '../src/types.js';
 
 test('estimateTokenCountFromText uses simple chars-per-token heuristic', () => {
@@ -15,7 +18,10 @@ test('estimateTokenCountFromMessages supports multimodal content arrays', () => 
       role: 'user',
       content: [
         { type: 'text', text: 'hello' },
-        { type: 'image_url', image_url: { url: '/discord-media-cache/example.png' } },
+        {
+          type: 'image_url',
+          image_url: { url: '/discord-media-cache/example.png' },
+        },
       ],
     },
   ];

@@ -3,10 +3,11 @@
  * The system prompt includes skill metadata + location, and inlines full
  * bodies for skills marked `always: true`.
  */
+
+import { createHash } from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { createHash } from 'crypto';
 import { fileURLToPath } from 'url';
 
 import { agentWorkspaceDir } from './ipc.js';
@@ -205,7 +206,9 @@ function parseInlineStringList(raw: string): string[] {
 function normalizeStringList(raw: unknown): string[] {
   if (Array.isArray(raw)) {
     return raw
-      .map((item) => (typeof item === 'string' ? item.trim() : String(item ?? '').trim()))
+      .map((item) =>
+        typeof item === 'string' ? item.trim() : String(item ?? '').trim(),
+      )
       .filter(Boolean);
   }
   if (typeof raw === 'string') {
@@ -221,7 +224,8 @@ function normalizeStringList(raw: unknown): string[] {
 
 function tryParseJsonObject(raw: string): Record<string, unknown> | null {
   const trimmed = stripQuotes(raw.trim());
-  if (!trimmed || (!trimmed.startsWith('{') && !trimmed.startsWith('['))) return null;
+  if (!trimmed || (!trimmed.startsWith('{') && !trimmed.startsWith('[')))
+    return null;
   try {
     const parsed = JSON.parse(trimmed) as unknown;
     if (isRecord(parsed)) return parsed;
@@ -231,7 +235,10 @@ function tryParseJsonObject(raw: string): Record<string, unknown> | null {
   return null;
 }
 
-function extractTopLevelSection(block: string, key: string): FrontmatterSection | null {
+function extractTopLevelSection(
+  block: string,
+  key: string,
+): FrontmatterSection | null {
   const lines = block.split('\n');
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i] || '';
@@ -264,9 +271,11 @@ function extractTopLevelSection(block: string, key: string): FrontmatterSection 
   return null;
 }
 
-function parseSectionChildren(children: string[]): Map<string, FrontmatterSection> {
+function parseSectionChildren(
+  children: string[],
+): Map<string, FrontmatterSection> {
   const parsed = new Map<string, FrontmatterSection>();
-  for (let i = 0; i < children.length;) {
+  for (let i = 0; i < children.length; ) {
     const line = children[i] || '';
     const trimmed = line.trim();
     if (!trimmed) {
@@ -305,7 +314,9 @@ function parseSectionChildren(children: string[]): Map<string, FrontmatterSectio
   return parsed;
 }
 
-function parseSectionStringList(section: FrontmatterSection | undefined): string[] {
+function parseSectionStringList(
+  section: FrontmatterSection | undefined,
+): string[] {
   if (!section) return [];
   const inline = parseInlineStringList(section.inline);
   if (inline.length > 0 || section.inline.trim() === '[]') return inline;
@@ -324,7 +335,9 @@ function parseRequiresFromFrontmatter(frontmatter: FrontmatterParseResult): {
   bins: string[];
   env: string[];
 } {
-  const fromInlineJson = frontmatter.meta.requires ? tryParseJsonObject(frontmatter.meta.requires) : null;
+  const fromInlineJson = frontmatter.meta.requires
+    ? tryParseJsonObject(frontmatter.meta.requires)
+    : null;
   if (fromInlineJson) {
     return {
       bins: normalizeStringList(fromInlineJson.bins),
@@ -354,15 +367,21 @@ function parseHybridClawMetadata(frontmatter: FrontmatterParseResult): {
   tags: string[];
   relatedSkills: string[];
 } {
-  const normalizeMetadata = (raw: Record<string, unknown>): { tags: string[]; relatedSkills: string[] } => {
+  const normalizeMetadata = (
+    raw: Record<string, unknown>,
+  ): { tags: string[]; relatedSkills: string[] } => {
     const hybridRaw = isRecord(raw.hybridclaw) ? raw.hybridclaw : raw;
     return {
       tags: normalizeStringList(hybridRaw.tags),
-      relatedSkills: normalizeStringList(hybridRaw.related_skills ?? hybridRaw.relatedSkills),
+      relatedSkills: normalizeStringList(
+        hybridRaw.related_skills ?? hybridRaw.relatedSkills,
+      ),
     };
   };
 
-  const fromInlineJson = frontmatter.meta.metadata ? tryParseJsonObject(frontmatter.meta.metadata) : null;
+  const fromInlineJson = frontmatter.meta.metadata
+    ? tryParseJsonObject(frontmatter.meta.metadata)
+    : null;
   if (fromInlineJson) return normalizeMetadata(fromInlineJson);
 
   const metadataSection = extractTopLevelSection(frontmatter.block, 'metadata');
@@ -394,7 +413,8 @@ function hasBinary(binName: string): boolean {
   if (!bin) return false;
 
   const currentPath = process.env.PATH || '';
-  const currentPathExt = process.platform === 'win32' ? (process.env.PATHEXT || '') : '';
+  const currentPathExt =
+    process.platform === 'win32' ? process.env.PATHEXT || '' : '';
   if (cachedPathEnv !== currentPath || cachedPathExt !== currentPathExt) {
     cachedPathEnv = currentPath;
     cachedPathExt = currentPathExt;
@@ -404,9 +424,16 @@ function hasBinary(binName: string): boolean {
   const cached = hasBinaryCache.get(bin);
   if (cached != null) return cached;
 
-  const exts = process.platform === 'win32'
-    ? ['', ...currentPathExt.split(';').map((ext) => ext.trim()).filter(Boolean)]
-    : [''];
+  const exts =
+    process.platform === 'win32'
+      ? [
+          '',
+          ...currentPathExt
+            .split(';')
+            .map((ext) => ext.trim())
+            .filter(Boolean),
+        ]
+      : [''];
   for (const part of currentPath.split(path.delimiter).filter(Boolean)) {
     for (const ext of exts) {
       const candidate = path.join(part, `${bin}${ext}`);
@@ -448,7 +475,10 @@ function pathWithin(root: string, target: string): boolean {
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 }
 
-function asContainerPath(workspaceDir: string, absolutePath: string): string | null {
+function asContainerPath(
+  workspaceDir: string,
+  absolutePath: string,
+): string | null {
   if (!pathWithin(workspaceDir, absolutePath)) return null;
   const rel = toPosixPath(path.relative(workspaceDir, absolutePath));
   return rel ? `/workspace/${rel}` : '/workspace';
@@ -515,7 +545,10 @@ function scanSkillsDir(dir: string, source: SkillSource): SkillCandidate[] {
           name,
           description: (meta.description || '').trim(),
           userInvocable: parseBool(meta['user-invocable'], true),
-          disableModelInvocation: parseBool(meta['disable-model-invocation'], false),
+          disableModelInvocation: parseBool(
+            meta['disable-model-invocation'],
+            false,
+          ),
           always,
           requires,
           metadata: {
@@ -599,8 +632,14 @@ function resolveSyncedSkillTarget(
   };
 }
 
-function syncSkillIntoWorkspace(skill: SkillCandidate, workspaceDir: string): string {
-  const { rootDir, targetDir, targetSkillFile } = resolveSyncedSkillTarget(skill, workspaceDir);
+function syncSkillIntoWorkspace(
+  skill: SkillCandidate,
+  workspaceDir: string,
+): string {
+  const { rootDir, targetDir, targetSkillFile } = resolveSyncedSkillTarget(
+    skill,
+    workspaceDir,
+  );
   fs.mkdirSync(rootDir, { recursive: true });
 
   if (!pathWithin(rootDir, targetDir)) {
@@ -641,8 +680,14 @@ function sanitizeCommandName(name: string): string {
     .slice(0, MAX_SKILL_COMMAND_NAME_LENGTH);
 }
 
-function resolveUniqueCommandName(baseName: string, usedNames: Set<string>): string | null {
-  const normalizedBase = (baseName || 'skill').slice(0, MAX_SKILL_COMMAND_NAME_LENGTH);
+function resolveUniqueCommandName(
+  baseName: string,
+  usedNames: Set<string>,
+): string | null {
+  const normalizedBase = (baseName || 'skill').slice(
+    0,
+    MAX_SKILL_COMMAND_NAME_LENGTH,
+  );
   if (!usedNames.has(normalizedBase)) {
     usedNames.add(normalizedBase);
     return normalizedBase;
@@ -650,7 +695,10 @@ function resolveUniqueCommandName(baseName: string, usedNames: Set<string>): str
 
   for (let index = 2; index < 10_000; index += 1) {
     const suffix = `-${index}`;
-    const prefixLen = Math.max(1, MAX_SKILL_COMMAND_NAME_LENGTH - suffix.length);
+    const prefixLen = Math.max(
+      1,
+      MAX_SKILL_COMMAND_NAME_LENGTH - suffix.length,
+    );
     const candidate = `${normalizedBase.slice(0, prefixLen)}${suffix}`;
     if (usedNames.has(candidate)) continue;
     usedNames.add(candidate);
@@ -660,7 +708,9 @@ function resolveUniqueCommandName(baseName: string, usedNames: Set<string>): str
 }
 
 function buildSkillCommandSpecs(skills: Skill[]): SkillCommandSpec[] {
-  const used = new Set<string>(Array.from(RESERVED_SKILL_COMMAND_NAMES.values()));
+  const used = new Set<string>(
+    Array.from(RESERVED_SKILL_COMMAND_NAMES.values()),
+  );
   const specs: SkillCommandSpec[] = [];
 
   for (const skill of skills) {
@@ -678,29 +728,39 @@ function buildSkillCommandSpecs(skills: Skill[]): SkillCommandSpec[] {
   return specs;
 }
 
-function findSkillCommand(skillCommands: SkillCommandSpec[], rawName: string): SkillCommandSpec | null {
+function findSkillCommand(
+  skillCommands: SkillCommandSpec[],
+  rawName: string,
+): SkillCommandSpec | null {
   const lowered = rawName.trim().toLowerCase();
   if (!lowered) return null;
   const sanitized = sanitizeCommandName(rawName);
-  return skillCommands.find((entry) => (
-    entry.name === lowered ||
-    (sanitized && entry.name === sanitized)
-  )) || null;
+  return (
+    skillCommands.find(
+      (entry) =>
+        entry.name === lowered || (sanitized && entry.name === sanitized),
+    ) || null
+  );
 }
 
 function findInvocableSkill(skills: Skill[], rawName: string): Skill | null {
   const target = rawName.trim().toLowerCase();
   if (!target) return null;
   const normalizedTarget = normalizeSkillLookup(rawName);
-  return skills.find((skill) => {
-    if (!skill.userInvocable) return false;
-    const name = skill.name.toLowerCase();
-    if (name === target) return true;
-    return normalizeSkillLookup(skill.name) === normalizedTarget;
-  }) || null;
+  return (
+    skills.find((skill) => {
+      if (!skill.userInvocable) return false;
+      const name = skill.name.toLowerCase();
+      if (name === target) return true;
+      return normalizeSkillLookup(skill.name) === normalizedTarget;
+    }) || null
+  );
 }
 
-function parseSkillInvocation(content: string, skills: Skill[]): { skill: Skill; args: string } | null {
+function parseSkillInvocation(
+  content: string,
+  skills: Skill[],
+): { skill: Skill; args: string } | null {
   const trimmed = content.trim();
   if (!trimmed.startsWith('/')) return null;
   const skillCommands = buildSkillCommandSpecs(skills);
@@ -719,7 +779,10 @@ function parseSkillInvocation(content: string, skills: Skill[]): { skill: Skill;
     if (!skillMatch) return null;
     const explicitName = (skillMatch[1] || '').trim();
     const explicitSkill = findInvocableSkill(skills, explicitName);
-    const skill = explicitSkill || findSkillCommand(skillCommands, explicitName)?.skill || null;
+    const skill =
+      explicitSkill ||
+      findSkillCommand(skillCommands, explicitName)?.skill ||
+      null;
     if (!skill) return null;
     return { skill, args: (skillMatch[2] || '').trim() };
   }
@@ -728,7 +791,10 @@ function parseSkillInvocation(content: string, skills: Skill[]): { skill: Skill;
     const skillName = commandName.slice('skill:'.length).trim();
     if (!skillName) return null;
     const explicitSkill = findInvocableSkill(skills, skillName);
-    const skill = explicitSkill || findSkillCommand(skillCommands, skillName)?.skill || null;
+    const skill =
+      explicitSkill ||
+      findSkillCommand(skillCommands, skillName)?.skill ||
+      null;
     if (!skill) return null;
     return { skill, args: remainder };
   }
@@ -745,7 +811,10 @@ function loadSkillBody(skill: Skill, maxChars: number): string {
     if (body.length <= maxChars) return body;
     return `${body.slice(0, maxChars)}\n\n[truncated]`;
   } catch (err) {
-    logger.warn({ skill: skill.name, path: skill.filePath, err }, 'Failed to load SKILL.md body');
+    logger.warn(
+      { skill: skill.name, path: skill.filePath, err },
+      'Failed to load SKILL.md body',
+    );
     return '';
   }
 }
@@ -757,7 +826,10 @@ function loadSkillBody(skill: Skill, maxChars: number): string {
  * - /skill:<name> [input]
  * - /<name> [input] (user-invocable skills)
  */
-export function expandSkillInvocation(content: string, skills: Skill[]): string {
+export function expandSkillInvocation(
+  content: string,
+  skills: Skill[],
+): string {
   const invocation = parseSkillInvocation(content, skills);
   if (!invocation) return content;
 
@@ -771,12 +843,7 @@ export function expandSkillInvocation(content: string, skills: Skill[]): string 
   ];
 
   if (body) {
-    lines.push(
-      '',
-      '<skill_instructions>',
-      body,
-      '</skill_instructions>',
-    );
+    lines.push('', '<skill_instructions>', body, '</skill_instructions>');
   } else {
     lines.push('Read the skill file with the `read` tool and follow it.');
   }
@@ -804,11 +871,19 @@ export function loadSkills(agentId: string): Skill[] {
   const agentsPersonalSkillsDir = path.join(os.homedir(), '.agents', 'skills');
 
   const extraSkills = extraDirs.flatMap((dir) => scanSkillsDir(dir, 'extra'));
-  const bundledSkills = bundledSkillsDir ? scanSkillsDir(bundledSkillsDir, 'bundled') : [];
+  const bundledSkills = bundledSkillsDir
+    ? scanSkillsDir(bundledSkillsDir, 'bundled')
+    : [];
   const codexSkills = codexDirs.flatMap((dir) => scanSkillsDir(dir, 'codex'));
   const claudeSkills = scanSkillsDir(claudeSkillsDir, 'claude');
-  const agentsPersonalSkills = scanSkillsDir(agentsPersonalSkillsDir, 'agents-personal');
-  const projectAgentsSkills = scanSkillsDir(PROJECT_AGENTS_SKILLS_DIR, 'agents-project');
+  const agentsPersonalSkills = scanSkillsDir(
+    agentsPersonalSkillsDir,
+    'agents-personal',
+  );
+  const projectAgentsSkills = scanSkillsDir(
+    PROJECT_AGENTS_SKILLS_DIR,
+    'agents-project',
+  );
   const workspaceSkills = scanSkillsDir(WORKSPACE_SKILLS_DIR, 'workspace');
 
   const byName = new Map<string, SkillCandidate>();
@@ -822,8 +897,9 @@ export function loadSkills(agentId: string): Skill[] {
   for (const skill of projectAgentsSkills) byName.set(skill.name, skill);
   for (const skill of workspaceSkills) byName.set(skill.name, skill);
 
-  const eligible = Array.from(byName.values())
-    .filter((skill) => checkEligibility(skill).available);
+  const eligible = Array.from(byName.values()).filter(
+    (skill) => checkEligibility(skill).available,
+  );
   const guarded = eligible.filter((skill) => {
     const decision = guardSkillDirectory({
       skillName: skill.name,
@@ -835,14 +911,17 @@ export function loadSkills(agentId: string): Skill[] {
     const fingerprint = `${path.resolve(skill.baseDir)}:${decision.result.verdict}:${decision.result.findings.length}`;
     if (!warnedBlockedSkills.has(fingerprint)) {
       warnedBlockedSkills.add(fingerprint);
-      logger.warn({
-        skill: skill.name,
-        source: skill.source,
-        trustLevel: decision.result.trustLevel,
-        verdict: decision.result.verdict,
-        findings: decision.result.findings.length,
-        reason: decision.reason,
-      }, 'Blocked skill by security scanner');
+      logger.warn(
+        {
+          skill: skill.name,
+          source: skill.source,
+          trustLevel: decision.result.trustLevel,
+          verdict: decision.result.verdict,
+          findings: decision.result.findings.length,
+          reason: decision.reason,
+        },
+        'Blocked skill by security scanner',
+      );
     }
     return false;
   });
@@ -850,13 +929,22 @@ export function loadSkills(agentId: string): Skill[] {
   const resolved: Skill[] = [];
   for (const skill of guarded) {
     try {
-      let containerSkillPath = asContainerPath(workspaceDir, path.resolve(skill.filePath));
+      let containerSkillPath = asContainerPath(
+        workspaceDir,
+        path.resolve(skill.filePath),
+      );
       if (!containerSkillPath) {
         const syncedSkillFile = syncSkillIntoWorkspace(skill, workspaceDir);
-        containerSkillPath = asContainerPath(workspaceDir, path.resolve(syncedSkillFile));
+        containerSkillPath = asContainerPath(
+          workspaceDir,
+          path.resolve(syncedSkillFile),
+        );
       }
       if (!containerSkillPath) {
-        logger.warn({ skill: skill.name, path: skill.filePath }, 'Could not resolve container-readable skill path');
+        logger.warn(
+          { skill: skill.name, path: skill.filePath },
+          'Could not resolve container-readable skill path',
+        );
         continue;
       }
 
@@ -865,7 +953,10 @@ export function loadSkills(agentId: string): Skill[] {
         location: containerSkillPath,
       });
     } catch (err) {
-      logger.warn({ skill: skill.name, err }, 'Failed to resolve skill location');
+      logger.warn(
+        { skill: skill.name, err },
+        'Failed to resolve skill location',
+      );
     }
   }
 
@@ -886,7 +977,9 @@ export function buildSkillsPrompt(skills: Skill[]): string {
   const demotedAlways: Skill[] = [];
 
   let alwaysChars = 0;
-  for (const skill of promptCandidates.filter((candidate) => candidate.always)) {
+  for (const skill of promptCandidates.filter(
+    (candidate) => candidate.always,
+  )) {
     const body = loadSkillBody(skill, Number.MAX_SAFE_INTEGER);
     if (!body) {
       demotedAlways.push(skill);
@@ -909,10 +1002,15 @@ export function buildSkillsPrompt(skills: Skill[]): string {
 
   if (demotedAlways.length > 0) {
     const demotedNames = demotedAlways.map((skill) => skill.name).join(', ');
-    lines.push(`⚠️ maxAlwaysChars=${MAX_ALWAYS_CHARS} exceeded; demoted to summary: ${demotedNames}`, '');
+    lines.push(
+      `⚠️ maxAlwaysChars=${MAX_ALWAYS_CHARS} exceeded; demoted to summary: ${demotedNames}`,
+      '',
+    );
   }
 
-  const summaryCandidates = promptCandidates.filter((skill) => !embeddedAlways.has(skill.name));
+  const summaryCandidates = promptCandidates.filter(
+    (skill) => !embeddedAlways.has(skill.name),
+  );
   if (summaryCandidates.length > 0) {
     lines.push('<available_skills>');
 

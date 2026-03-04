@@ -15,13 +15,19 @@ const SAMPLE_MEDIA: MediaContextItem[] = [
 ];
 
 test('Discord image question blocks browser_vision and prioritizes vision_analyze', () => {
-  const policy = resolveMediaToolPolicy('Was steht auf dem Bild?', SAMPLE_MEDIA);
+  const policy = resolveMediaToolPolicy(
+    'Was steht auf dem Bild?',
+    SAMPLE_MEDIA,
+  );
   expect(policy.prioritizeVisionTool).toBe(true);
   expect(policy.blockedTools).toEqual(['browser_vision']);
 });
 
 test('Explicit browser-tab question does not block browser_vision', () => {
-  const policy = resolveMediaToolPolicy('What is on the current browser tab?', SAMPLE_MEDIA);
+  const policy = resolveMediaToolPolicy(
+    'What is on the current browser tab?',
+    SAMPLE_MEDIA,
+  );
   expect(policy.prioritizeVisionTool).toBe(false);
   expect(policy.blockedTools).toBeUndefined();
 });

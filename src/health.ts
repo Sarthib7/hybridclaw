@@ -1,21 +1,25 @@
 import fs from 'fs';
 import http, { type IncomingMessage, type ServerResponse } from 'http';
 import path from 'path';
-
-import { GATEWAY_API_TOKEN, HEALTH_HOST, HEALTH_PORT, WEB_API_TOKEN } from './config.js';
+import { runDiscordToolAction } from './channels/discord/runtime.js';
+import type { DiscordToolActionRequest } from './channels/discord/tool-actions.js';
 import {
+  GATEWAY_API_TOKEN,
+  HEALTH_HOST,
+  HEALTH_PORT,
+  WEB_API_TOKEN,
+} from './config.js';
+import {
+  type GatewayChatRequest,
+  type GatewayCommandRequest,
   getGatewayHistory,
   getGatewayStatus,
   handleGatewayCommand,
   handleGatewayMessage,
-  type GatewayCommandRequest,
-  type GatewayChatRequest,
 } from './gateway-service.js';
-import { type GatewayChatRequestBody } from './gateway-types.js';
-import { type DiscordToolActionRequest } from './channels/discord/tool-actions.js';
-import { runDiscordToolAction } from './channels/discord/runtime.js';
-import { type ToolProgressEvent } from './types.js';
+import type { GatewayChatRequestBody } from './gateway-types.js';
 import { logger } from './logger.js';
+import type { ToolProgressEvent } from './types.js';
 
 const SITE_DIR = path.resolve(process.cwd(), 'docs');
 const MAX_REQUEST_BYTES = 1_000_000; // 1MB
@@ -40,7 +44,8 @@ function isLoopbackAddress(address: string | undefined): boolean {
 
 function hasApiAuth(req: IncomingMessage): boolean {
   const authHeader = req.headers.authorization || '';
-  const gatewayTokenMatch = Boolean(GATEWAY_API_TOKEN) && authHeader === `Bearer ${GATEWAY_API_TOKEN}`;
+  const gatewayTokenMatch =
+    Boolean(GATEWAY_API_TOKEN) && authHeader === `Bearer ${GATEWAY_API_TOKEN}`;
 
   if (!WEB_API_TOKEN) {
     return gatewayTokenMatch || isLoopbackAddress(req.socket.remoteAddress);
@@ -49,8 +54,14 @@ function hasApiAuth(req: IncomingMessage): boolean {
   return gatewayTokenMatch;
 }
 
-function sendJson(res: ServerResponse, statusCode: number, payload: unknown): void {
-  res.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8' });
+function sendJson(
+  res: ServerResponse,
+  statusCode: number,
+  payload: unknown,
+): void {
+  res.writeHead(statusCode, {
+    'Content-Type': 'application/json; charset=utf-8',
+  });
   res.end(JSON.stringify(payload, null, 2));
 }
 
@@ -81,12 +92,15 @@ function resolveSiteFile(pathname: string): string | null {
   const normalized = path.normalize(cleanPath).replace(/^(\.\.(\/|\\|$))+/, '');
   const candidate = path.resolve(SITE_DIR, `.${normalized}`);
   if (!candidate.startsWith(SITE_DIR)) return null;
-  if (!fs.existsSync(candidate) || !fs.statSync(candidate).isFile()) return null;
+  if (!fs.existsSync(candidate) || !fs.statSync(candidate).isFile())
+    return null;
   return candidate;
 }
 
 function serveStatic(pathname: string, res: ServerResponse): boolean {
-  const filePath = resolveSiteFile(pathname === '/chat' ? '/chat.html' : pathname);
+  const filePath = resolveSiteFile(
+    pathname === '/chat' ? '/chat.html' : pathname,
+  );
   if (!filePath) return false;
   const ext = path.extname(filePath).toLowerCase();
   const mimeType = MIME_TYPES[ext] || 'application/octet-stream';
@@ -95,8 +109,11 @@ function serveStatic(pathname: string, res: ServerResponse): boolean {
   return true;
 }
 
-async function handleApiChat(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  const body = await readJsonBody(req) as Partial<ApiChatRequestBody>;
+async function handleApiChat(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const body = (await readJsonBody(req)) as Partial<ApiChatRequestBody>;
   const wantsStream = body.stream === true;
 
   const content = body.content?.trim();
@@ -177,7 +194,10 @@ async function handleApiChatStream(
         error: errorMessage,
       },
     });
-    logger.error({ error, reqUrl: '/api/chat' }, 'Gateway streaming chat failed');
+    logger.error(
+      { error, reqUrl: '/api/chat' },
+      'Gateway streaming chat failed',
+    );
   } finally {
     if (!res.writableEnded) {
       res.end();
@@ -191,11 +211,18 @@ async function handleApiChatStream(
   });
 }
 
-async function handleApiCommand(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  const body = await readJsonBody(req) as Partial<GatewayCommandRequest>;
-  const args = Array.isArray(body.args) ? body.args.map((value) => String(value)) : [];
+async function handleApiCommand(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const body = (await readJsonBody(req)) as Partial<GatewayCommandRequest>;
+  const args = Array.isArray(body.args)
+    ? body.args.map((value) => String(value))
+    : [];
   if (args.length === 0) {
-    sendJson(res, 400, { error: 'Missing command. Provide non-empty `args` array.' });
+    sendJson(res, 400, {
+      error: 'Missing command. Provide non-empty `args` array.',
+    });
     return;
   }
 
@@ -209,12 +236,20 @@ async function handleApiCommand(req: IncomingMessage, res: ServerResponse): Prom
   sendJson(res, result.kind === 'error' ? 400 : 200, result);
 }
 
-async function handleApiDiscordAction(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  const body = await readJsonBody(req) as ApiDiscordActionRequestBody;
+async function handleApiDiscordAction(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const body = (await readJsonBody(req)) as ApiDiscordActionRequestBody;
   const action = typeof body.action === 'string' ? body.action.trim() : '';
-  if (action !== 'read' && action !== 'member-info' && action !== 'channel-info') {
+  if (
+    action !== 'read' &&
+    action !== 'member-info' &&
+    action !== 'channel-info'
+  ) {
     sendJson(res, 400, {
-      error: 'Invalid `action`. Allowed: "read", "member-info", "channel-info".',
+      error:
+        'Invalid `action`. Allowed: "read", "member-info", "channel-info".',
     });
     return;
   }
@@ -268,7 +303,9 @@ export function startHealthServer(): void {
 
     if (pathname.startsWith('/api/')) {
       if (!hasApiAuth(req)) {
-        sendJson(res, 401, { error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.' });
+        sendJson(res, 401, {
+          error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
+        });
         return;
       }
 
@@ -312,6 +349,9 @@ export function startHealthServer(): void {
   });
 
   server.listen(HEALTH_PORT, HEALTH_HOST, () => {
-    logger.info({ host: HEALTH_HOST, port: HEALTH_PORT }, 'Gateway HTTP server started');
+    logger.info(
+      { host: HEALTH_HOST, port: HEALTH_PORT },
+      'Gateway HTTP server started',
+    );
   });
 }

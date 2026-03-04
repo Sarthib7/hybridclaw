@@ -1,7 +1,7 @@
+import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
 
 import { CONTAINER_IMAGE } from './config.js';
 
@@ -13,7 +13,11 @@ interface EnsureContainerImageOptions {
   cwd?: string;
 }
 
-function runCommand(command: string, args: string[], cwd?: string): Promise<{ code: number | null; err?: string }> {
+function runCommand(
+  command: string,
+  args: string[],
+  cwd?: string,
+): Promise<{ code: number | null; err?: string }> {
   return new Promise((resolve) => {
     const proc = spawn(command, args, {
       cwd,
@@ -40,7 +44,10 @@ async function containerImageExists(imageName: string): Promise<boolean> {
 async function buildContainerImage(cwd: string): Promise<void> {
   const result = await runCommand('npm', ['run', 'build:container'], cwd);
   if (result.code !== 0) {
-    throw new Error(result.err?.trim() || 'npm run build:container returned a non-zero exit code.');
+    throw new Error(
+      result.err?.trim() ||
+        'npm run build:container returned a non-zero exit code.',
+    );
   }
 }
 
@@ -62,7 +69,9 @@ const TRACKED_FILES = [
 ];
 const TRACKED_SOURCE_ROOT = 'container/src';
 
-function normalizeRebuildPolicy(raw: string | undefined): ContainerRebuildPolicy {
+function normalizeRebuildPolicy(
+  raw: string | undefined,
+): ContainerRebuildPolicy {
   const value = (raw || '').trim().toLowerCase();
   if (value === 'always') return 'always';
   if (value === 'never') return 'never';
@@ -71,8 +80,8 @@ function normalizeRebuildPolicy(raw: string | undefined): ContainerRebuildPolicy
 
 function resolveRebuildPolicy(): ContainerRebuildPolicy {
   return normalizeRebuildPolicy(
-    process.env.HYBRIDCLAW_CONTAINER_REBUILD
-      || process.env.HYBRIDCLAW_CONTAINER_REBUILD_POLICY,
+    process.env.HYBRIDCLAW_CONTAINER_REBUILD ||
+      process.env.HYBRIDCLAW_CONTAINER_REBUILD_POLICY,
   );
 }
 
@@ -80,21 +89,27 @@ function stateFilePath(cwd: string): string {
   return path.join(cwd, STATE_DIRNAME, STATE_FILENAME);
 }
 
-function readContainerImageState(cwd: string, imageName: string): ContainerImageState | null {
+function readContainerImageState(
+  cwd: string,
+  imageName: string,
+): ContainerImageState | null {
   const file = stateFilePath(cwd);
   if (!fs.existsSync(file)) return null;
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<ContainerImageState>;
+    const parsed = JSON.parse(
+      fs.readFileSync(file, 'utf-8'),
+    ) as Partial<ContainerImageState>;
     if (
-      parsed
-      && parsed.imageName === imageName
-      && typeof parsed.fingerprint === 'string'
-      && parsed.fingerprint.trim() !== ''
+      parsed &&
+      parsed.imageName === imageName &&
+      typeof parsed.fingerprint === 'string' &&
+      parsed.fingerprint.trim() !== ''
     ) {
       return {
         imageName: parsed.imageName,
         fingerprint: parsed.fingerprint,
-        recordedAt: typeof parsed.recordedAt === 'string' ? parsed.recordedAt : '',
+        recordedAt:
+          typeof parsed.recordedAt === 'string' ? parsed.recordedAt : '',
       };
     }
   } catch {
@@ -103,7 +118,10 @@ function readContainerImageState(cwd: string, imageName: string): ContainerImage
   return null;
 }
 
-function writeContainerImageState(cwd: string, state: ContainerImageState): void {
+function writeContainerImageState(
+  cwd: string,
+  state: ContainerImageState,
+): void {
   const file = stateFilePath(cwd);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(state, null, 2) + '\n');
@@ -124,7 +142,10 @@ function collectFilesRecursive(root: string, out: string[]): void {
   }
 }
 
-function computeContainerFingerprint(cwd: string, imageName: string): string | null {
+function computeContainerFingerprint(
+  cwd: string,
+  imageName: string,
+): string | null {
   try {
     const hash = createHash('sha256');
     hash.update(`fingerprint-version:${CONTAINER_FINGERPRINT_VERSION}\n`);
@@ -159,12 +180,19 @@ function computeContainerFingerprint(cwd: string, imageName: string): string | n
   }
 }
 
-function ensureInteractiveAutoBuild(commandName: string, required: boolean, reason: string, hint: string): boolean {
+function ensureInteractiveAutoBuild(
+  commandName: string,
+  required: boolean,
+  reason: string,
+  hint: string,
+): boolean {
   if (process.stdin.isTTY && process.stdout.isTTY) return true;
   if (required) {
     throw new Error(`${hint} ${reason}`);
   }
-  console.warn(`${commandName}: Skipping automatic container build in non-interactive mode. ${hint}`);
+  console.warn(
+    `${commandName}: Skipping automatic container build in non-interactive mode. ${hint}`,
+  );
   return false;
 }
 
@@ -177,10 +205,13 @@ async function buildAndValidateImage(params: {
   hint: string;
   fingerprint: string | null;
 }): Promise<void> {
-  const { commandName, required, cwd, imageName, reason, hint, fingerprint } = params;
+  const { commandName, required, cwd, imageName, reason, hint, fingerprint } =
+    params;
   if (!ensureInteractiveAutoBuild(commandName, required, reason, hint)) return;
 
-  console.log(`${commandName}: ${reason} Building container image '${imageName}'...`);
+  console.log(
+    `${commandName}: ${reason} Building container image '${imageName}'...`,
+  );
   try {
     await buildContainerImage(cwd);
     const built = await containerImageExists(imageName);
@@ -198,7 +229,9 @@ async function buildAndValidateImage(params: {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     if (!required) {
-      console.warn(`${commandName}: Unable to build image automatically. ${hint}`);
+      console.warn(
+        `${commandName}: Unable to build image automatically. ${hint}`,
+      );
       console.warn(`Details: ${message}`);
       return;
     }
@@ -206,7 +239,9 @@ async function buildAndValidateImage(params: {
   }
 }
 
-export async function ensureContainerImageReady(options: EnsureContainerImageOptions = {}): Promise<void> {
+export async function ensureContainerImageReady(
+  options: EnsureContainerImageOptions = {},
+): Promise<void> {
   const commandName = options.commandName || 'hybridclaw';
   const required = options.required !== false;
   const cwd = options.cwd || process.cwd();
@@ -226,7 +261,7 @@ export async function ensureContainerImageReady(options: EnsureContainerImageOpt
       required,
       cwd,
       imageName,
-      reason: "Container image not found.",
+      reason: 'Container image not found.',
       hint,
       fingerprint,
     });

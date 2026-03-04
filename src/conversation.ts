@@ -1,14 +1,14 @@
-import { expandSkillInvocation, loadSkills, type Skill } from './skills.js';
-import type { ChatMessage } from './types.js';
 import {
   buildSystemPromptFromHooks,
   type PromptMode,
   type PromptRuntimeInfo,
 } from './prompt-hooks.js';
+import { expandSkillInvocation, loadSkills, type Skill } from './skills.js';
 import {
-  optimizeHistoryMessagesForPrompt,
   type HistoryOptimizationStats,
+  optimizeHistoryMessagesForPrompt,
 } from './token-efficiency.js';
+import type { ChatMessage } from './types.js';
 
 interface HistoryMessage {
   role: string;
@@ -52,10 +52,12 @@ export function buildConversationContext(params: {
     messages.push({ role: 'system', content: systemPrompt });
   }
 
-  const historyMessages = [...history].reverse().map((msg): ChatMessage => ({
-    role: msg.role as ChatMessage['role'],
-    content: msg.content,
-  }));
+  const historyMessages = [...history].reverse().map(
+    (msg): ChatMessage => ({
+      role: msg.role as ChatMessage['role'],
+      content: msg.content,
+    }),
+  );
 
   if (expandLatestHistoryUser && historyMessages.length > 0) {
     const latest = historyMessages[historyMessages.length - 1];

@@ -33,7 +33,10 @@ export interface DiscordToolActionDependencies {
   getDiscordPresence: (userId: string) => CachedDiscordPresence | undefined;
 }
 
-function sanitizeDiscordId(rawValue: string | undefined, label: string): string {
+function sanitizeDiscordId(
+  rawValue: string | undefined,
+  label: string,
+): string {
   const value = (rawValue || '').trim();
   if (!/^\d{16,22}$/.test(value)) {
     throw new Error(`${label} must be a Discord snowflake id.`);
@@ -59,7 +62,9 @@ function scoreGuildMemberForLookup(member: GuildMember, query: string): number {
   const globalName = member.user.globalName?.toLowerCase() || '';
   const nickname = member.nickname?.toLowerCase() || '';
   const displayName = member.displayName?.toLowerCase() || '';
-  const candidates = [username, globalName, nickname, displayName].filter(Boolean);
+  const candidates = [username, globalName, nickname, displayName].filter(
+    Boolean,
+  );
 
   let score = 0;
   if (candidates.some((value) => value === q)) score += 3;
@@ -93,7 +98,10 @@ async function resolveGuildMemberIdFromLookup(params: {
   try {
     members = await guild.members.search({ query: searchQuery, limit: 25 });
   } catch {
-    const fetched = await guild.members.fetch({ query: searchQuery, limit: 25 });
+    const fetched = await guild.members.fetch({
+      query: searchQuery,
+      limit: 25,
+    });
     members = fetched;
   }
   let best: GuildMember | null = null;
@@ -146,14 +154,22 @@ async function runDiscordReadAction(
   const after = request.after?.trim();
   const around = request.around?.trim();
 
-  const query: { limit: number; before?: string; after?: string; around?: string } = { limit };
+  const query: {
+    limit: number;
+    before?: string;
+    after?: string;
+    around?: string;
+  } = { limit };
   if (before) query.before = before;
   if (after) query.after = after;
   if (around) query.around = around;
 
   const fetched = await channel.messages.fetch(query);
   const messages = Array.from(fetched.values())
-    .sort((a, b) => a.createdTimestamp - b.createdTimestamp || a.id.localeCompare(b.id))
+    .sort(
+      (a, b) =>
+        a.createdTimestamp - b.createdTimestamp || a.id.localeCompare(b.id),
+    )
     .map((message) => ({
       id: message.id,
       channelId: message.channelId,
@@ -175,13 +191,15 @@ async function runDiscordReadAction(
             displayName: message.member.displayName || null,
           }
         : null,
-      attachments: Array.from(message.attachments.values()).map((attachment) => ({
-        id: attachment.id,
-        name: attachment.name || null,
-        url: attachment.url,
-        contentType: attachment.contentType || null,
-        size: attachment.size,
-      })),
+      attachments: Array.from(message.attachments.values()).map(
+        (attachment) => ({
+          id: attachment.id,
+          name: attachment.name || null,
+          url: attachment.url,
+          contentType: attachment.contentType || null,
+          size: attachment.size,
+        }),
+      ),
       mentions: {
         users: Array.from(message.mentions.users.values()).map((user) => ({
           id: user.id,
@@ -192,12 +210,16 @@ async function runDiscordReadAction(
           id: role.id,
           name: role.name,
         })),
-        channels: Array.from(message.mentions.channels.values()).map((mentionedChannel) => ({
-          id: mentionedChannel.id,
-          name: 'name' in mentionedChannel && typeof mentionedChannel.name === 'string'
-            ? mentionedChannel.name
-            : null,
-        })),
+        channels: Array.from(message.mentions.channels.values()).map(
+          (mentionedChannel) => ({
+            id: mentionedChannel.id,
+            name:
+              'name' in mentionedChannel &&
+              typeof mentionedChannel.name === 'string'
+                ? mentionedChannel.name
+                : null,
+          }),
+        ),
       },
     }));
 
@@ -217,10 +239,7 @@ async function runDiscordMemberInfoAction(
   const activeClient = deps.requireDiscordClientReady();
   const guildId = sanitizeDiscordId(request.guildId, 'guildId');
   const userLookupRaw =
-    request.userId
-    || request.memberId
-    || request.user
-    || request.username;
+    request.userId || request.memberId || request.user || request.username;
   const resolvedUser = await resolveGuildMemberIdFromLookup({
     requireDiscordClientReady: deps.requireDiscordClientReady,
     guildId,
@@ -258,7 +277,9 @@ async function runDiscordMemberInfoAction(
       nickname: member.nickname || null,
       joinedAt: normalizeDate(member.joinedAt),
       premiumSince: normalizeDate(member.premiumSince),
-      communicationDisabledUntil: normalizeDate(member.communicationDisabledUntil),
+      communicationDisabledUntil: normalizeDate(
+        member.communicationDisabledUntil,
+      ),
       roles,
     },
     ...(presence
@@ -285,25 +306,43 @@ async function runDiscordChannelInfoAction(
     id: channel.id,
     type: channel.type,
     guildId: 'guildId' in channel ? channel.guildId || null : null,
-    name: 'name' in channel && typeof channel.name === 'string' ? channel.name : null,
+    name:
+      'name' in channel && typeof channel.name === 'string'
+        ? channel.name
+        : null,
     parentId: 'parentId' in channel ? channel.parentId || null : null,
-    topic: 'topic' in channel && typeof channel.topic === 'string' ? channel.topic : null,
-    nsfw: 'nsfw' in channel && typeof channel.nsfw === 'boolean' ? channel.nsfw : null,
+    topic:
+      'topic' in channel && typeof channel.topic === 'string'
+        ? channel.topic
+        : null,
+    nsfw:
+      'nsfw' in channel && typeof channel.nsfw === 'boolean'
+        ? channel.nsfw
+        : null,
     rateLimitPerUser:
-      'rateLimitPerUser' in channel && typeof channel.rateLimitPerUser === 'number'
+      'rateLimitPerUser' in channel &&
+      typeof channel.rateLimitPerUser === 'number'
         ? channel.rateLimitPerUser
         : null,
-    isTextBased: typeof channel.isTextBased === 'function' ? channel.isTextBased() : false,
-    isDMBased: typeof channel.isDMBased === 'function' ? channel.isDMBased() : false,
-    isThread: typeof channel.isThread === 'function' ? channel.isThread() : false,
-    lastMessageId: 'lastMessageId' in channel ? channel.lastMessageId || null : null,
+    isTextBased:
+      typeof channel.isTextBased === 'function' ? channel.isTextBased() : false,
+    isDMBased:
+      typeof channel.isDMBased === 'function' ? channel.isDMBased() : false,
+    isThread:
+      typeof channel.isThread === 'function' ? channel.isThread() : false,
+    lastMessageId:
+      'lastMessageId' in channel ? channel.lastMessageId || null : null,
   };
 
   if (typeof channel.isThread === 'function' && channel.isThread()) {
     channelData.archived =
-      'archived' in channel && typeof channel.archived === 'boolean' ? channel.archived : null;
+      'archived' in channel && typeof channel.archived === 'boolean'
+        ? channel.archived
+        : null;
     channelData.locked =
-      'locked' in channel && typeof channel.locked === 'boolean' ? channel.locked : null;
+      'locked' in channel && typeof channel.locked === 'boolean'
+        ? channel.locked
+        : null;
     channelData.ownerId = 'ownerId' in channel ? channel.ownerId || null : null;
   }
 
@@ -314,9 +353,9 @@ async function runDiscordChannelInfoAction(
   };
 }
 
-export function createDiscordToolActionRunner(deps: DiscordToolActionDependencies): (
-  request: DiscordToolActionRequest,
-) => Promise<Record<string, unknown>> {
+export function createDiscordToolActionRunner(
+  deps: DiscordToolActionDependencies,
+): (request: DiscordToolActionRequest) => Promise<Record<string, unknown>> {
   return async (request: DiscordToolActionRequest) => {
     switch (request.action) {
       case 'read':
@@ -326,7 +365,9 @@ export function createDiscordToolActionRunner(deps: DiscordToolActionDependencie
       case 'channel-info':
         return await runDiscordChannelInfoAction(request, deps);
       default:
-        throw new Error(`Unsupported Discord action: ${request.action as string}`);
+        throw new Error(
+          `Unsupported Discord action: ${request.action as string}`,
+        );
     }
   };
 }

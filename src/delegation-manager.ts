@@ -1,4 +1,7 @@
-import { PROACTIVE_DELEGATION_ENABLED, PROACTIVE_DELEGATION_MAX_CONCURRENT } from './config.js';
+import {
+  PROACTIVE_DELEGATION_ENABLED,
+  PROACTIVE_DELEGATION_MAX_CONCURRENT,
+} from './config.js';
 import { logger } from './logger.js';
 
 interface DelegationJob {
@@ -20,7 +23,8 @@ function pump(): void {
     const job = dequeue();
     if (!job) return;
     activeCount += 1;
-    void job.run()
+    void job
+      .run()
       .catch((err) => {
         logger.error({ err, jobId: job.id }, 'Delegation job failed');
       })

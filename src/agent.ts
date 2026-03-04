@@ -15,12 +15,25 @@ import type {
 } from './types.js';
 
 /** Write full prompt context to data/last_prompt.jsonl for debugging (Pi-Mono style). */
-function dumpPrompt(sessionId: string, messages: ChatMessage[], model: string, chatbotId: string): void {
+function dumpPrompt(
+  sessionId: string,
+  messages: ChatMessage[],
+  model: string,
+  chatbotId: string,
+): void {
   try {
-    const entry = { ts: new Date().toISOString(), sessionId, model, chatbotId, messages };
+    const entry = {
+      ts: new Date().toISOString(),
+      sessionId,
+      model,
+      chatbotId,
+      messages,
+    };
     const filePath = path.join(DATA_DIR, 'last_prompt.jsonl');
     fs.writeFileSync(filePath, JSON.stringify(entry) + '\n');
-  } catch { /* best-effort */ }
+  } catch {
+    /* best-effort */
+  }
 }
 
 export async function runAgent(

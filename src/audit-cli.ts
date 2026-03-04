@@ -1,14 +1,14 @@
 import {
+  beginInstructionApprovalAudit,
+  completeInstructionApprovalAudit,
+} from './instruction-approval-audit.js';
+import {
   approveInstructionBaseline,
   INSTRUCTION_BASELINE_PATH,
   INSTRUCTION_FILES,
   summarizeInstructionIntegrity,
   verifyInstructionBaseline,
 } from './instruction-integrity.js';
-import {
-  beginInstructionApprovalAudit,
-  completeInstructionApprovalAudit,
-} from './instruction-approval-audit.js';
 
 const ANSI_RED = '\x1b[31m';
 const ANSI_RESET = '\x1b[0m';
@@ -17,7 +17,11 @@ type DbModule = typeof import('./db.js');
 
 let cachedDbModule: DbModule | null = null;
 
-function parseLimit(raw: string | undefined, fallback: number, max = 200): number {
+function parseLimit(
+  raw: string | undefined,
+  fallback: number,
+  max = 200,
+): number {
   if (!raw) return fallback;
   const parsed = Number.parseInt(raw, 10);
   if (!Number.isFinite(parsed)) return fallback;
@@ -41,7 +45,10 @@ function parsePayload(payloadRaw: string): Record<string, unknown> | null {
   }
 }
 
-function isDeniedStructuredEvent(eventType: string, payloadRaw: string): boolean {
+function isDeniedStructuredEvent(
+  eventType: string,
+  payloadRaw: string,
+): boolean {
   const payload = parsePayload(payloadRaw);
   if (!payload) return false;
 
@@ -90,7 +97,9 @@ function runInstructionHashesCommand(args: string[]): void {
       for (const relPath of INSTRUCTION_FILES) {
         console.log(`approved  ${relPath} ${baseline.files[relPath]}`);
       }
-      console.log(`Saved approved baseline at ${INSTRUCTION_BASELINE_PATH} (${baseline.approvedAt}).`);
+      console.log(
+        `Saved approved baseline at ${INSTRUCTION_BASELINE_PATH} (${baseline.approvedAt}).`,
+      );
       completeInstructionApprovalAudit({
         context: auditContext,
         approved: true,
@@ -118,14 +127,20 @@ function runInstructionHashesCommand(args: string[]): void {
     process.exitCode = 1;
     console.log(red(`Invalid instruction baseline: ${result.baselineError}`));
     console.log(`Path: ${INSTRUCTION_BASELINE_PATH}`);
-    console.log('Run `hybridclaw audit instructions --approve` to write a new baseline.');
+    console.log(
+      'Run `hybridclaw audit instructions --approve` to write a new baseline.',
+    );
     return;
   }
 
   if (!result.baseline) {
     process.exitCode = 1;
-    console.log(`No approved instruction baseline found at ${INSTRUCTION_BASELINE_PATH}.`);
-    console.log('Run `hybridclaw audit instructions --approve` to approve current files.');
+    console.log(
+      `No approved instruction baseline found at ${INSTRUCTION_BASELINE_PATH}.`,
+    );
+    console.log(
+      'Run `hybridclaw audit instructions --approve` to approve current files.',
+    );
     return;
   }
 
@@ -159,7 +174,9 @@ function runInstructionHashesCommand(args: string[]): void {
     return;
   }
 
-  console.log(`Instruction files match approved baseline (${result.baseline.approvedAt}).`);
+  console.log(
+    `Instruction files match approved baseline (${result.baseline.approvedAt}).`,
+  );
 }
 
 function summarizePayload(payloadRaw: string): string {
@@ -206,7 +223,9 @@ export async function runAuditCli(rawArgs: string[]): Promise<void> {
     const { verifyAuditSessionChain } = await import('./audit-trail.js');
     const result = verifyAuditSessionChain(sessionId);
     if (result.ok) {
-      console.log(`✓ ${result.checkedRecords} records verified for ${sessionId} (last seq ${result.lastSeq}).`);
+      console.log(
+        `✓ ${result.checkedRecords} records verified for ${sessionId} (last seq ${result.lastSeq}).`,
+      );
       return;
     }
     console.error(`Audit verification failed for ${sessionId}`);
@@ -218,7 +237,8 @@ export async function runAuditCli(rawArgs: string[]): Promise<void> {
   }
 
   if (cmd === 'search') {
-    const numericLast = args.length > 1 && /^\d+$/.test(args[args.length - 1] || '');
+    const numericLast =
+      args.length > 1 && /^\d+$/.test(args[args.length - 1] || '');
     const limit = numericLast ? parseLimit(args.pop(), 25) : 25;
     const query = args.join(' ').trim();
     if (!query) {
@@ -234,7 +254,9 @@ export async function runAuditCli(rawArgs: string[]): Promise<void> {
     }
     rows.forEach((row) => {
       const line = `${row.session_id} #${row.seq} ${row.event_type} ${row.timestamp} ${summarizePayload(row.payload)}`;
-      console.log(isDeniedStructuredEvent(row.event_type, row.payload) ? red(line) : line);
+      console.log(
+        isDeniedStructuredEvent(row.event_type, row.payload) ? red(line) : line,
+      );
     });
     return;
   }
@@ -274,7 +296,11 @@ export async function runAuditCli(rawArgs: string[]): Promise<void> {
       }
       rows.forEach((row) => {
         const line = `#${row.seq} ${row.event_type} ${row.timestamp} ${summarizePayload(row.payload)}`;
-        console.log(isDeniedStructuredEvent(row.event_type, row.payload) ? red(line) : line);
+        console.log(
+          isDeniedStructuredEvent(row.event_type, row.payload)
+            ? red(line)
+            : line,
+        );
       });
       return;
     }
@@ -289,7 +315,9 @@ export async function runAuditCli(rawArgs: string[]): Promise<void> {
     }
     rows.forEach((row) => {
       const line = `${row.session_id} #${row.seq} ${row.event_type} ${row.timestamp} ${summarizePayload(row.payload)}`;
-      console.log(isDeniedStructuredEvent(row.event_type, row.payload) ? red(line) : line);
+      console.log(
+        isDeniedStructuredEvent(row.event_type, row.payload) ? red(line) : line,
+      );
     });
     return;
   }

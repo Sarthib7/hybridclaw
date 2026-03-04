@@ -133,7 +133,9 @@ function normalizeIngestUrl(baseUrl: string, ingestPath: string): string {
   const trimmedPath = ingestPath.trim();
   if (/^https?:\/\//i.test(trimmedPath)) return trimmedPath;
   const normalizedBase = baseUrl.replace(/\/+$/, '');
-  const normalizedPath = trimmedPath.startsWith('/') ? trimmedPath : `/${trimmedPath}`;
+  const normalizedPath = trimmedPath.startsWith('/')
+    ? trimmedPath
+    : `/${trimmedPath}`;
   return `${normalizedBase}${normalizedPath}`;
 }
 
@@ -141,12 +143,23 @@ function resolveConfig(): ResolvedIngestConfig {
   const botId = OBSERVABILITY_BOT_ID.trim() || HYBRIDAI_CHATBOT_ID.trim();
   const label = OBSERVABILITY_LABEL.trim() || os.hostname();
   const environment = OBSERVABILITY_ENVIRONMENT.trim() || 'prod';
-  const batchMaxEvents = clampInteger(OBSERVABILITY_BATCH_MAX_EVENTS, 1, PLATFORM_MAX_EVENTS);
-  const flushIntervalMs = clampInteger(OBSERVABILITY_FLUSH_INTERVAL_MS, 1_000, 3_600_000);
+  const batchMaxEvents = clampInteger(
+    OBSERVABILITY_BATCH_MAX_EVENTS,
+    1,
+    PLATFORM_MAX_EVENTS,
+  );
+  const flushIntervalMs = clampInteger(
+    OBSERVABILITY_FLUSH_INTERVAL_MS,
+    1_000,
+    3_600_000,
+  );
 
   return {
     enabled: OBSERVABILITY_ENABLED,
-    ingestUrl: normalizeIngestUrl(OBSERVABILITY_BASE_URL, OBSERVABILITY_INGEST_PATH),
+    ingestUrl: normalizeIngestUrl(
+      OBSERVABILITY_BASE_URL,
+      OBSERVABILITY_INGEST_PATH,
+    ),
     tokenAdminUrl: normalizeIngestUrl(OBSERVABILITY_BASE_URL, TOKEN_ADMIN_PATH),
     apiKey: HYBRIDAI_API_KEY.trim(),
     botId,
@@ -159,12 +172,24 @@ function resolveConfig(): ResolvedIngestConfig {
   };
 }
 
-function validateConfig(config: ResolvedIngestConfig): { ok: boolean; reason: string | null } {
+function validateConfig(config: ResolvedIngestConfig): {
+  ok: boolean;
+  reason: string | null;
+} {
   if (!config.enabled) return { ok: false, reason: 'disabled' };
-  if (!config.botId) return { ok: false, reason: 'missing observability.botId (or hybridai.defaultChatbotId)' };
-  if (!config.agentId) return { ok: false, reason: 'missing observability.agentId' };
+  if (!config.botId)
+    return {
+      ok: false,
+      reason: 'missing observability.botId (or hybridai.defaultChatbotId)',
+    };
+  if (!config.agentId)
+    return { ok: false, reason: 'missing observability.agentId' };
   if (!config.apiKey) {
-    return { ok: false, reason: 'missing HYBRIDAI_API_KEY (needed to auto-fetch observability ingest token)' };
+    return {
+      ok: false,
+      reason:
+        'missing HYBRIDAI_API_KEY (needed to auto-fetch observability ingest token)',
+    };
   }
   return { ok: true, reason: null };
 }
@@ -205,12 +230,18 @@ function parsePayload(raw: string): Record<string, unknown> {
   return {};
 }
 
-function readNullableString(payload: Record<string, unknown>, key: string): string | null {
+function readNullableString(
+  payload: Record<string, unknown>,
+  key: string,
+): string | null {
   const value = payload[key];
   return typeof value === 'string' && value.trim() ? value : null;
 }
 
-function readNullableInteger(payload: Record<string, unknown>, key: string): number | null {
+function readNullableInteger(
+  payload: Record<string, unknown>,
+  key: string,
+): number | null {
   const value = payload[key];
   if (typeof value === 'number' && Number.isFinite(value)) {
     return Math.floor(value);
@@ -222,7 +253,10 @@ function readNullableInteger(payload: Record<string, unknown>, key: string): num
   return null;
 }
 
-function readNullableBoolean(payload: Record<string, unknown>, key: string): boolean | null {
+function readNullableBoolean(
+  payload: Record<string, unknown>,
+  key: string,
+): boolean | null {
   const value = payload[key];
   if (typeof value === 'boolean') return value;
   if (typeof value === 'string') {
@@ -240,7 +274,10 @@ function inferDenied(payload: Record<string, unknown>): boolean {
   return false;
 }
 
-function buildEventUid(config: ResolvedIngestConfig, row: StructuredAuditEntry): string {
+function buildEventUid(
+  config: ResolvedIngestConfig,
+  row: StructuredAuditEntry,
+): string {
   const raw = [
     config.botId,
     config.agentId,
@@ -253,7 +290,10 @@ function buildEventUid(config: ResolvedIngestConfig, row: StructuredAuditEntry):
   return createHash('sha256').update(raw).digest('hex');
 }
 
-function mapAuditRowToEvent(config: ResolvedIngestConfig, row: StructuredAuditEntry): Record<string, unknown> {
+function mapAuditRowToEvent(
+  config: ResolvedIngestConfig,
+  row: StructuredAuditEntry,
+): Record<string, unknown> {
   const payload = parsePayload(row.payload);
   return {
     session_id: row.session_id,
@@ -274,9 +314,18 @@ function mapAuditRowToEvent(config: ResolvedIngestConfig, row: StructuredAuditEn
     prompt_tokens: readNullableInteger(payload, 'promptTokens'),
     completion_tokens: readNullableInteger(payload, 'completionTokens'),
     total_tokens: readNullableInteger(payload, 'totalTokens'),
-    estimated_prompt_tokens: readNullableInteger(payload, 'estimatedPromptTokens'),
-    estimated_completion_tokens: readNullableInteger(payload, 'estimatedCompletionTokens'),
-    estimated_total_tokens: readNullableInteger(payload, 'estimatedTotalTokens'),
+    estimated_prompt_tokens: readNullableInteger(
+      payload,
+      'estimatedPromptTokens',
+    ),
+    estimated_completion_tokens: readNullableInteger(
+      payload,
+      'estimatedCompletionTokens',
+    ),
+    estimated_total_tokens: readNullableInteger(
+      payload,
+      'estimatedTotalTokens',
+    ),
     api_usage_available: readNullableBoolean(payload, 'apiUsageAvailable'),
     api_prompt_tokens: readNullableInteger(payload, 'apiPromptTokens'),
     api_completion_tokens: readNullableInteger(payload, 'apiCompletionTokens'),
@@ -302,7 +351,11 @@ function buildBatchPayloadText(
   });
 }
 
-function prepareBatch(config: ResolvedIngestConfig, rows: StructuredAuditEntry[], currentCursor: number): PreparedBatch {
+function prepareBatch(
+  config: ResolvedIngestConfig,
+  rows: StructuredAuditEntry[],
+  currentCursor: number,
+): PreparedBatch {
   const selectedEvents: Record<string, unknown>[] = [];
   const droppedEventIds: number[] = [];
   let lastEventId = currentCursor;
@@ -366,7 +419,10 @@ function formatGrantError(prefix: string, grant: TokenGrantResult): string {
   return `${prefix}: HTTP ${grant.statusCode}`;
 }
 
-async function requestIngestToken(config: ResolvedIngestConfig, rotate = false): Promise<TokenGrantResult> {
+async function requestIngestToken(
+  config: ResolvedIngestConfig,
+  rotate = false,
+): Promise<TokenGrantResult> {
   let response: Response;
   try {
     response = await fetch(config.tokenAdminUrl, {
@@ -411,7 +467,10 @@ async function requestIngestToken(config: ResolvedIngestConfig, rotate = false):
       rotated: rotate,
       token: null,
       message: parseMessage(payload.message),
-      errorText: parseMessage(payload.message) || rawText || `${response.status} ${response.statusText}`,
+      errorText:
+        parseMessage(payload.message) ||
+        rawText ||
+        `${response.status} ${response.statusText}`,
     };
   }
 
@@ -419,7 +478,7 @@ async function requestIngestToken(config: ResolvedIngestConfig, rotate = false):
   const successFlagPresent = payload.success != null;
   const success = successFlagPresent
     ? parseBoolean(payload.success)
-    : (statusText === null || statusText === 'ok' || statusText === 'accepted');
+    : statusText === null || statusText === 'ok' || statusText === 'accepted';
   const token = parseMessage(payload.token);
   const created = parseBoolean(payload.created);
   const rotated = parseBoolean(payload.rotated) || rotate;
@@ -444,7 +503,7 @@ async function requestIngestToken(config: ResolvedIngestConfig, rotate = false):
     rotated,
     token,
     message,
-    errorText: token ? '' : (rawText || ''),
+    errorText: token ? '' : rawText || '',
   };
 }
 
@@ -457,14 +516,16 @@ async function resolveIngestToken(
       ok: false,
       token: null,
       source: null,
-      reason: 'missing HYBRIDAI_API_KEY (needed to auto-fetch observability ingest token)',
+      reason:
+        'missing HYBRIDAI_API_KEY (needed to auto-fetch observability ingest token)',
     };
   }
 
   const tokenKey = buildTokenCacheKey(config);
   if (!forceRefresh) {
     const cached = getObservabilityIngestToken(tokenKey);
-    if (cached) return { ok: true, token: cached, source: 'cache', reason: null };
+    if (cached)
+      return { ok: true, token: cached, source: 'cache', reason: null };
   } else {
     deleteObservabilityIngestToken(tokenKey);
     const rotated = await requestIngestToken(config, true);
@@ -473,11 +534,17 @@ async function resolveIngestToken(
         ok: false,
         token: null,
         source: null,
-        reason: formatGrantError('failed to rotate observability ingest token', rotated),
+        reason: formatGrantError(
+          'failed to rotate observability ingest token',
+          rotated,
+        ),
       };
     }
     if (!rotated.token) {
-      const message = rotated.message || rotated.errorText || 'token rotate endpoint returned no token';
+      const message =
+        rotated.message ||
+        rotated.errorText ||
+        'token rotate endpoint returned no token';
       return {
         ok: false,
         token: null,
@@ -500,7 +567,10 @@ async function resolveIngestToken(
       ok: false,
       token: null,
       source: null,
-      reason: formatGrantError('failed to ensure observability ingest token', granted),
+      reason: formatGrantError(
+        'failed to ensure observability ingest token',
+        granted,
+      ),
     };
   }
   if (!granted.token) {
@@ -510,11 +580,19 @@ async function resolveIngestToken(
         ok: false,
         token: null,
         source: null,
-        reason: formatGrantError('failed to rotate observability ingest token', rotated),
+        reason: formatGrantError(
+          'failed to rotate observability ingest token',
+          rotated,
+        ),
       };
     }
     if (!rotated.token) {
-      const message = rotated.message || rotated.errorText || granted.message || granted.errorText || 'token rotate endpoint returned no token';
+      const message =
+        rotated.message ||
+        rotated.errorText ||
+        granted.message ||
+        granted.errorText ||
+        'token rotate endpoint returned no token';
       return {
         ok: false,
         token: null,
@@ -540,7 +618,11 @@ async function resolveIngestToken(
   };
 }
 
-async function postBatch(config: ResolvedIngestConfig, token: string, payloadText: string): Promise<IngestResult> {
+async function postBatch(
+  config: ResolvedIngestConfig,
+  token: string,
+  payloadText: string,
+): Promise<IngestResult> {
   let response: Response;
   try {
     response = await fetch(config.ingestUrl, {
@@ -595,7 +677,12 @@ async function postBatch(config: ResolvedIngestConfig, token: string, payloadTex
 }
 
 function isPauseStatus(statusCode: number): boolean {
-  return statusCode === 400 || statusCode === 401 || statusCode === 403 || statusCode === 413;
+  return (
+    statusCode === 400 ||
+    statusCode === 401 ||
+    statusCode === 403 ||
+    statusCode === 413
+  );
 }
 
 async function flushObservability(reason: string): Promise<void> {
@@ -618,7 +705,8 @@ async function flushObservability(reason: string): Promise<void> {
 
     const initialToken = await resolveIngestToken(config);
     if (!initialToken.ok || !initialToken.token) {
-      ingestState.reason = initialToken.reason || 'failed to resolve observability ingest token';
+      ingestState.reason =
+        initialToken.reason || 'failed to resolve observability ingest token';
       ingestState.lastFailureAt = new Date().toISOString();
       ingestState.lastError = ingestState.reason;
       logger.warn(
@@ -636,7 +724,11 @@ async function flushObservability(reason: string): Promise<void> {
     ingestState.streamKey = streamKey;
     let cursor = getObservabilityOffset(streamKey);
     ingestState.lastCursor = cursor;
-    const fetchLimit = clampInteger(config.batchMaxEvents * FETCH_LIMIT_FACTOR, config.batchMaxEvents, 5_000);
+    const fetchLimit = clampInteger(
+      config.batchMaxEvents * FETCH_LIMIT_FACTOR,
+      config.batchMaxEvents,
+      5_000,
+    );
 
     while (true) {
       const rows = getStructuredAuditAfterId(cursor, fetchLimit);
@@ -663,7 +755,10 @@ async function flushObservability(reason: string): Promise<void> {
       }
 
       let result = await postBatch(config, activeToken, batch.payloadText);
-      if (!result.ok && (result.statusCode === 401 || result.statusCode === 403)) {
+      if (
+        !result.ok &&
+        (result.statusCode === 401 || result.statusCode === 403)
+      ) {
         const refreshed = await resolveIngestToken(config, true);
         if (refreshed.ok && refreshed.token) {
           activeToken = refreshed.token;
@@ -677,7 +772,8 @@ async function flushObservability(reason: string): Promise<void> {
           );
           result = await postBatch(config, activeToken, batch.payloadText);
         } else {
-          const refreshReason = refreshed.reason || 'unknown token refresh failure';
+          const refreshReason =
+            refreshed.reason || 'unknown token refresh failure';
           result = {
             ...result,
             errorText: `${result.errorText} | token refresh failed: ${refreshReason}`,
@@ -754,7 +850,10 @@ export function startObservabilityIngest(): void {
   if (!validation.ok) {
     ingestState.reason = validation.reason;
     if (config.enabled) {
-      logger.warn({ reason: validation.reason }, 'Observability ingest not started');
+      logger.warn(
+        { reason: validation.reason },
+        'Observability ingest not started',
+      );
     }
     return;
   }

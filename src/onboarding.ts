@@ -1,7 +1,7 @@
+import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import readline from 'readline/promises';
-import { spawn } from 'child_process';
 
 import { loadEnvFile } from './env.js';
 import {
@@ -64,7 +64,10 @@ function inferThemeFromColorFgBg(): TerminalTheme | null {
   const raw = process.env.COLORFGBG;
   if (!raw) return null;
 
-  const parts = raw.split(/[;:]/).map((part) => part.trim()).filter(Boolean);
+  const parts = raw
+    .split(/[;:]/)
+    .map((part) => part.trim())
+    .filter(Boolean);
   if (parts.length === 0) return null;
 
   const bg = Number.parseInt(parts[parts.length - 1], 10);
@@ -75,12 +78,20 @@ function inferThemeFromColorFgBg(): TerminalTheme | null {
 }
 
 function resolveOnboardingTheme(): TerminalTheme {
-  const override = (process.env.HYBRIDCLAW_THEME || process.env.HYBRIDCLAW_TUI_THEME || process.env.TUI_THEME || '').trim().toLowerCase();
+  const override = (
+    process.env.HYBRIDCLAW_THEME ||
+    process.env.HYBRIDCLAW_TUI_THEME ||
+    process.env.TUI_THEME ||
+    ''
+  )
+    .trim()
+    .toLowerCase();
   if (override === 'light' || override === 'dark') return override;
   return inferThemeFromColorFgBg() || 'dark';
 }
 
-const PALETTE = resolveOnboardingTheme() === 'light' ? LIGHT_PALETTE : DARK_PALETTE;
+const PALETTE =
+  resolveOnboardingTheme() === 'light' ? LIGHT_PALETTE : DARK_PALETTE;
 const MUTED = PALETTE.muted;
 const TEAL = PALETTE.teal;
 const GOLD = PALETTE.gold;
@@ -135,11 +146,14 @@ function parseErrorMessage(payload: unknown, fallback: string): string {
   if (typeof payload !== 'object') return fallback;
 
   const asRecord = payload as Record<string, unknown>;
-  if (typeof asRecord.message === 'string' && asRecord.message.trim()) return asRecord.message;
-  if (typeof asRecord.error === 'string' && asRecord.error.trim()) return asRecord.error;
+  if (typeof asRecord.message === 'string' && asRecord.message.trim())
+    return asRecord.message;
+  if (typeof asRecord.error === 'string' && asRecord.error.trim())
+    return asRecord.error;
   if (asRecord.error && typeof asRecord.error === 'object') {
     const nested = asRecord.error as Record<string, unknown>;
-    if (typeof nested.message === 'string' && nested.message.trim()) return nested.message;
+    if (typeof nested.message === 'string' && nested.message.trim())
+      return nested.message;
   }
 
   return fallback;
@@ -191,7 +205,8 @@ function extractApiKeyFromInput(raw: string): string | null {
 
 function getOpenCommand(url: string): { cmd: string; args: string[] } | null {
   if (process.platform === 'darwin') return { cmd: 'open', args: [url] };
-  if (process.platform === 'win32') return { cmd: 'cmd', args: ['/c', 'start', '', url] };
+  if (process.platform === 'win32')
+    return { cmd: 'cmd', args: ['/c', 'start', '', url] };
   if (process.platform === 'linux') return { cmd: 'xdg-open', args: [url] };
   return null;
 }
@@ -215,20 +230,30 @@ async function tryOpenUrl(url: string): Promise<boolean> {
 
 function normalizeBots(payload: unknown): HybridAIBot[] {
   const data = payload as
-    | { data?: Record<string, unknown>[]; bots?: Record<string, unknown>[]; items?: Record<string, unknown>[] }
+    | {
+        data?: Record<string, unknown>[];
+        bots?: Record<string, unknown>[];
+        items?: Record<string, unknown>[];
+      }
     | Record<string, unknown>[];
-  const raw = Array.isArray(data) ? data : (data?.data || data?.bots || data?.items || []);
+  const raw = Array.isArray(data)
+    ? data
+    : data?.data || data?.bots || data?.items || [];
 
   return raw
     .map((item) => ({
       id: String(item.id ?? item._id ?? item.chatbot_id ?? item.bot_id ?? ''),
       name: String(item.bot_name ?? item.name ?? 'Unnamed'),
-      description: item.description != null ? String(item.description) : undefined,
+      description:
+        item.description != null ? String(item.description) : undefined,
     }))
     .filter((bot) => Boolean(bot.id));
 }
 
-async function validateApiKey(baseUrl: string, apiKey: string): Promise<ApiKeyValidationResult> {
+async function validateApiKey(
+  baseUrl: string,
+  apiKey: string,
+): Promise<ApiKeyValidationResult> {
   let response: Response;
   try {
     response = await fetch(resolveUrl(baseUrl, BOT_LIST_PATH), {
@@ -247,7 +272,10 @@ async function validateApiKey(baseUrl: string, apiKey: string): Promise<ApiKeyVa
     return {
       ok: false,
       bots: [],
-      error: parseErrorMessage(payload, `Validation failed with HTTP ${response.status}.`),
+      error: parseErrorMessage(
+        payload,
+        `Validation failed with HTTP ${response.status}.`,
+      ),
     };
   }
 
@@ -285,7 +313,9 @@ function removeEnvLine(content: string, key: string): string {
 
 function saveEnvCredentials(apiKey: string): void {
   const envPath = path.join(process.cwd(), '.env');
-  const existing = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf-8') : '';
+  const existing = fs.existsSync(envPath)
+    ? fs.readFileSync(envPath, 'utf-8')
+    : '';
 
   let updated = upsertEnvLine(existing, 'HYBRIDAI_API_KEY', apiKey);
   updated = removeEnvLine(updated, 'HYBRIDAI_CHATBOT_ID');
@@ -345,7 +375,9 @@ async function promptRequired(
   icon = ICON_PROMPT,
 ): Promise<string> {
   while (true) {
-    const value = (await rl.question(styledPromptWithIcon(question, icon))).trim();
+    const value = (
+      await rl.question(styledPromptWithIcon(question, icon))
+    ).trim();
     if (value) return value;
     printWarn('Please enter a value.');
   }
@@ -366,7 +398,11 @@ async function promptYesNo(
   icon = ICON_PROMPT,
 ): Promise<boolean> {
   const suffix = defaultYes ? ' [Y/n] ' : ' [y/N] ';
-  const raw = (await rl.question(styledPromptWithIcon(`${question}${suffix}`, icon))).trim().toLowerCase();
+  const raw = (
+    await rl.question(styledPromptWithIcon(`${question}${suffix}`, icon))
+  )
+    .trim()
+    .toLowerCase();
   if (!raw) return defaultYes;
   if (raw === 'y' || raw === 'yes') return true;
   if (raw === 'n' || raw === 'no') return false;
@@ -390,7 +426,9 @@ async function chooseDefaultBot(
   console.log(`${TEAL}${ICON_TITLE}${RESET} Available bots:`);
   for (let i = 0; i < Math.min(10, bots.length); i++) {
     const bot = bots[i];
-    console.log(`${TEAL}${i + 1}.${RESET} ${bot.name} ${MUTED}(${bot.id})${RESET}`);
+    console.log(
+      `${TEAL}${i + 1}.${RESET} ${bot.name} ${MUTED}(${bot.id})${RESET}`,
+    );
   }
   if (bots.length > 10) {
     console.log(`${MUTED}...and ${bots.length - 10} more${RESET}`);
@@ -424,17 +462,28 @@ async function ensureSecurityTrustAcceptance(
   if (isSecurityTrustAccepted(existingConfig) && !force) return false;
 
   printHeadline('Security trust model acceptance');
-  printInfo(`${commandLabel} requires explicit trust model acceptance before runtime starts.`);
+  printInfo(
+    `${commandLabel} requires explicit trust model acceptance before runtime starts.`,
+  );
   printMeta('Policy version', SECURITY_POLICY_VERSION);
   printMeta('Current acceptance', formatAcceptanceMeta());
   printLink(`Policy document: ${TRUST_MODEL_DOC_PATH}`);
   printInfo('Review TRUST_MODEL.md before continuing.');
-  printInfo('Acceptance confirms you understand container/tool risks, data handling, and operator responsibilities.');
+  printInfo(
+    'Acceptance confirms you understand container/tool risks, data handling, and operator responsibilities.',
+  );
   console.log();
 
-  const ready = await promptYesNo(rl, 'Have you reviewed TRUST_MODEL.md and the trust model?', true, ICON_AUTH);
+  const ready = await promptYesNo(
+    rl,
+    'Have you reviewed TRUST_MODEL.md and the trust model?',
+    true,
+    ICON_AUTH,
+  );
   if (!ready) {
-    throw new Error('Security trust model acceptance is required. Review TRUST_MODEL.md and rerun onboarding.');
+    throw new Error(
+      'Security trust model acceptance is required. Review TRUST_MODEL.md and rerun onboarding.',
+    );
   }
 
   while (true) {
@@ -462,7 +511,9 @@ async function ensureSecurityTrustAcceptance(
   return true;
 }
 
-export async function ensureHybridAICredentials(options: OnboardingOptions = {}): Promise<void> {
+export async function ensureHybridAICredentials(
+  options: OnboardingOptions = {},
+): Promise<void> {
   loadEnvFile();
   const bootstrappedConfig = ensureRuntimeConfigFile();
 
@@ -487,12 +538,19 @@ export async function ensureHybridAICredentials(options: OnboardingOptions = {})
   const bootstrappedEnv = ensureEnvFileFromExample();
   if (bootstrappedEnv) loadEnvFile();
 
-  const baseUrl = normalizeBaseUrl(getRuntimeConfig().hybridai.baseUrl || process.env.HYBRIDAI_BASE_URL || DEFAULT_BASE_URL);
+  const baseUrl = normalizeBaseUrl(
+    getRuntimeConfig().hybridai.baseUrl ||
+      process.env.HYBRIDAI_BASE_URL ||
+      DEFAULT_BASE_URL,
+  );
   const registerPageUrl = resolveUrl(baseUrl, DEFAULT_REGISTER_PATH);
   const loginUrl = resolveUrl(baseUrl, DEFAULT_LOGIN_PATH);
   const commandLabel = options.commandName || 'hybridclaw';
 
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
 
   try {
     printHeadline('HybridAI onboarding');
@@ -505,19 +563,28 @@ export async function ensureHybridAICredentials(options: OnboardingOptions = {})
     await ensureSecurityTrustAcceptance(rl, commandLabel, force);
 
     if (existingKey && !force) {
-      printSuccess('Security trust model already accepted and API key is present. No credential changes needed.');
+      printSuccess(
+        'Security trust model already accepted and API key is present. No credential changes needed.',
+      );
       return;
     }
 
     printMeta('HYBRIDAI_BASE_URL', baseUrl);
     if (!existingKey) {
-      printInfo(`No HYBRIDAI_API_KEY found. ${commandLabel} needs HybridAI credentials before it can start.`);
+      printInfo(
+        `No HYBRIDAI_API_KEY found. ${commandLabel} needs HybridAI credentials before it can start.`,
+      );
     } else {
       printSetup('Reconfiguring HybridAI credentials.');
     }
     console.log();
 
-    const wantsNewAccount = await promptYesNo(rl, 'Create a new HybridAI account now?', true, ICON_PERSON);
+    const wantsNewAccount = await promptYesNo(
+      rl,
+      'Create a new HybridAI account now?',
+      true,
+      ICON_PERSON,
+    );
     let email = '';
 
     if (wantsNewAccount) {
@@ -540,10 +607,17 @@ export async function ensureHybridAICredentials(options: OnboardingOptions = {})
         ICON_PERSON,
       );
       if (email) {
-        const verifyUrl = resolveUrl(baseUrl, `${DEFAULT_VERIFY_PATH}?email=${encodeURIComponent(email)}`);
+        const verifyUrl = resolveUrl(
+          baseUrl,
+          `${DEFAULT_VERIFY_PATH}?email=${encodeURIComponent(email)}`,
+        );
         printLink(`Verify your email here: ${verifyUrl}`);
       }
-      await promptOptional(rl, 'When registration/email verification is done, press Enter...', ICON_PERSON);
+      await promptOptional(
+        rl,
+        'When registration/email verification is done, press Enter...',
+        ICON_PERSON,
+      );
       console.log();
     }
 
@@ -569,17 +643,31 @@ export async function ensureHybridAICredentials(options: OnboardingOptions = {})
     if (pasted) {
       seededApiKey = extractApiKeyFromInput(pasted) || '';
       if (!seededApiKey) {
-        printWarn('Could not extract an API key from input; you can paste the raw key next.');
+        printWarn(
+          'Could not extract an API key from input; you can paste the raw key next.',
+        );
       }
     } else {
-      await promptOptional(rl, 'When login/API key retrieval is done, press Enter...', ICON_AUTH);
+      await promptOptional(
+        rl,
+        'When login/API key retrieval is done, press Enter...',
+        ICON_AUTH,
+      );
     }
 
     let apiKey = seededApiKey;
-    let validation: ApiKeyValidationResult = { ok: false, bots: [], error: 'No validation yet.' };
+    let validation: ApiKeyValidationResult = {
+      ok: false,
+      bots: [],
+      error: 'No validation yet.',
+    };
     while (true) {
       if (!apiKey) {
-        const entered = await promptRequired(rl, 'HybridAI API key: ', ICON_KEY);
+        const entered = await promptRequired(
+          rl,
+          'HybridAI API key: ',
+          ICON_KEY,
+        );
         apiKey = extractApiKeyFromInput(entered) || entered;
       }
 
@@ -602,7 +690,8 @@ export async function ensureHybridAICredentials(options: OnboardingOptions = {})
       apiKey = '';
     }
 
-    const fallbackChatbotId = getRuntimeConfig().hybridai.defaultChatbotId.trim();
+    const fallbackChatbotId =
+      getRuntimeConfig().hybridai.defaultChatbotId.trim();
     const chosenChatbotId = await chooseDefaultBot(
       rl,
       validation.ok ? validation.bots : [],
@@ -619,7 +708,9 @@ export async function ensureHybridAICredentials(options: OnboardingOptions = {})
     if (chosenChatbotId) {
       printSuccess(`Default bot set to: ${chosenChatbotId}`);
     } else {
-      printInfo('No default bot selected. You can set hybridai.defaultChatbotId in config.json later.');
+      printInfo(
+        'No default bot selected. You can set hybridai.defaultChatbotId in config.json later.',
+      );
     }
     console.log();
   } finally {

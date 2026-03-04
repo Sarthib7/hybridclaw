@@ -1,8 +1,10 @@
+import { randomUUID } from 'crypto';
+import type {
+  Attachment as DiscordAttachment,
+  Message as DiscordMessage,
+} from 'discord.js';
 import fs from 'fs';
 import path from 'path';
-import { randomUUID } from 'crypto';
-
-import type { Attachment as DiscordAttachment, Message as DiscordMessage } from 'discord.js';
 
 import { DATA_DIR } from '../../config.js';
 import { logger } from '../../logger.js';
@@ -11,7 +13,9 @@ import type { MediaContextItem } from '../../types.js';
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 const MAX_ATTACHMENT_CONTEXT_CHARS = 16_000;
 const MAX_SINGLE_ATTACHMENT_CHARS = 8_000;
-const DISCORD_MEDIA_CACHE_DIR = path.resolve(path.join(DATA_DIR, 'discord-media-cache'));
+const DISCORD_MEDIA_CACHE_DIR = path.resolve(
+  path.join(DATA_DIR, 'discord-media-cache'),
+);
 const CONTAINER_DISCORD_MEDIA_CACHE_DIR = '/discord-media-cache';
 const DISCORD_ATTACHMENT_FETCH_TIMEOUT_MS = 12_000;
 const DISCORD_CDN_HOST_PATTERNS: RegExp[] = [
@@ -26,10 +30,20 @@ export interface AttachmentContextResult {
   media: MediaContextItem[];
 }
 
-export function looksLikeTextAttachment(name: string, contentType: string): boolean {
+export function looksLikeTextAttachment(
+  name: string,
+  contentType: string,
+): boolean {
   if (contentType.startsWith('text/')) return true;
-  if (contentType.includes('json') || contentType.includes('xml') || contentType.includes('yaml')) return true;
-  return /\.(txt|md|markdown|json|ya?ml|js|jsx|ts|tsx|py|rb|go|rs|java|c|cpp|h|hpp|cs|php|html?|css|scss|sql|log|csv)$/i.test(name);
+  if (
+    contentType.includes('json') ||
+    contentType.includes('xml') ||
+    contentType.includes('yaml')
+  )
+    return true;
+  return /\.(txt|md|markdown|json|ya?ml|js|jsx|ts|tsx|py|rb|go|rs|java|c|cpp|h|hpp|cs|php|html?|css|scss|sql|log|csv)$/i.test(
+    name,
+  );
 }
 
 function looksLikeImageAttachment(name: string, contentType: string): boolean {
@@ -38,14 +52,19 @@ function looksLikeImageAttachment(name: string, contentType: string): boolean {
 }
 
 function sanitizeAttachmentFilename(name: string): string {
-  const base = name.trim().replace(/[^\w.\-]+/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '');
+  const base = name
+    .trim()
+    .replace(/[^\w.-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
   const bounded = base.slice(0, 96);
   return bounded || 'attachment';
 }
 
 function normalizeAttachmentPathForContainer(hostPath: string): string | null {
   const relative = path.relative(DISCORD_MEDIA_CACHE_DIR, hostPath);
-  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return null;
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative))
+    return null;
   return `${CONTAINER_DISCORD_MEDIA_CACHE_DIR}/${relative.replace(/\\/g, '/')}`;
 }
 
@@ -57,10 +76,15 @@ function isAllowedDiscordAttachmentUrl(rawUrl: string): boolean {
     return false;
   }
   if (parsed.protocol !== 'https:') return false;
-  return DISCORD_CDN_HOST_PATTERNS.some((pattern) => pattern.test(parsed.hostname));
+  return DISCORD_CDN_HOST_PATTERNS.some((pattern) =>
+    pattern.test(parsed.hostname),
+  );
 }
 
-async function fetchAttachmentText(url: string, maxChars: number): Promise<string | null> {
+async function fetchAttachmentText(
+  url: string,
+  maxChars: number,
+): Promise<string | null> {
   try {
     const response = await fetch(url);
     if (!response.ok) return null;
@@ -102,7 +126,10 @@ async function cacheDiscordImageAttachment(params: {
     }
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), DISCORD_ATTACHMENT_FETCH_TIMEOUT_MS);
+    const timer = setTimeout(
+      () => controller.abort(),
+      DISCORD_ATTACHMENT_FETCH_TIMEOUT_MS,
+    );
     try {
       const response = await fetch(candidateUrl, { signal: controller.signal });
       if (!response.ok) {
@@ -110,17 +137,27 @@ async function cacheDiscordImageAttachment(params: {
         continue;
       }
 
-      const resolvedMime = String(response.headers.get('content-type') || fallbackMimeType || '')
+      const resolvedMime = String(
+        response.headers.get('content-type') || fallbackMimeType || '',
+      )
         .split(';')[0]
         .trim()
         .toLowerCase();
       if (!resolvedMime.startsWith('image/')) {
-        fetchErrors.push(`invalid_type:${resolvedMime || 'unknown'}@${candidateUrl}`);
+        fetchErrors.push(
+          `invalid_type:${resolvedMime || 'unknown'}@${candidateUrl}`,
+        );
         continue;
       }
 
-      const contentLength = Number.parseInt(response.headers.get('content-length') || '', 10);
-      if (Number.isFinite(contentLength) && contentLength > MAX_ATTACHMENT_BYTES) {
+      const contentLength = Number.parseInt(
+        response.headers.get('content-length') || '',
+        10,
+      );
+      if (
+        Number.isFinite(contentLength) &&
+        contentLength > MAX_ATTACHMENT_BYTES
+      ) {
         fetchErrors.push(`too_large_header:${contentLength}@${candidateUrl}`);
         continue;
       }
@@ -155,18 +192,22 @@ async function cacheDiscordImageAttachment(params: {
     }
   }
 
-  const fallbackUrl = sourceCandidates.find((url) => isAllowedDiscordAttachmentUrl(url))
-    || sourceCandidates[0]
-    || '';
+  const fallbackUrl =
+    sourceCandidates.find((url) => isAllowedDiscordAttachmentUrl(url)) ||
+    sourceCandidates[0] ||
+    '';
   return {
     path: null,
     sourceUrl: fallbackUrl,
     mimeType: fallbackMimeType,
-    cacheError: fetchErrors.length > 0 ? fetchErrors.join(' | ') : 'cache_failed',
+    cacheError:
+      fetchErrors.length > 0 ? fetchErrors.join(' | ') : 'cache_failed',
   };
 }
 
-export async function buildAttachmentContext(messages: DiscordMessage[]): Promise<AttachmentContextResult> {
+export async function buildAttachmentContext(
+  messages: DiscordMessage[],
+): Promise<AttachmentContextResult> {
   const lines: string[] = [];
   const media: MediaContextItem[] = [];
   let remainingChars = MAX_ATTACHMENT_CONTEXT_CHARS;
@@ -179,7 +220,9 @@ export async function buildAttachmentContext(messages: DiscordMessage[]): Promis
       const size = attachment.size || 0;
       const contentType = (attachment.contentType || '').toLowerCase();
       if (size > MAX_ATTACHMENT_BYTES) {
-        lines.push(`- ${name}: skipped (size ${size} bytes exceeds 10MB limit)`);
+        lines.push(
+          `- ${name}: skipped (size ${size} bytes exceeds 10MB limit)`,
+        );
         if (looksLikeImageAttachment(name, contentType)) {
           mediaOrder += 1;
           media.push({
@@ -220,7 +263,9 @@ export async function buildAttachmentContext(messages: DiscordMessage[]): Promis
           filename: name,
         });
         if (cached.path) {
-          lines.push(`- ${name}: image attachment cached (${size} bytes, ${cached.mimeType || contentType || 'unknown type'})`);
+          lines.push(
+            `- ${name}: image attachment cached (${size} bytes, ${cached.mimeType || contentType || 'unknown type'})`,
+          );
           logger.info(
             {
               messageId: msg.id,
@@ -233,7 +278,9 @@ export async function buildAttachmentContext(messages: DiscordMessage[]): Promis
             'Discord image attachment cached successfully',
           );
         } else {
-          lines.push(`- ${name}: image attachment (cache failed, using URL fallback)`);
+          lines.push(
+            `- ${name}: image attachment (cache failed, using URL fallback)`,
+          );
           logger.warn(
             {
               messageId: msg.id,
@@ -250,7 +297,10 @@ export async function buildAttachmentContext(messages: DiscordMessage[]): Promis
       }
 
       if (looksLikeTextAttachment(name, contentType)) {
-        const maxChars = Math.min(MAX_SINGLE_ATTACHMENT_CHARS, Math.max(500, remainingChars));
+        const maxChars = Math.min(
+          MAX_SINGLE_ATTACHMENT_CHARS,
+          Math.max(500, remainingChars),
+        );
         const text = await fetchAttachmentText(attachment.url, maxChars);
         if (!text) {
           lines.push(`- ${name}: text attachment (failed to read content)`);
@@ -261,7 +311,9 @@ export async function buildAttachmentContext(messages: DiscordMessage[]): Promis
         remainingChars -= block.length;
         lines.push(block);
         if (remainingChars <= 0) {
-          lines.push('- Additional attachment content omitted (context budget reached).');
+          lines.push(
+            '- Additional attachment content omitted (context budget reached).',
+          );
           return {
             context: `[Attachments]\n${lines.join('\n')}\n\n`,
             media,
@@ -270,7 +322,9 @@ export async function buildAttachmentContext(messages: DiscordMessage[]): Promis
         continue;
       }
 
-      lines.push(`- ${name}: attachment (${size} bytes, ${contentType || 'unknown type'})`);
+      lines.push(
+        `- ${name}: attachment (${size} bytes, ${contentType || 'unknown type'})`,
+      );
     }
   }
 

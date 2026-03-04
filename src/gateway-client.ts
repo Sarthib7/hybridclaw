@@ -1,18 +1,23 @@
 import { GATEWAY_API_TOKEN, GATEWAY_BASE_URL } from './config.js';
 import {
-  renderGatewayCommand,
   type GatewayChatRequestBody,
   type GatewayChatResult,
-  type GatewayCommandRequest,
-  type GatewayCommandResult,
   type GatewayChatStreamEvent,
   type GatewayChatStreamResultEvent,
   type GatewayChatTextDeltaEvent,
   type GatewayChatToolProgressEvent,
+  type GatewayCommandRequest,
+  type GatewayCommandResult,
   type GatewayStatus,
+  renderGatewayCommand,
 } from './gateway-types.js';
 export { renderGatewayCommand };
-export type { GatewayChatResult, GatewayCommandResult, GatewayStatus, GatewayChatStreamEvent };
+export type {
+  GatewayChatResult,
+  GatewayCommandResult,
+  GatewayStatus,
+  GatewayChatStreamEvent,
+};
 export type GatewayChatRequest = GatewayChatRequestBody;
 
 function gatewayUrl(pathname: string): string {
@@ -37,13 +42,18 @@ async function requestJson<T>(pathname: string, init: RequestInit): Promise<T> {
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const message = typeof payload.error === 'string' ? payload.error : `${response.status} ${response.statusText}`;
+    const message =
+      typeof payload.error === 'string'
+        ? payload.error
+        : `${response.status} ${response.statusText}`;
     throw new Error(`Gateway error: ${message}`);
   }
   return payload as T;
 }
 
-export async function gatewayCommand(params: GatewayCommandRequest): Promise<GatewayCommandResult> {
+export async function gatewayCommand(
+  params: GatewayCommandRequest,
+): Promise<GatewayCommandResult> {
   return requestJson<GatewayCommandResult>('/api/command', {
     method: 'POST',
     headers: {
@@ -86,13 +96,17 @@ export async function gatewayChatStream(
   });
 
   if (!response.ok) {
-    const errorText = (await response.text().catch(() => '')).trim() || `${response.status} ${response.statusText}`;
+    const errorText =
+      (await response.text().catch(() => '')).trim() ||
+      `${response.status} ${response.statusText}`;
     throw new Error(`Gateway error: ${errorText}`);
   }
 
   const parser = createResponseParser(onEvent);
   if (!response.body) {
-    const text = (await response.text().catch(() => '')).trim() || `${response.status} ${response.statusText}`;
+    const text =
+      (await response.text().catch(() => '')).trim() ||
+      `${response.status} ${response.statusText}`;
     const parsed = parser(text);
     if (!parsed || parsed.type !== 'result') {
       throw new Error(`Malformed gateway response: ${text}`);
@@ -136,9 +150,9 @@ export async function gatewayChatStream(
   throw new Error('Gateway stream ended without a result payload.');
 }
 
-function createResponseParser(onEvent: (event: GatewayChatStreamEvent) => void): (
-  line: string,
-) => GatewayChatStreamEvent | null {
+function createResponseParser(
+  onEvent: (event: GatewayChatStreamEvent) => void,
+): (line: string) => GatewayChatStreamEvent | null {
   return (line: string) => {
     const trimmed = line.trim();
     if (!trimmed) return null;
@@ -182,7 +196,11 @@ function createResponseParser(onEvent: (event: GatewayChatStreamEvent) => void):
       };
     }
 
-    if (parsed.type === 'tool' && parsed.toolName && (parsed.phase === 'start' || parsed.phase === 'finish')) {
+    if (
+      parsed.type === 'tool' &&
+      parsed.toolName &&
+      (parsed.phase === 'start' || parsed.phase === 'finish')
+    ) {
       const toolEvent = parsed as GatewayChatToolProgressEvent;
       onEvent(toolEvent);
       return null;
@@ -209,9 +227,15 @@ export async function gatewayHealth(): Promise<GatewayStatus> {
   return requestJson<GatewayStatus>('/health', { method: 'GET' });
 }
 
-export async function gatewayShutdown(): Promise<{ status: string; message?: string }> {
-  return requestJson<{ status: string; message?: string }>('/api/admin/shutdown', {
-    method: 'POST',
-    headers: authHeaders(),
-  });
+export async function gatewayShutdown(): Promise<{
+  status: string;
+  message?: string;
+}> {
+  return requestJson<{ status: string; message?: string }>(
+    '/api/admin/shutdown',
+    {
+      method: 'POST',
+      headers: authHeaders(),
+    },
+  );
 }

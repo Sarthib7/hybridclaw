@@ -82,7 +82,10 @@ function splitLongLine(line: string, maxChars: number): string[] {
   return pieces;
 }
 
-export function chunkMessage(text: string, opts?: ChunkMessageOptions): string[] {
+export function chunkMessage(
+  text: string,
+  opts?: ChunkMessageOptions,
+): string[] {
   const maxChars = Math.max(200, opts?.maxChars ?? DEFAULT_MAX_CHARS);
   const maxLines = Math.max(4, opts?.maxLines ?? DEFAULT_MAX_LINES);
   const normalized = (text || '').replace(/\r\n?/g, '\n');
@@ -120,15 +123,20 @@ export function chunkMessage(text: string, opts?: ChunkMessageOptions): string[]
   };
 
   const appendLine = (line: string): void => {
-    const addedChars = currentLines.length === 0 ? line.length : line.length + 1;
+    const addedChars =
+      currentLines.length === 0 ? line.length : line.length + 1;
     const nextChars = currentChars + addedChars;
     const nextLines = currentLines.length + 1;
-    if (currentLines.length > 0 && (nextChars > maxChars || nextLines > maxLines)) {
+    if (
+      currentLines.length > 0 &&
+      (nextChars > maxChars || nextLines > maxLines)
+    ) {
       flush(false);
     }
 
     currentLines.push(line);
-    currentChars = currentLines.length === 1 ? line.length : currentChars + line.length + 1;
+    currentChars =
+      currentLines.length === 1 ? line.length : currentChars + line.length + 1;
 
     if (isFenceLine(line)) {
       if (!openFence) {

@@ -1430,8 +1430,10 @@ export function initDiscord(
       if (interaction.commandName === 'status') return ['status'];
       if (interaction.commandName === 'approve') {
         const action =
-          interaction.options.getString('action', false)?.trim().toLowerCase() ||
-          'view';
+          interaction.options
+            .getString('action', false)
+            ?.trim()
+            .toLowerCase() || 'view';
         if (
           action !== 'view' &&
           action !== 'yes' &&

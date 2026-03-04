@@ -1196,11 +1196,10 @@ export async function executeBrowserTool(
             ? normalizeStringList(selectorEval.result, 10)
             : [];
           for (const selector of selectors) {
-            const retry = await runAgentBrowser(
-              effectiveSessionId,
-              'upload',
-              [selector, ...filePaths],
-            );
+            const retry = await runAgentBrowser(effectiveSessionId, 'upload', [
+              selector,
+              ...filePaths,
+            ]);
             if (!retry.success) continue;
             return success({
               element: target.raw,

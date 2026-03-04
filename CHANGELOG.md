@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+No unreleased changes.
+
+## [0.2.7](https://github.com/HybridAIOne/hybridclaw/tree/v0.2.7)
+
 ### Added
 
 - **Private approval slash command**: Added `/approve` with private (ephemeral) responses for `view`, `yes`, `session`, `agent`, and `no`, including optional `approval_id`.

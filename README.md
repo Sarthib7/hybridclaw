@@ -11,9 +11,9 @@ npm install -g @hybridaione/hybridclaw
 hybridclaw onboarding
 ```
 
-Latest release: [v0.2.6](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.2.6)
+Latest release: [v0.2.7](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.2.7)
 
-## Main branch updates (since v0.2.6)
+## Release highlights (v0.2.7)
 
 - Private approval flow via `/approve [view|yes|session|agent|no] [approval_id]` with ephemeral responses, and DM-ready global slash registration for `/status` + `/approve`.
 - Discord command access controls now support `discord.commandMode` (`public|restricted`) plus `discord.commandAllowedUserIds` (with legacy `commandUserId` compatibility).

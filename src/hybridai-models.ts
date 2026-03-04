@@ -54,13 +54,19 @@ export function resolveModelContextWindowFromList(
       ? (normalized.split('/').at(-1) ?? normalized)
       : normalized;
   };
-  const matchesModelFamily = (candidateId: string, targetId: string): boolean => {
+  const matchesModelFamily = (
+    candidateId: string,
+    targetId: string,
+  ): boolean => {
     if (!candidateId || !targetId) return false;
     if (candidateId === targetId) return true;
     const boundary = candidateId.at(targetId.length);
     return (
       candidateId.startsWith(targetId) &&
-      (boundary === '-' || boundary === '.' || boundary === ':' || boundary === '/')
+      (boundary === '-' ||
+        boundary === '.' ||
+        boundary === ':' ||
+        boundary === '/')
     );
   };
 
@@ -84,7 +90,8 @@ export function resolveModelContextWindowFromList(
     const normalizedTail = normalizeModelIdTail(entry.id);
     return normalizedTail === targetTail;
   });
-  if (tailMatch?.contextWindowTokens != null) return tailMatch.contextWindowTokens;
+  if (tailMatch?.contextWindowTokens != null)
+    return tailMatch.contextWindowTokens;
 
   const familyMatch = models
     .filter((entry) => entry.contextWindowTokens != null)
@@ -101,7 +108,10 @@ export function resolveModelContextWindowFromList(
 export function resolveModelContextWindowFallback(
   modelName: string,
 ): number | null {
-  const matchesModelFamily = (candidateId: string, targetId: string): boolean => {
+  const matchesModelFamily = (
+    candidateId: string,
+    targetId: string,
+  ): boolean => {
     if (!candidateId || !targetId) return false;
     if (candidateId === targetId) return true;
     const boundary = candidateId.at(targetId.length);

@@ -62,9 +62,7 @@ import {
   renderGatewayCommand,
 } from './gateway-types.js';
 import { fetchHybridAIBots } from './hybridai-bots.js';
-import {
-  resolveModelContextWindowFallback,
-} from './hybridai-models.js';
+import { resolveModelContextWindowFallback } from './hybridai-models.js';
 import { logger } from './logger.js';
 import { memoryService } from './memory-service.js';
 import { getObservabilityIngestState } from './observability-ingest.js';

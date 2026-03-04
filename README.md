@@ -11,43 +11,7 @@ npm install -g @hybridaione/hybridclaw
 hybridclaw onboarding
 ```
 
-Latest release: [v0.2.5](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.2.5)
-
-## What's new (Unreleased)
-
-- Added canonical cross-channel memory sessions (`agent_id + user_id`) with compacted summaries and recent-message recall
-- Added usage aggregation storage/query layer (`usage_events`) with daily/monthly totals and by-agent/by-model breakdowns
-- Added gateway usage commands: `usage`, `usage daily`, `usage monthly`, `usage model [daily|monthly] [agentId]`
-- Added JSONL session export command: `export session [sessionId]`
-- Added automatic JSONL export snapshots after session compaction for debugging
-- Added schema migration versioning for canonical + usage tables, with WAL + `busy_timeout` at DB init
-
-## What's new in v0.2.5
-
-- Added trusted-coworker approval controls with `yes`, `yes for session`, `yes for agent`, and `skip` flows for red-tier actions
-- Added TUI approval menu shortcuts (`1/2/3/4`) and request-id aware approval replies
-- Added agent-scoped approval trust persistence in `.hybridclaw/approval-trust.json`
-- Moved approval policy path from `.claude/policy.yaml` to `.hybridclaw/policy.yaml`
-- Updated yellow-tier implicit approval window to 5s
-- Added CI enforcement for changed-file Biome checks plus root/container TypeScript lint before unit tests
-
-## What's new in v0.2.3
-
-- Added Discord guild channel policy controls with typed config: `discord.groupPolicy`, `discord.freeResponseChannels`, and `discord.guilds.<guildId>.channels.<channelId>.mode`
-- Added `/channel-mode` and `/channel-policy` slash commands for in-channel Discord policy/mode control
-- Added `!claw channel mode` and `!claw channel policy` command flows for in-chat policy changes
-- Enforced channel mode/policy in Discord trigger logic while keeping prefixed commands available
-- Clarified trigger precedence so per-guild/per-channel mode rules win over global `respondToAllMessages`
-- Updated status/activation labeling to reflect allowlist/disabled/mixed channel policy modes
-
-## What's new in v0.2.4
-
-- Added dynamic Discord self-presence health states (`online`/`idle`/`dnd`) with maintenance shutdown presence (`invisible`)
-- Added config-backed proactive scheduler jobs via `scheduler.jobs[]` with `cron|every|at` schedules, `agent_turn|system_event` actions, and `channel|last-channel|webhook` delivery targets
-- Added atomic scheduler state persistence in `data/scheduler-jobs-state.json` (last run/status, consecutive errors, one-shot completion, auto-disable flags)
-- Added humanized Discord pacing behaviors: time-of-day/weekend slowdown, conversation cooldown scaling after long back-and-forth, and reconnect startup staggering
-- Added selective silence in active group channels when peers likely already answered
-- Added read-without-reply handling for short acknowledgments (react instead of full reply)
+Latest release: [v0.2.6](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.2.6)
 
 ## HybridAI Advantage
 

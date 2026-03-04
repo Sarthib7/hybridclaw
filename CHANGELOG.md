@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.2.6](https://github.com/HybridAIOne/hybridclaw/tree/v0.2.6)
+
 ### Added
 
 - **Canonical cross-channel sessions**: Added `canonical_sessions` persistence keyed by `(agent_id, user_id)` with recent-window retention and compacted summary support for cross-channel continuity.

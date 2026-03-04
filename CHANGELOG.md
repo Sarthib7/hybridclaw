@@ -4,9 +4,15 @@
 
 ### Added
 
+- **Discord `/channel-policy` slash command**: Added guild policy switching directly from Discord (`open`, `allowlist`, `disabled`) with ephemeral command replies.
+
 ### Changed
 
+- **Docs sync for Discord channel controls**: Updated README/site guidance to document policy/mode config shape, slash command usage, and allowlist workflow.
+
 ### Fixed
+
+- **Guild mode precedence over global free-response**: Resolved trigger precedence so configured guild/channel mode (`off`/`mention`/`free`) is no longer overridden by global `discord.respondToAllMessages`.
 
 ## [0.2.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.2.3)
 

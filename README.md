@@ -16,9 +16,10 @@ Latest release: [v0.2.3](https://github.com/HybridAIOne/hybridclaw/releases/tag/
 ## What's new in v0.2.3
 
 - Added Discord guild channel policy controls with typed config: `discord.groupPolicy`, `discord.freeResponseChannels`, and `discord.guilds.<guildId>.channels.<channelId>.mode`
-- Added `/channel-mode` slash command to switch a channel between `off`, `mention`, and `free`
+- Added `/channel-mode` and `/channel-policy` slash commands for in-channel Discord policy/mode control
 - Added `!claw channel mode` and `!claw channel policy` command flows for in-chat policy changes
 - Enforced channel mode/policy in Discord trigger logic while keeping prefixed commands available
+- Clarified trigger precedence so per-guild/per-channel mode rules win over global `respondToAllMessages`
 - Updated status/activation labeling to reflect allowlist/disabled/mixed channel policy modes
 
 ## HybridAI Advantage
@@ -103,13 +104,15 @@ HybridClaw uses typed runtime config in `config.json` (auto-created on first run
 - Runtime watches `config.json` and hot-reloads most settings (model defaults, heartbeat, prompt hooks, limits, etc.)
 - `discord.guildMembersIntent` enables richer guild member context and better `@name` mention resolution in replies (requires enabling **Server Members Intent** in Discord Developer Portal)
 - `discord.presenceIntent` enables Discord presence events (requires enabling **Presence Intent** in Discord Developer Portal)
-- `discord.respondToAllMessages` changes guild trigger behavior: `false` (default) replies only on mention/`!claw`; `true` replies to every user message in the channel
+- `discord.respondToAllMessages` is a global fallback for open-policy guild channels without explicit mode config (`false` mention-gated, `true` free-response)
 - `discord.commandUserId` restricts `!claw <command>` admin commands to a single Discord user ID (all other messages still use normal chat handling)
 - `discord.commandsOnly` optional hard mode: if `true`, the bot ignores non-`!claw` messages and only accepts prefixed commands (optionally limited by `discord.commandUserId`)
 - `discord.groupPolicy` controls guild channel scope: `open` (default), `allowlist`, or `disabled`
 - `discord.freeResponseChannels` is a Hermes-style channel ID list that gets free-response behavior while other channels remain mention-gated
-- `discord.guilds.<guildId>.channels.<channelId>.mode` sets per-channel behavior to `off`, `mention`, or `free` (works with `allowlist` policy)
-- Discord slash commands: `/status` and `/channel-mode <off|mention|free>` (ephemeral replies)
+- `discord.guilds.<guildId>.defaultMode` sets that guild's fallback mode in `open` policy (`mention` recommended)
+- `discord.guilds.<guildId>.channels.<channelId>.mode` sets per-channel behavior to `off`, `mention`, or `free` (used as allowlist entries when policy is `allowlist`)
+- Per-guild/per-channel mode takes precedence over `discord.respondToAllMessages`
+- Discord slash commands: `/status`, `/channel-mode <off|mention|free>`, and `/channel-policy <open|allowlist|disabled>` (ephemeral replies)
 - `skills.extraDirs` adds additional enterprise/shared skill roots (lowest precedence tier)
 - `proactive.*` controls autonomous behavior (`activeHours`, `delegation`, `autoRetry`, `ralph`)
 - `proactive.ralph.maxIterations` enables Ralph loop (`0` off, `-1` unlimited, `>0` extra autonomous iterations before forcing completion)

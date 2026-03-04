@@ -1018,7 +1018,7 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Configuration</h3>
-      <p>Typed <code>config.json</code> with defaults, validation, and hot reload. Secrets remain in <code>.env</code>.</p>
+      <p>Typed <code>config.json</code> with defaults, validation, and hot reload. Discord supports channel policies/modes (<code>open</code>/<code>allowlist</code>/<code>disabled</code>, <code>off</code>/<code>mention</code>/<code>free</code>) via config and slash commands. Secrets remain in <code>.env</code>.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Memory Continuity</h3>
@@ -1265,7 +1265,11 @@
     </div>
     <div class="faq-item">
       <div class="faq-q">Can different Discord channels use different bots?</div>
-      <div class="faq-a">Yes. Each channel can be independently configured with its own HybridAI chatbot, model, and RAG setting using the <code>bot set</code> and <code>model set</code> commands.</div>
+      <div class="faq-a">Yes. Each channel can be independently configured with its own HybridAI chatbot, model, and RAG setting using the <code>bot set</code> and <code>model set</code> commands. You can also control reply activation per channel with <code>/channel-mode</code> and guild policy via <code>/channel-policy</code>.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">How do I allow free-response in only one Discord channel?</div>
+      <div class="faq-a">Set guild policy to <code>allowlist</code> using <code>/channel-policy policy:allowlist</code>, then run <code>/channel-mode mode:free</code> in the one channel you want active. Leave other channels unlisted (or set them to <code>off</code>).</div>
     </div>
     <div class="faq-item">
       <div class="faq-q">How does scheduling work?</div>

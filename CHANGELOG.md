@@ -18,6 +18,7 @@
 
 - **First-run migration completeness**: Startup now migrates legacy `./config.json` and `./data` into `~/.hybridclaw`, archives legacy files, and stores migration backups under `~/.hybridclaw/migration-backups/` on conflicts.
 - **Install-root write issues**: Container image fingerprint state now persists under `~/.hybridclaw/container-image-state` (with legacy state fallback) instead of package install directories.
+- **Duplicate Discord `/status` slash entries**: Slash command registration now keeps `status`/`approve` global-only and removes stale guild-scoped duplicates to avoid duplicate command entries in guild channels.
 
 ## [0.2.11](https://github.com/HybridAIOne/hybridclaw/tree/v0.2.11)
 

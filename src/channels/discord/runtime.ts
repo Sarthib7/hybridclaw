@@ -1051,6 +1051,10 @@ async function ensureSlashCommands(): Promise<void> {
     (definition) =>
       definition.name === 'status' || definition.name === 'approve',
   );
+  const globalCommandNames = new Set(
+    globalDefinitions.map((definition) => definition.name),
+  );
+  let globalRegistrationSucceeded = true;
   try {
     for (const definition of globalDefinitions) {
       // POST is an upsert by name for global commands. Keep command IDs stable
@@ -1064,15 +1068,30 @@ async function ensureSlashCommands(): Promise<void> {
       );
     }
   } catch (error) {
+    globalRegistrationSucceeded = false;
     logger.warn({ error }, 'Failed to register global slash commands');
   }
+  const guildDefinitions = globalRegistrationSucceeded
+    ? definitions.filter((definition) => !globalCommandNames.has(definition.name))
+    : definitions;
 
   await Promise.allSettled(
     [...client.guilds.cache.values()].map(async (guild) => {
       try {
         const existing = await guild.commands.fetch();
-        for (const definition of definitions) {
-          const current = existing.find(
+        if (globalRegistrationSucceeded) {
+          for (const command of existing.values()) {
+            if (!globalCommandNames.has(command.name)) continue;
+            await guild.commands.delete(command.id);
+            logger.info(
+              { guildId: guild.id, command: command.name },
+              'Removed guild slash command because command is global-only',
+            );
+          }
+        }
+        const refreshed = await guild.commands.fetch();
+        for (const definition of guildDefinitions) {
+          const current = refreshed.find(
             (command) => command.name === definition.name,
           );
           if (!current) {

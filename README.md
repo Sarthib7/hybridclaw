@@ -11,16 +11,15 @@ npm install -g @hybridaione/hybridclaw
 hybridclaw onboarding
 ```
 
-Latest release: [v0.2.8](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.2.8)
+Latest release: [v0.2.9](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.2.9)
 
-## Release highlights (v0.2.8)
+## Release highlights (v0.2.9)
 
-- Discord `message` tool now supports richer actions (`send`, `read`, `member-info`, `channel-info`, `react`, `quote-reply`, `edit`, `delete`, `pin`, `unpin`, `thread-create`, `thread-reply`).
-- Send intent handling is more natural: aliases like `dm`, `post`, `reply`, `respond`, `history`, `fetch`, `lookup`, and `whois` normalize automatically.
-- Single-call DM routing is now supported for user targets (`user`/`username`, `@mentions`, IDs), including inline resolution when no explicit `channelId` is provided.
-- Message-tool descriptions now include intent phrases and enumerate configured channels so isolated/cron runs can discover available Discord targets.
-- Discord send governance gained runtime allowlist controls via `discord.sendPolicy` plus channel/guild/user/role checks.
-- Lookup failures now return structured errors with disambiguation candidates and optional `resolveAmbiguous=best` auto-pick behavior.
+- Added release-bundle guard scripts (`release:check`) for root and container packages.
+- Added dry-run publish helpers (`publish:dry`) for safer package validation before publish.
+- Hardened package allowlists and prepack/CI checks to prevent accidental publish regressions.
+- Implemented robust silent-reply token handling for Discord/API streaming paths.
+- Suppressed silent token fragment leakage in streaming output and removed silent placeholders from prompt history.
 
 ## HybridAI Advantage
 

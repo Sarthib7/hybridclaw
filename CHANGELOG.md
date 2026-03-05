@@ -4,6 +4,14 @@
 
 ### Added
 
+### Changed
+
+### Fixed
+
+## [0.2.9](https://github.com/HybridAIOne/hybridclaw/tree/v0.2.9)
+
+### Added
+
 - **Release bundle guard scripts**: Added root and container `release:check` scripts that validate `npm pack --dry-run` contents and fail on forbidden files (tests, source, CI/config artifacts).
 - **Dry-run publish helpers**: Added `publish:dry` scripts for root and container package smoke checks before publish.
 
@@ -13,6 +21,7 @@
 - **Prepack gating**: Root and container packages now run clean build + release bundle validation during `prepack`.
 - **CI packaging checks**: CI now runs root/container release bundle checks to catch publish-regression changes on PRs and pushes.
 - **Silent reply token handling**: Centralized `__MESSAGE_SEND_HANDLED__` parsing/cleanup, added streaming prefix buffering for Discord/API output paths, and aligned prompt token constants with shared silent-reply utilities.
+- **CLI build output mode**: Root `build` script now enforces executable mode on `dist/cli.js` after TypeScript compilation.
 
 ### Fixed
 

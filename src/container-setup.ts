@@ -1,9 +1,10 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
-import { CONTAINER_IMAGE } from './config.js';
+import { APP_VERSION, CONTAINER_IMAGE } from './config.js';
 
 export type ContainerRebuildPolicy = 'if-stale' | 'always' | 'never';
 
@@ -17,10 +18,12 @@ function runCommand(
   command: string,
   args: string[],
   cwd?: string,
+  env?: NodeJS.ProcessEnv,
 ): Promise<{ code: number | null; err?: string }> {
   return new Promise((resolve) => {
     const proc = spawn(command, args, {
       cwd,
+      env,
       stdio: 'pipe',
     });
     let err = '';
@@ -41,8 +44,38 @@ async function containerImageExists(imageName: string): Promise<boolean> {
   return result.code === 0;
 }
 
-async function buildContainerImage(cwd: string): Promise<void> {
-  const result = await runCommand('npm', ['run', 'build:container'], cwd);
+async function pullContainerImage(imageName: string): Promise<void> {
+  const result = await runCommand('docker', ['pull', imageName]);
+  if (result.code !== 0) {
+    throw new Error(
+      result.err?.trim() ||
+        `docker pull ${imageName} returned a non-zero exit code.`,
+    );
+  }
+}
+
+async function tagContainerImage(
+  source: string,
+  target: string,
+): Promise<void> {
+  if (source === target) return;
+  const result = await runCommand('docker', ['tag', source, target]);
+  if (result.code !== 0) {
+    throw new Error(
+      result.err?.trim() ||
+        `docker tag ${source} ${target} returned a non-zero exit code.`,
+    );
+  }
+}
+
+async function buildContainerImage(
+  cwd: string,
+  imageName: string,
+): Promise<void> {
+  const result = await runCommand('npm', ['run', 'build:container'], cwd, {
+    ...process.env,
+    HYBRIDCLAW_CONTAINER_IMAGE: imageName,
+  });
   if (result.code !== 0) {
     throw new Error(
       result.err?.trim() ||
@@ -58,8 +91,13 @@ interface ContainerImageState {
 }
 
 const CONTAINER_FINGERPRINT_VERSION = 'v1';
-const STATE_DIRNAME = '.hybridclaw';
+const STATE_ROOT_DIR = path.join(os.homedir(), '.hybridclaw');
+const STATE_DIRNAME = 'container-image-state';
+const LEGACY_STATE_DIRNAME = '.hybridclaw';
 const STATE_FILENAME = 'container-image-state.json';
+const DEFAULT_CONTAINER_IMAGE = 'hybridclaw-agent';
+const DEFAULT_DOCKERHUB_IMAGE = 'hybridaione/hybridclaw-agent';
+const DEFAULT_GHCR_IMAGE = 'ghcr.io/hybridaione/hybridclaw-agent';
 const TRACKED_FILES = [
   'package.json',
   'container/Dockerfile',
@@ -68,6 +106,21 @@ const TRACKED_FILES = [
   'container/tsconfig.json',
 ];
 const TRACKED_SOURCE_ROOT = 'container/src';
+
+function resolveContainerPullImages(imageName: string): string[] {
+  const explicit = (process.env.HYBRIDCLAW_CONTAINER_PULL_IMAGE || '').trim();
+  if (explicit) return [explicit];
+  if (imageName.includes('/')) return [imageName];
+  if (imageName !== DEFAULT_CONTAINER_IMAGE) return [];
+
+  const candidates = [
+    `${DEFAULT_DOCKERHUB_IMAGE}:v${APP_VERSION}`,
+    `${DEFAULT_DOCKERHUB_IMAGE}:latest`,
+    `${DEFAULT_GHCR_IMAGE}:v${APP_VERSION}`,
+    `${DEFAULT_GHCR_IMAGE}:latest`,
+  ];
+  return Array.from(new Set(candidates));
+}
 
 function normalizeRebuildPolicy(
   raw: string | undefined,
@@ -85,16 +138,41 @@ function resolveRebuildPolicy(): ContainerRebuildPolicy {
   );
 }
 
+function stateScopeKey(cwd: string): string {
+  return createHash('sha256')
+    .update(path.resolve(cwd))
+    .digest('hex')
+    .slice(0, 16);
+}
+
 function stateFilePath(cwd: string): string {
-  return path.join(cwd, STATE_DIRNAME, STATE_FILENAME);
+  return path.join(
+    STATE_ROOT_DIR,
+    STATE_DIRNAME,
+    stateScopeKey(cwd),
+    STATE_FILENAME,
+  );
+}
+
+function legacyStateFilePath(cwd: string): string {
+  return path.join(cwd, LEGACY_STATE_DIRNAME, STATE_FILENAME);
 }
 
 function readContainerImageState(
   cwd: string,
   imageName: string,
 ): ContainerImageState | null {
-  const file = stateFilePath(cwd);
-  if (!fs.existsSync(file)) return null;
+  const primaryFile = stateFilePath(cwd);
+  const legacyFile = legacyStateFilePath(cwd);
+  const files = [primaryFile, legacyFile];
+  let file: string | null = null;
+  for (const candidate of files) {
+    if (fs.existsSync(candidate)) {
+      file = candidate;
+      break;
+    }
+  }
+  if (!file) return null;
   try {
     const parsed = JSON.parse(
       fs.readFileSync(file, 'utf-8'),
@@ -105,12 +183,21 @@ function readContainerImageState(
       typeof parsed.fingerprint === 'string' &&
       parsed.fingerprint.trim() !== ''
     ) {
-      return {
+      const normalizedState = {
         imageName: parsed.imageName,
         fingerprint: parsed.fingerprint,
         recordedAt:
           typeof parsed.recordedAt === 'string' ? parsed.recordedAt : '',
       };
+      if (file === legacyFile) {
+        try {
+          writeContainerImageState(cwd, normalizedState);
+          fs.rmSync(legacyFile, { force: true });
+        } catch {
+          // best-effort legacy state migration
+        }
+      }
+      return normalizedState;
     }
   } catch {
     // ignore invalid state, we'll regenerate it
@@ -124,7 +211,7 @@ function writeContainerImageState(
 ): void {
   const file = stateFilePath(cwd);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(state, null, 2) + '\n');
+  fs.writeFileSync(file, `${JSON.stringify(state, null, 2)}\n`);
 }
 
 function collectFilesRecursive(root: string, out: string[]): void {
@@ -209,11 +296,39 @@ async function buildAndValidateImage(params: {
     params;
   if (!ensureInteractiveAutoBuild(commandName, required, reason, hint)) return;
 
-  console.log(
-    `${commandName}: ${reason} Building container image '${imageName}'...`,
-  );
+  const pullImages = resolveContainerPullImages(imageName);
   try {
-    await buildContainerImage(cwd);
+    for (const pullImage of pullImages) {
+      console.log(
+        `${commandName}: ${reason} Pulling container image '${pullImage}'...`,
+      );
+      try {
+        await pullContainerImage(pullImage);
+        await tagContainerImage(pullImage, imageName);
+        const pulled = await containerImageExists(imageName);
+        if (!pulled) {
+          throw new Error('Image still not available after pull.');
+        }
+        if (fingerprint) {
+          writeContainerImageState(cwd, {
+            imageName,
+            fingerprint,
+            recordedAt: new Date().toISOString(),
+          });
+        }
+        console.log(`hybridclaw: Pulled container image '${imageName}'.`);
+        return;
+      } catch (err) {
+        const pullMessage = err instanceof Error ? err.message : String(err);
+        console.warn(`${commandName}: Unable to pull image '${pullImage}'.`);
+        console.warn(`Details: ${pullMessage}`);
+      }
+    }
+
+    console.log(
+      `${commandName}: ${reason} Building container image '${imageName}'...`,
+    );
+    await buildContainerImage(cwd, imageName);
     const built = await containerImageExists(imageName);
     if (!built) {
       throw new Error('Image still not available after build.');
@@ -253,6 +368,7 @@ export async function ensureContainerImageReady(
   const hint = [
     `${commandName}: Required container image '${imageName}' not found.`,
     'Run `npm run build:container` in the project root to build it.',
+    'HybridClaw also attempts to pull published images automatically before local build.',
   ].join(' ');
 
   if (!exists) {

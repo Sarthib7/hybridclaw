@@ -92,7 +92,7 @@
     "webApiToken": "",
     "gatewayBaseUrl": "http://127.0.0.1:9090",
     "gatewayApiToken": "",
-    "dbPath": "data/hybridclaw.db",
+    "dbPath": "~/.hybridclaw/data/hybridclaw.db",
     "logLevel": "info"
   },
   "observability": {

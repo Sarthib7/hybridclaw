@@ -77,7 +77,7 @@ export function getHybridAIApiKey(): string {
   return required('HYBRIDAI_API_KEY');
 }
 
-// Runtime settings hot-reload from config.json
+// Runtime settings hot-reload from ~/.hybridclaw/config.json by default
 export let DISCORD_PREFIX = '!claw';
 export let DISCORD_GUILD_MEMBERS_INTENT = false;
 export let DISCORD_PRESENCE_INTENT = false;
@@ -173,7 +173,12 @@ export let WEB_API_TOKEN = '';
 export let GATEWAY_BASE_URL = 'http://127.0.0.1:9090';
 const INTERNAL_GATEWAY_API_TOKEN = randomBytes(24).toString('hex');
 export let GATEWAY_API_TOKEN = INTERNAL_GATEWAY_API_TOKEN;
-export let DB_PATH = 'data/hybridclaw.db';
+export let DB_PATH = path.join(
+  os.homedir(),
+  '.hybridclaw',
+  'data',
+  'hybridclaw.db',
+);
 export let DATA_DIR = path.dirname(DB_PATH);
 
 export let OBSERVABILITY_ENABLED = true;

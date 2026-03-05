@@ -558,7 +558,9 @@ export async function ensureHybridAICredentials(
       printSetup('Created `.env` from `.env.example` for first-run setup.');
     }
     if (bootstrappedConfig) {
-      printSetup('Created `config.json` with validated defaults.');
+      printSetup(
+        `Created runtime config with validated defaults at ${runtimeConfigPath()}.`,
+      );
     }
     await ensureSecurityTrustAcceptance(rl, commandLabel, force);
 
@@ -709,7 +711,7 @@ export async function ensureHybridAICredentials(
       printSuccess(`Default bot set to: ${chosenChatbotId}`);
     } else {
       printInfo(
-        'No default bot selected. You can set hybridai.defaultChatbotId in config.json later.',
+        `No default bot selected. You can set hybridai.defaultChatbotId in ${runtimeConfigPath()} later.`,
       );
     }
     console.log();

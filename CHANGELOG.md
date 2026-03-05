@@ -4,9 +4,20 @@
 
 ### Added
 
+- **Automatic container publishing**: Added release-tag GitHub Actions publishing to Docker Hub (`hybridaione/hybridclaw-agent`) plus GHCR mirror (`ghcr.io/<org>/hybridclaw-agent`) with versioned tags (`vX.Y.Z`) and stable `latest` updates.
+- **Container build context guardrails**: Added `container/.dockerignore` and included it in npm package files so local secrets/artifacts are excluded from image build context.
+
 ### Changed
 
+- **Runtime data default location**: Runtime config and data now default to `~/.hybridclaw` (`config.json`, `data/hybridclaw.db`, audit/session artifacts) to match home-directory workspace best practices.
+- **Container bootstrap pull order**: Container readiness now pulls prebuilt images from Docker Hub first (`v<app-version>`, then `latest`) with GHCR fallback before local build.
+- **README scope cleanup**: Reduced README to user-facing install/runtime guidance and moved maintainer/developer internals to `CONTRIBUTING.md`.
+- **Container build script behavior**: `npm run build:container` now runs `docker build` directly without requiring host TypeScript tooling.
+
 ### Fixed
+
+- **First-run migration completeness**: Startup now migrates legacy `./config.json` and `./data` into `~/.hybridclaw`, archives legacy files, and stores migration backups under `~/.hybridclaw/migration-backups/` on conflicts.
+- **Install-root write issues**: Container image fingerprint state now persists under `~/.hybridclaw/container-image-state` (with legacy state fallback) instead of package install directories.
 
 ## [0.2.11](https://github.com/HybridAIOne/hybridclaw/tree/v0.2.11)
 

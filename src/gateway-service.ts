@@ -1634,7 +1634,7 @@ export async function handleGatewayMessage(
 
   if (!chatbotId) {
     const error =
-      'No chatbot configured. Set `hybridai.defaultChatbotId` in config.json or select a bot for this session.';
+      'No chatbot configured. Set `hybridai.defaultChatbotId` in ~/.hybridclaw/config.json or select a bot for this session.';
     recordAuditEvent({
       sessionId: req.sessionId,
       runId,

@@ -14,7 +14,7 @@ onRuntimeConfigChange((next, prev) => {
     logger.level = next.ops.logLevel;
     logger.info(
       { level: next.ops.logLevel },
-      'Logger level updated from config.json',
+      'Logger level updated from runtime config',
     );
   }
 });

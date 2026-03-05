@@ -75,10 +75,16 @@ function main() {
     (prefix) => !paths.some((path) => path.startsWith(prefix)),
   );
   const forbidden = paths
-    .filter((path) => forbiddenPathPatterns.some((pattern) => pattern.test(path)))
+    .filter((path) =>
+      forbiddenPathPatterns.some((pattern) => pattern.test(path)),
+    )
     .sort();
 
-  if (missingExact.length > 0 || missingPrefixes.length > 0 || forbidden.length > 0) {
+  if (
+    missingExact.length > 0 ||
+    missingPrefixes.length > 0 ||
+    forbidden.length > 0
+  ) {
     if (missingExact.length > 0) {
       console.error('container release-check: missing required files:');
       for (const path of missingExact) console.error(`  - ${path}`);
@@ -90,7 +96,9 @@ function main() {
     }
 
     if (forbidden.length > 0) {
-      console.error('container release-check: forbidden files found in npm pack:');
+      console.error(
+        'container release-check: forbidden files found in npm pack:',
+      );
       for (const path of forbidden) console.error(`  - ${path}`);
     }
 

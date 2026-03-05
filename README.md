@@ -16,7 +16,7 @@ Latest release: [v0.2.12](https://github.com/HybridAIOne/hybridclaw/releases/tag
 ## Release highlights (v0.2.12)
 
 - Runtime config/data now default to `~/.hybridclaw`, with automatic migration from legacy `./config.json` and `./data`.
-- HybridClaw now auto-pulls prebuilt runtime images (Docker Hub first, GHCR fallback) before trying a local build.
+- HybridClaw now auto-pulls prebuilt runtime images (GHCR first, optional Docker Hub fallback) before trying a local build.
 - Discord slash command registration now removes duplicate guild `/status` entries and keeps global-only commands clean.
 
 ## HybridAI Advantage

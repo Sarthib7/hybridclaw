@@ -39,7 +39,7 @@ image matching `container.image` (default: `hybridclaw-agent`).
 
 When the image is missing, startup logic in `src/container-setup.ts` does:
 
-1. pull a remote image (for default image: Docker Hub `v<app-version>`, `latest`, then GHCR fallback)
+1. pull a remote image (for default image: GHCR `v<app-version>`, `latest`, then Docker Hub fallback)
 2. if pull fails, run local build (`npm run build:container`)
 
 Maintainer overrides:
@@ -51,21 +51,21 @@ Maintainer overrides:
 Build context hygiene is enforced by `container/.dockerignore` to avoid accidentally
 shipping local secrets/artifacts into published images.
 
-## Container publishing (Docker Hub + GHCR)
+## Container publishing (GHCR + optional Docker Hub)
 
 Container publishing is automated by GitHub Actions on release tags:
 
 - workflow: `.github/workflows/publish-container.yml`
 - trigger: push tag `v*`
 - destinations:
-  - Docker Hub: `hybridaione/hybridclaw-agent`
-  - GHCR mirror: `ghcr.io/<org>/hybridclaw-agent`
+  - GHCR: `ghcr.io/<org>/hybridclaw-agent`
+  - Docker Hub mirror: `hybridaione/hybridclaw-agent` when Docker Hub credentials are configured
 - tags:
   - always: `vX.Y.Z`
   - stable tags only (no `-rc`/`-beta` suffix): `latest`
 
 The workflow fails if the pushed git tag does not match `package.json` version.
-Docker Hub publishing uses repository secrets `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`.
+GHCR publishing is unconditional on release tags. Docker Hub publishing is optional and only runs when repository secrets `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` are configured.
 
 Manual publish fallback:
 

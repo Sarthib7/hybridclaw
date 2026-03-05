@@ -114,10 +114,10 @@ function resolveContainerPullImages(imageName: string): string[] {
   if (imageName !== DEFAULT_CONTAINER_IMAGE) return [];
 
   const candidates = [
-    `${DEFAULT_DOCKERHUB_IMAGE}:v${APP_VERSION}`,
-    `${DEFAULT_DOCKERHUB_IMAGE}:latest`,
     `${DEFAULT_GHCR_IMAGE}:v${APP_VERSION}`,
     `${DEFAULT_GHCR_IMAGE}:latest`,
+    `${DEFAULT_DOCKERHUB_IMAGE}:v${APP_VERSION}`,
+    `${DEFAULT_DOCKERHUB_IMAGE}:latest`,
   ];
   return Array.from(new Set(candidates));
 }

@@ -24,6 +24,9 @@ jobs:
       - name: Resolve image metadata
         id: meta
         shell: bash
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
           set -euo pipefail
 
@@ -43,15 +46,31 @@ jobs:
           OWNER_LC="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
           GHCR_IMAGE="ghcr.io/${OWNER_LC}/hybridclaw-agent"
           DOCKERHUB_IMAGE="hybridaione/hybridclaw-agent"
-          TAGS="${DOCKERHUB_IMAGE}:${TAG}"$'\n'"${GHCR_IMAGE}:${TAG}"
+          GHCR_TAGS="${GHCR_IMAGE}:${TAG}"
+          DOCKERHUB_TAGS="${DOCKERHUB_IMAGE}:${TAG}"
           if [[ "${TAG}" != *-* ]]; then
-            TAGS="${TAGS}"$'\n'"${DOCKERHUB_IMAGE}:latest"$'\n'"${GHCR_IMAGE}:latest"
+            GHCR_TAGS="${GHCR_TAGS}"$'\n'"${GHCR_IMAGE}:latest"
+            DOCKERHUB_TAGS="${DOCKERHUB_TAGS}"$'\n'"${DOCKERHUB_IMAGE}:latest"
+          fi
+
+          TAGS="${GHCR_TAGS}"
+          PUBLISH_DOCKERHUB=false
+          if [[ -n "${DOCKERHUB_USERNAME}" && -n "${DOCKERHUB_TOKEN}" ]]; then
+            TAGS="${TAGS}"$'\n'"${DOCKERHUB_TAGS}"
+            PUBLISH_DOCKERHUB=true
           fi
 
           {
             echo "ghcr_image=${GHCR_IMAGE}"
             echo "dockerhub_image=${DOCKERHUB_IMAGE}"
             echo "tag=${TAG}"
+            echo "publish_dockerhub=${PUBLISH_DOCKERHUB}"
+            echo "ghcr_tags<<EOF"
+            echo "${GHCR_TAGS}"
+            echo "EOF"
+            echo "dockerhub_tags<<EOF"
+            echo "${DOCKERHUB_TAGS}"
+            echo "EOF"
             echo "tags<<EOF"
             echo "${TAGS}"
             echo "EOF"
@@ -69,6 +88,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Login to Docker Hub
+        if: steps.meta.outputs.publish_dockerhub == 'true'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}

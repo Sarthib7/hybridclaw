@@ -6,7 +6,11 @@
 
 ### Changed
 
+- **Container registry preference**: Runtime image bootstrap now tries GHCR (`ghcr.io/hybridaione/hybridclaw-agent`) before the optional Docker Hub mirror to avoid noisy pull failures when only GHCR is published.
+
 ### Fixed
+
+- **Release container publishing resilience**: Release-tag container publishing now always publishes GHCR even when Docker Hub credentials are absent, instead of failing before any registry push occurs.
 
 ## [0.2.12](https://github.com/HybridAIOne/hybridclaw/tree/v0.2.12)
 

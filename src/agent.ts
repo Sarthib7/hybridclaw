@@ -1,11 +1,8 @@
-/**
- * Agent — always runs through a container for consistent sandboxing.
- */
-import fs from 'fs';
-import path from 'path';
+import fs from 'node:fs';
+import path from 'node:path';
 
 import { DATA_DIR } from './config.js';
-import { runContainer } from './container-runner.js';
+import { getExecutor } from './executor.js';
 import type {
   ChatMessage,
   ContainerOutput,
@@ -36,7 +33,7 @@ function dumpPrompt(
       blockedTools: Array.isArray(blockedTools) ? blockedTools : undefined,
     };
     const filePath = path.join(DATA_DIR, 'last_prompt.jsonl');
-    fs.writeFileSync(filePath, JSON.stringify(entry) + '\n');
+    fs.writeFileSync(filePath, `${JSON.stringify(entry)}\n`);
   } catch {
     /* best-effort */
   }
@@ -67,7 +64,7 @@ export async function runAgent(
     allowedTools,
     blockedTools,
   );
-  return runContainer(
+  return getExecutor().exec({
     sessionId,
     messages,
     chatbotId,
@@ -82,5 +79,5 @@ export async function runAgent(
     onToolProgress,
     abortSignal,
     media,
-  );
+  });
 }

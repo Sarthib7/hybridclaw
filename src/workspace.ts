@@ -5,6 +5,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { resolveInstallPath } from './install-root.js';
 import { agentWorkspaceDir } from './ipc.js';
 import { logger } from './logger.js';
 import { truncateHeadTailText } from './token-efficiency.js';
@@ -37,7 +38,7 @@ audit:
 `;
 
 const MAX_FILE_CHARS = 20_000;
-const TEMPLATES_DIR = path.join(process.cwd(), 'templates');
+const TEMPLATES_DIR = resolveInstallPath('templates');
 
 export interface ContextFile {
   name: string;
@@ -65,7 +66,7 @@ export function ensureBootstrapFiles(agentId: string): void {
   const policyDestPath = path.join(wsDir, POLICY_RELATIVE_PATH);
   if (!fs.existsSync(policyDestPath)) {
     fs.mkdirSync(path.dirname(policyDestPath), { recursive: true });
-    const repoPolicyPath = path.join(process.cwd(), POLICY_RELATIVE_PATH);
+    const repoPolicyPath = resolveInstallPath(POLICY_RELATIVE_PATH);
     if (fs.existsSync(repoPolicyPath)) {
       fs.copyFileSync(repoPolicyPath, policyDestPath);
       logger.debug(

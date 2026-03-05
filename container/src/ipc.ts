@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { IPC_DIR } from './runtime-paths.js';
 import type { ContainerInput, ContainerOutput } from './types.js';
 
-const IPC_DIR = '/ipc';
 const INPUT_PATH = path.join(IPC_DIR, 'input.json');
 const OUTPUT_PATH = path.join(IPC_DIR, 'output.json');
 

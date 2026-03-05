@@ -11,13 +11,14 @@ npm install -g @hybridaione/hybridclaw
 hybridclaw onboarding
 ```
 
-Latest release: [v0.2.12](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.2.12)
+Latest release: [v0.3.0](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.3.0)
 
-## Release highlights (v0.2.12)
+## Release highlights (v0.3.0)
 
-- Runtime config/data now default to `~/.hybridclaw`, with automatic migration from legacy `./config.json` and `./data`.
-- HybridClaw now auto-pulls prebuilt runtime images (GHCR first, optional Docker Hub fallback) before trying a local build.
-- Discord slash command registration now removes duplicate guild `/status` entries and keeps global-only commands clean.
+- Gateway start/restart now support `--sandbox=container|host`, runtime config adds `container.sandboxMode`, and gateway/TUI status surfaces show the active mode.
+- Container execution is hardened with dropped capabilities, `no-new-privileges`, PID limits, configurable network/memory-swap controls, and better GHCR-first image handling.
+- Root builds now package `container/dist/` so host sandbox mode can launch the bundled agent runtime from installed npm packages.
+- Runtime docs/templates/instructions now resolve from the actual install root, and `hybridclaw audit instructions --sync` restores shipped instruction copies under `~/.hybridclaw/instructions/`.
 
 ## HybridAI Advantage
 
@@ -74,6 +75,8 @@ Runtime model:
 - If `DISCORD_TOKEN` is set, Discord runs inside gateway automatically.
 - `hybridclaw tui` is a thin client that connects to the gateway.
 - `hybridclaw gateway` and `hybridclaw tui` validate the container image at startup.
+- `container.sandboxMode` defaults to `container`, but if HybridClaw is already running inside a container and the setting is not explicitly pinned, the gateway auto-switches to `host` to avoid Docker-in-Docker.
+- Use `hybridclaw gateway start --sandbox=host` or `hybridclaw gateway restart --sandbox=host` to force host execution for a given launch.
 - On first run, HybridClaw automatically prepares that image (pulls a prebuilt image first, then falls back to local build if needed).
 - If container setup fails, run `npm run build:container` in the project root and retry.
 
@@ -84,6 +87,7 @@ HybridClaw creates `~/.hybridclaw/config.json` on first run and hot-reloads most
 - Start from `config.example.json` (reference).
 - Runtime data is stored in `~/.hybridclaw/` by default (`config.json`, `data/hybridclaw.db`, audit/session files).
 - On upgrade, legacy `./config.json` and `./data` are migrated to `~/.hybridclaw` automatically; backups are kept in `~/.hybridclaw/migration-backups/` when needed.
+- `container.*` controls execution isolation, including `sandboxMode`, `memory`, `memorySwap`, `cpus`, `network`, and additional mounts.
 - Keep secrets in `.env` (`HYBRIDAI_API_KEY` required, `DISCORD_TOKEN` optional).
 - Trust-model acceptance is stored in `~/.hybridclaw/config.json` under `security.*` and is required before runtime starts.
 - See [TRUST_MODEL.md](./TRUST_MODEL.md) for onboarding acceptance policy and [SECURITY.md](./SECURITY.md) for technical security guidelines.
@@ -94,8 +98,8 @@ HybridClaw creates `~/.hybridclaw/config.json` on first run and hot-reloads most
 CLI runtime commands:
 
 - `hybridclaw --version` / `-v` — Print installed HybridClaw version
-- `hybridclaw gateway start [--foreground]` — Start gateway (backend by default; foreground with flag)
-- `hybridclaw gateway restart [--foreground]` — Restart managed gateway backend process
+- `hybridclaw gateway start [--foreground] [--sandbox=container|host]` — Start gateway (backend by default; foreground with flag)
+- `hybridclaw gateway restart [--foreground] [--sandbox=container|host]` — Restart managed gateway backend process
 - `hybridclaw gateway stop` — Stop managed gateway backend process
 - `hybridclaw gateway status` — Show lifecycle/API status
 - `hybridclaw gateway <command...>` — Send a command to a running gateway (for example `sessions`, `bot info`)
@@ -103,6 +107,7 @@ CLI runtime commands:
 - `hybridclaw onboarding` — Run HybridAI account/API key onboarding
 - `hybridclaw update [status|--check] [--yes]` — Check for updates and upgrade global npm installs (source checkouts get git-based update instructions)
 - `hybridclaw audit ...` — Verify and inspect structured audit trail (`recent`, `search`, `approvals`, `verify`, `instructions`)
+- `hybridclaw audit instructions [--sync]` — Compare runtime instruction copies under `~/.hybridclaw/instructions/` against installed sources and restore shipped defaults when needed
 
 In Discord, use `!claw help` to see all commands. Key ones:
 

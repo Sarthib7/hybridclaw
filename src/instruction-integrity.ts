@@ -1,30 +1,41 @@
-import { createHash } from 'crypto';
-import fs from 'fs';
-import path from 'path';
+import { createHash } from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { resolveInstallPath, resolveInstallRoot } from './install-root.js';
 
-export const INSTRUCTION_FILES = [
-  'AGENTS.md',
-  'SECURITY.md',
-  'TRUST_MODEL.md',
+const RUNTIME_HOME_DIR = path.join(os.homedir(), '.hybridclaw');
+
+const INSTRUCTION_SPECS = [
+  {
+    path: 'SECURITY.md',
+    sourceRelativePath: 'SECURITY.md',
+  },
+  {
+    path: 'TRUST_MODEL.md',
+    sourceRelativePath: 'TRUST_MODEL.md',
+  },
 ] as const;
-export const INSTRUCTION_BASELINE_VERSION = 1;
-export const INSTRUCTION_BASELINE_PATH = path.join(
-  process.cwd(),
-  'data',
-  'audit',
-  'instruction-hashes.json',
+
+export const INSTRUCTION_FILES = INSTRUCTION_SPECS.map((spec) => spec.path);
+export const INSTRUCTION_RUNTIME_DIR = path.join(
+  RUNTIME_HOME_DIR,
+  'instructions',
 );
 
-export interface InstructionHashBaseline {
-  version: number;
-  approvedAt: string;
-  files: Record<string, string>;
-}
+type InstructionPath = (typeof INSTRUCTION_SPECS)[number]['path'];
+type InstructionSpec = (typeof INSTRUCTION_SPECS)[number];
 
-export type InstructionFileStatus = 'ok' | 'modified' | 'missing' | 'untracked';
+export type InstructionFileStatus =
+  | 'ok'
+  | 'modified'
+  | 'missing'
+  | 'source_missing';
 
 export interface InstructionFileResult {
-  path: string;
+  path: InstructionPath;
+  sourcePath: string;
+  runtimePath: string;
   expectedHash: string | null;
   actualHash: string | null;
   status: InstructionFileStatus;
@@ -32,18 +43,20 @@ export interface InstructionFileResult {
 
 export interface InstructionIntegrityResult {
   ok: boolean;
-  baselinePath: string;
-  baseline: InstructionHashBaseline | null;
-  baselineError: string | null;
+  installRoot: string;
+  runtimeRoot: string;
   files: InstructionFileResult[];
+}
+
+export interface InstructionSyncResult {
+  syncedAt: string;
+  runtimeRoot: string;
+  files: Record<InstructionPath, string>;
 }
 
 export function summarizeInstructionIntegrity(
   result: InstructionIntegrityResult,
 ): string {
-  if (result.baselineError) return `baseline.invalid (${result.baselineError})`;
-  if (!result.baseline) return 'baseline.missing';
-
   const changed = result.files.filter((file) => file.status !== 'ok');
   if (changed.length === 0) return 'no changes';
   return changed.map((file) => `${file.path}:${file.status}`).join(', ');
@@ -55,111 +68,82 @@ function sha256File(filePath: string): string {
   return hash.digest('hex');
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+function resolveSourcePath(spec: InstructionSpec): string {
+  return resolveInstallPath(spec.sourceRelativePath);
 }
 
-function computeCurrentHashes(): Record<string, string | null> {
-  const hashes: Record<string, string | null> = {};
-  for (const relPath of INSTRUCTION_FILES) {
-    const absPath = path.join(process.cwd(), relPath);
-    hashes[relPath] = fs.existsSync(absPath) ? sha256File(absPath) : null;
-  }
-  return hashes;
+export function resolveRuntimeInstructionPath(
+  relPath: InstructionPath,
+): string {
+  return path.join(INSTRUCTION_RUNTIME_DIR, relPath);
 }
 
-export function loadInstructionBaseline(): InstructionHashBaseline | null {
-  if (!fs.existsSync(INSTRUCTION_BASELINE_PATH)) return null;
-
-  const raw = fs.readFileSync(INSTRUCTION_BASELINE_PATH, 'utf-8');
-  const parsed = JSON.parse(raw) as unknown;
-  if (!isRecord(parsed))
-    throw new Error('Instruction baseline is not a JSON object.');
-
-  const version = parsed.version;
-  const approvedAt = parsed.approvedAt;
-  const files = parsed.files;
-  if (typeof version !== 'number')
-    throw new Error('Instruction baseline is missing numeric `version`.');
-  if (version !== INSTRUCTION_BASELINE_VERSION) {
-    throw new Error(
-      `Instruction baseline version ${String(version)} is unsupported.`,
-    );
+export function ensureRuntimeInstructionCopies(): void {
+  fs.mkdirSync(INSTRUCTION_RUNTIME_DIR, { recursive: true });
+  for (const spec of INSTRUCTION_SPECS) {
+    const sourcePath = resolveSourcePath(spec);
+    const runtimePath = resolveRuntimeInstructionPath(spec.path);
+    if (!fs.existsSync(sourcePath) || fs.existsSync(runtimePath)) continue;
+    fs.copyFileSync(sourcePath, runtimePath);
   }
-  if (typeof approvedAt !== 'string' || !approvedAt.trim()) {
-    throw new Error('Instruction baseline is missing `approvedAt`.');
-  }
-  if (!isRecord(files))
-    throw new Error('Instruction baseline is missing `files` object.');
+}
 
-  const normalizedFiles: Record<string, string> = {};
-  for (const relPath of INSTRUCTION_FILES) {
-    const value = files[relPath];
-    if (typeof value === 'string' && value.trim()) {
-      normalizedFiles[relPath] = value.trim();
+export function syncRuntimeInstructionCopies(): InstructionSyncResult {
+  fs.mkdirSync(INSTRUCTION_RUNTIME_DIR, { recursive: true });
+
+  const files = {} as Record<InstructionPath, string>;
+  for (const spec of INSTRUCTION_SPECS) {
+    const sourcePath = resolveSourcePath(spec);
+    if (!fs.existsSync(sourcePath)) {
+      throw new Error(`Missing source instruction file: ${sourcePath}`);
     }
+    const runtimePath = resolveRuntimeInstructionPath(spec.path);
+    fs.copyFileSync(sourcePath, runtimePath);
+    files[spec.path] = sha256File(runtimePath);
   }
 
   return {
-    version,
-    approvedAt: approvedAt.trim(),
-    files: normalizedFiles,
+    syncedAt: new Date().toISOString(),
+    runtimeRoot: INSTRUCTION_RUNTIME_DIR,
+    files,
   };
 }
 
-export function approveInstructionBaseline(): InstructionHashBaseline {
-  const hashes = computeCurrentHashes();
-  const missing = INSTRUCTION_FILES.filter((relPath) => !hashes[relPath]);
-  if (missing.length > 0) {
-    throw new Error(
-      `Approval failed: missing instruction files (${missing.join(', ')}).`,
-    );
-  }
-
-  const baseline: InstructionHashBaseline = {
-    version: INSTRUCTION_BASELINE_VERSION,
-    approvedAt: new Date().toISOString(),
-    files: {},
-  };
-
-  for (const relPath of INSTRUCTION_FILES) {
-    baseline.files[relPath] = hashes[relPath] as string;
-  }
-
-  fs.mkdirSync(path.dirname(INSTRUCTION_BASELINE_PATH), { recursive: true });
-  const tmpPath = `${INSTRUCTION_BASELINE_PATH}.tmp-${process.pid}-${Date.now()}`;
-  fs.writeFileSync(tmpPath, `${JSON.stringify(baseline, null, 2)}\n`, 'utf-8');
-  fs.renameSync(tmpPath, INSTRUCTION_BASELINE_PATH);
-  return baseline;
+export function readRuntimeInstructionFile(relPath: InstructionPath): string {
+  ensureRuntimeInstructionCopies();
+  const runtimePath = resolveRuntimeInstructionPath(relPath);
+  return fs.readFileSync(runtimePath, 'utf-8').trim();
 }
 
-export function verifyInstructionBaseline(): InstructionIntegrityResult {
-  const hashes = computeCurrentHashes();
-  let baseline: InstructionHashBaseline | null = null;
-  let baselineError: string | null = null;
+export function verifyInstructionIntegrity(): InstructionIntegrityResult {
+  ensureRuntimeInstructionCopies();
 
-  try {
-    baseline = loadInstructionBaseline();
-  } catch (err) {
-    baselineError = err instanceof Error ? err.message : String(err);
-  }
-
-  const files: InstructionFileResult[] = INSTRUCTION_FILES.map((relPath) => {
-    const actualHash = hashes[relPath];
-    const expectedHash = baseline?.files[relPath] || null;
+  const files: InstructionFileResult[] = INSTRUCTION_SPECS.map((spec) => {
+    const sourcePath = resolveSourcePath(spec);
+    const runtimePath = resolveRuntimeInstructionPath(spec.path);
+    const expectedHash = fs.existsSync(sourcePath)
+      ? sha256File(sourcePath)
+      : null;
+    const actualHash = fs.existsSync(runtimePath)
+      ? sha256File(runtimePath)
+      : null;
 
     if (!expectedHash) {
       return {
-        path: relPath,
+        path: spec.path,
+        sourcePath,
+        runtimePath,
         expectedHash: null,
         actualHash,
-        status: 'untracked',
+        status: 'source_missing',
       };
     }
 
     if (!actualHash) {
       return {
-        path: relPath,
+        path: spec.path,
+        sourcePath,
+        runtimePath,
         expectedHash,
         actualHash: null,
         status: 'missing',
@@ -168,7 +152,9 @@ export function verifyInstructionBaseline(): InstructionIntegrityResult {
 
     if (actualHash === expectedHash) {
       return {
-        path: relPath,
+        path: spec.path,
+        sourcePath,
+        runtimePath,
         expectedHash,
         actualHash,
         status: 'ok',
@@ -176,22 +162,19 @@ export function verifyInstructionBaseline(): InstructionIntegrityResult {
     }
 
     return {
-      path: relPath,
+      path: spec.path,
+      sourcePath,
+      runtimePath,
       expectedHash,
       actualHash,
       status: 'modified',
     };
   });
 
-  const ok =
-    baselineError === null &&
-    baseline !== null &&
-    files.every((file) => file.status === 'ok');
   return {
-    ok,
-    baselinePath: INSTRUCTION_BASELINE_PATH,
-    baseline,
-    baselineError,
+    ok: files.every((file) => file.status === 'ok'),
+    installRoot: resolveInstallRoot(),
+    runtimeRoot: INSTRUCTION_RUNTIME_DIR,
     files,
   };
 }

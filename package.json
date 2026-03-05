@@ -1,6 +1,6 @@
 {
   "name": "@hybridaione/hybridclaw",
-  "version": "0.2.12",
+  "version": "0.3.0",
   "type": "module",
   "description": "Personal AI assistant bot for Discord, powered by HybridAI",
   "publishConfig": {
@@ -11,6 +11,7 @@
   },
   "files": [
     "dist/",
+    "container/dist/",
     "skills/",
     "templates/",
     "docs/",
@@ -30,8 +31,8 @@
     "config.example.json"
   ],
   "scripts": {
-    "clean": "node -e \"const fs=require('node:fs');fs.rmSync('dist',{recursive:true,force:true});\"",
-    "build": "tsc && node -e \"require('node:fs').chmodSync('dist/cli.js', 0o755)\"",
+    "clean": "node -e \"const fs=require('node:fs');fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('container/dist',{recursive:true,force:true});\"",
+    "build": "npm --prefix container run build && tsc && node -e \"require('node:fs').chmodSync('dist/cli.js', 0o755)\"",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit --noUnusedLocals --noUnusedParameters",
     "check": "biome check src",

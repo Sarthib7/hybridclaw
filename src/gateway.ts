@@ -21,7 +21,6 @@ import {
   onConfigChange,
   PROACTIVE_QUEUE_OUTSIDE_HOURS,
 } from './config.js';
-import { stopAllContainers } from './container-runner.js';
 import {
   deleteQueuedProactiveMessage,
   enqueueProactiveMessage,
@@ -30,6 +29,7 @@ import {
   initDatabase,
   listQueuedProactiveMessages,
 } from './db.js';
+import { stopAllExecutions } from './executor.js';
 import {
   getGatewayStatus,
   handleGatewayCommand,
@@ -629,7 +629,7 @@ function setupShutdown(): void {
     });
     stopHeartbeat();
     stopObservabilityIngest();
-    stopAllContainers();
+    stopAllExecutions();
     stopScheduler();
     stopMemoryConsolidationScheduler();
     if (proactiveFlushTimer) {

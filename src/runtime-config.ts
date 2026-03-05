@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 5;
+export const CONFIG_VERSION = 6;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
 const DEFAULT_RUNTIME_HOME_DIR = path.join(os.homedir(), '.hybridclaw');
@@ -72,6 +72,7 @@ export type DiscordPresenceActivityType =
 export type SchedulerScheduleKind = 'at' | 'every' | 'cron';
 export type SchedulerActionKind = 'agent_turn' | 'system_event';
 export type SchedulerDeliveryKind = 'channel' | 'last-channel' | 'webhook';
+export type ContainerSandboxMode = 'container' | 'host';
 
 export interface RuntimeDiscordHumanDelayConfig {
   mode: DiscordHumanDelayMode;
@@ -192,9 +193,12 @@ export interface RuntimeConfig {
     models: string[];
   };
   container: {
+    sandboxMode: ContainerSandboxMode;
     image: string;
     memory: string;
+    memorySwap: string;
     cpus: string;
+    network: string;
     timeoutMs: number;
     additionalMounts: string;
     maxOutputBytes: number;
@@ -354,9 +358,12 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     models: ['gpt-5-nano', 'gpt-5-mini', 'gpt-5'],
   },
   container: {
+    sandboxMode: 'container',
     image: 'hybridclaw-agent',
     memory: '512m',
+    memorySwap: '',
     cpus: '1',
+    network: 'bridge',
     timeoutMs: 300_000,
     additionalMounts: '',
     maxOutputBytes: 10_485_760,
@@ -444,6 +451,9 @@ const LEGACY_CONFIG_PATH = path.join(process.cwd(), CONFIG_FILE_NAME);
 const CONFIG_PATH = path.join(DEFAULT_RUNTIME_HOME_DIR, CONFIG_FILE_NAME);
 
 let currentConfig: RuntimeConfig = cloneConfig(DEFAULT_RUNTIME_CONFIG);
+let currentConfigMetadata = {
+  containerSandboxModeExplicit: false,
+};
 let configWatcher: fs.FSWatcher | null = null;
 let reloadTimer: ReturnType<typeof setTimeout> | null = null;
 const listeners = new Set<RuntimeConfigChangeListener>();
@@ -1235,6 +1245,20 @@ function normalizeApiPath(value: unknown, fallback: string): string {
   return prefixed.replace(/\/{2,}/g, '/');
 }
 
+function hasOwn(value: object, key: string): boolean {
+  return Object.hasOwn(value, key);
+}
+
+function normalizeContainerSandboxMode(
+  value: unknown,
+  fallback: ContainerSandboxMode,
+): ContainerSandboxMode {
+  const normalized = normalizeString(value, fallback, {
+    allowEmpty: false,
+  }).toLowerCase();
+  return normalized === 'host' ? 'host' : 'container';
+}
+
 function parseConfigPatch(payload: unknown): DeepPartial<RuntimeConfig> {
   if (!isRecord(payload)) {
     throw new Error('config.json must contain a top-level object');
@@ -1505,6 +1529,10 @@ function normalizeRuntimeConfig(
       models: modelList,
     },
     container: {
+      sandboxMode: normalizeContainerSandboxMode(
+        rawContainer.sandboxMode,
+        DEFAULT_RUNTIME_CONFIG.container.sandboxMode,
+      ),
       image: normalizeString(
         rawContainer.image,
         DEFAULT_RUNTIME_CONFIG.container.image,
@@ -1515,9 +1543,19 @@ function normalizeRuntimeConfig(
         DEFAULT_RUNTIME_CONFIG.container.memory,
         { allowEmpty: false },
       ),
+      memorySwap: normalizeString(
+        rawContainer.memorySwap,
+        DEFAULT_RUNTIME_CONFIG.container.memorySwap,
+        { allowEmpty: true },
+      ),
       cpus: normalizeString(
         rawContainer.cpus,
         DEFAULT_RUNTIME_CONFIG.container.cpus,
+        { allowEmpty: false },
+      ),
+      network: normalizeString(
+        rawContainer.network,
+        DEFAULT_RUNTIME_CONFIG.container.network,
         { allowEmpty: false },
       ),
       timeoutMs: normalizeInteger(
@@ -1772,14 +1810,59 @@ function loadConfigPatchFromDisk(): DeepPartial<RuntimeConfig> {
   return parseConfigPatch(parsed);
 }
 
-function writeConfigFile(config: RuntimeConfig): void {
+function buildSerializableConfig(
+  config: RuntimeConfig,
+  opts?: { omitImplicitSandboxMode?: boolean },
+): RuntimeConfig & {
+  container: RuntimeConfig['container'] & {
+    sandboxMode?: ContainerSandboxMode;
+  };
+} {
+  const serializable = cloneConfig(config) as RuntimeConfig & {
+    container: RuntimeConfig['container'] & {
+      sandboxMode?: ContainerSandboxMode;
+    };
+  };
+  if (
+    opts?.omitImplicitSandboxMode &&
+    serializable.container.sandboxMode ===
+      DEFAULT_RUNTIME_CONFIG.container.sandboxMode
+  ) {
+    delete (serializable.container as { sandboxMode?: ContainerSandboxMode })
+      .sandboxMode;
+  }
+
+  return serializable;
+}
+
+function serializeConfigFile(
+  config: RuntimeConfig,
+  opts?: { omitImplicitSandboxMode?: boolean },
+): string {
+  return `${JSON.stringify(buildSerializableConfig(config, opts), null, 2)}\n`;
+}
+
+function writeConfigFile(
+  config: RuntimeConfig,
+  opts?: { omitImplicitSandboxMode?: boolean },
+): boolean {
   const dir = path.dirname(CONFIG_PATH);
   fs.mkdirSync(dir, { recursive: true });
 
-  const nextText = `${JSON.stringify(config, null, 2)}\n`;
+  const nextText = serializeConfigFile(config, opts);
+  if (fs.existsSync(CONFIG_PATH)) {
+    try {
+      const currentText = fs.readFileSync(CONFIG_PATH, 'utf-8');
+      if (currentText === nextText) return false;
+    } catch {
+      // fall through and rewrite the file
+    }
+  }
+
   const tmpPath = `${CONFIG_PATH}.tmp-${process.pid}-${Date.now()}`;
   fs.writeFileSync(tmpPath, nextText, 'utf-8');
   fs.renameSync(tmpPath, CONFIG_PATH);
+  return true;
 }
 
 function applyConfig(next: RuntimeConfig): void {
@@ -1800,6 +1883,10 @@ function applyConfig(next: RuntimeConfig): void {
 
 function loadRuntimeConfigFromSources(): RuntimeConfig {
   const diskPatch = loadConfigPatchFromDisk();
+  const rawContainer = isRecord(diskPatch.container) ? diskPatch.container : {};
+  currentConfigMetadata = {
+    containerSandboxModeExplicit: hasOwn(rawContainer, 'sandboxMode'),
+  };
   return normalizeRuntimeConfig(diskPatch);
 }
 
@@ -1889,11 +1976,17 @@ function ensureInitialConfigFile(): void {
       const parsed = JSON.parse(legacyRaw) as unknown;
       if (!isLikelyLegacyRuntimeConfig(parsed)) {
         const seeded = normalizeRuntimeConfig();
-        writeConfigFile(seeded);
+        writeConfigFile(seeded, { omitImplicitSandboxMode: true });
         return;
       }
       const migrated = normalizeRuntimeConfig(parseConfigPatch(parsed));
-      writeConfigFile(migrated);
+      const parsedRecord = parsed as Record<string, unknown>;
+      const rawContainer = isRecord(parsedRecord.container)
+        ? parsedRecord.container
+        : {};
+      writeConfigFile(migrated, {
+        omitImplicitSandboxMode: !hasOwn(rawContainer, 'sandboxMode'),
+      });
       const archivedConfigPath = archiveLegacyPath(
         LEGACY_CONFIG_PATH,
         'legacy-config',
@@ -1914,7 +2007,7 @@ function ensureInitialConfigFile(): void {
     }
   }
   const seeded = normalizeRuntimeConfig();
-  writeConfigFile(seeded);
+  writeConfigFile(seeded, { omitImplicitSandboxMode: true });
 }
 
 function cleanupLegacyConfigOnStartup(): void {
@@ -2019,11 +2112,15 @@ function migrateConfigSchemaOnStartup(): void {
     return;
   }
 
-  // Canonical semantic comparison (ignoring formatting/whitespace)
-  if (JSON.stringify(parsed) === JSON.stringify(migrated)) return;
-
   try {
-    writeConfigFile(migrated);
+    const parsedRecord = parsed as Record<string, unknown>;
+    const rawContainer = isRecord(parsedRecord.container)
+      ? parsedRecord.container
+      : {};
+    const changed = writeConfigFile(migrated, {
+      omitImplicitSandboxMode: !hasOwn(rawContainer, 'sandboxMode'),
+    });
+    if (!changed) return;
     const from = previousVersion == null ? 'unknown' : String(previousVersion);
     if (previousVersion !== CONFIG_VERSION) {
       console.info(
@@ -2073,6 +2170,10 @@ export function getRuntimeConfig(): RuntimeConfig {
   return cloneConfig(currentConfig);
 }
 
+export function isContainerSandboxModeExplicit(): boolean {
+  return currentConfigMetadata.containerSandboxModeExplicit;
+}
+
 export function onRuntimeConfigChange(
   listener: RuntimeConfigChangeListener,
 ): () => void {
@@ -2082,7 +2183,16 @@ export function onRuntimeConfigChange(
 
 export function saveRuntimeConfig(next: RuntimeConfig): RuntimeConfig {
   const normalized = normalizeRuntimeConfig(next);
-  writeConfigFile(normalized);
+  const sandboxModeExplicit =
+    currentConfigMetadata.containerSandboxModeExplicit ||
+    normalized.container.sandboxMode !==
+      DEFAULT_RUNTIME_CONFIG.container.sandboxMode;
+  currentConfigMetadata = {
+    containerSandboxModeExplicit: sandboxModeExplicit,
+  };
+  writeConfigFile(normalized, {
+    omitImplicitSandboxMode: !sandboxModeExplicit,
+  });
   applyConfig(normalized);
   return cloneConfig(normalized);
 }

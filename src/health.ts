@@ -22,12 +22,13 @@ import {
   handleGatewayMessage,
 } from './gateway-service.js';
 import type { GatewayChatRequestBody } from './gateway-types.js';
+import { resolveInstallPath } from './install-root.js';
 import { logger } from './logger.js';
 import { isSilentReply, stripSilentToken } from './silent-reply.js';
 import { createSilentReplyStreamFilter } from './silent-reply-stream.js';
 import type { ToolProgressEvent } from './types.js';
 
-const SITE_DIR = path.resolve(process.cwd(), 'docs');
+const SITE_DIR = resolveInstallPath('docs');
 const MAX_REQUEST_BYTES = 1_000_000; // 1MB
 
 const MIME_TYPES: Record<string, string> = {

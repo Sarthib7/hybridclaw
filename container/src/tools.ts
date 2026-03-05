@@ -7,6 +7,16 @@ import {
   executeBrowserTool,
   setBrowserModelContext,
 } from './browser-tools.js';
+import {
+  DISCORD_MEDIA_CACHE_ROOT,
+  DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
+  replaceWorkspaceRootInOutput,
+  resolveMediaPath,
+  resolveWorkspacePath,
+  stripWorkspaceRootPrefix,
+  WORKSPACE_ROOT,
+  WORKSPACE_ROOT_DISPLAY,
+} from './runtime-paths.js';
 import type {
   DelegationSideEffect,
   DelegationTaskSpec,
@@ -14,7 +24,6 @@ import type {
   ScheduleSideEffect,
   ToolDefinition,
 } from './types.js';
-import { webFetch } from './web-fetch.js';
 
 // --- Exec safety deny-list (defense-in-depth, adapted from PicoClaw) ---
 
@@ -76,7 +85,6 @@ let currentChatbotId = '';
 let currentMediaContext: MediaContextItem[] = [];
 const MAX_PENDING_DELEGATIONS = 3;
 const MAX_DELEGATION_BATCH_ITEMS = 6;
-const DISCORD_MEDIA_CACHE_ROOT = '/discord-media-cache';
 const VISION_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 const VISION_FETCH_TIMEOUT_MS = 12_000;
 const DISCORD_CDN_HOST_PATTERNS: RegExp[] = [
@@ -517,25 +525,7 @@ function isSafeDiscordCdnUrl(raw: string): boolean {
 }
 
 function normalizeVisionLocalPath(rawPath: string): string | null {
-  const trimmed = rawPath.trim();
-  if (!trimmed) return null;
-
-  const normalizedInput = trimmed.replace(/\\/g, '/');
-  const candidate = normalizedInput.startsWith('/')
-    ? path.posix.normalize(normalizedInput)
-    : path.posix.normalize(path.posix.join(WORKSPACE_ROOT, normalizedInput));
-  if (
-    !(
-      candidate === WORKSPACE_ROOT || candidate.startsWith(`${WORKSPACE_ROOT}/`)
-    ) &&
-    !(
-      candidate === DISCORD_MEDIA_CACHE_ROOT ||
-      candidate.startsWith(`${DISCORD_MEDIA_CACHE_ROOT}/`)
-    )
-  ) {
-    return null;
-  }
-  return candidate;
+  return resolveWorkspacePath(rawPath) || resolveMediaPath(rawPath);
 }
 
 function isKnownDiscordMediaPath(localPath: string): boolean {
@@ -573,7 +563,7 @@ async function readVisionImageFromLocalPath(
   const normalizedPath = normalizeVisionLocalPath(localPath);
   if (!normalizedPath) {
     throw new Error(
-      'local image path must be under /workspace or /discord-media-cache',
+      `local image path must be under ${WORKSPACE_ROOT_DISPLAY} or ${DISCORD_MEDIA_CACHE_ROOT_DISPLAY}`,
     );
   }
   if (
@@ -933,18 +923,9 @@ function resolveBashTimeoutMs(args: Record<string, unknown>): number {
   return BASH_EXEC_DEFAULT_TIMEOUT_MS;
 }
 
-const WORKSPACE_ROOT = '/workspace';
-
 function safeJoin(userPath: string): string {
-  const input = String(userPath || '').trim();
-  const root = path.resolve(WORKSPACE_ROOT);
-  const resolved = path.isAbsolute(input)
-    ? path.resolve(input)
-    : path.resolve(root, input);
-
-  if (resolved === root || resolved.startsWith(root + path.sep)) {
-    return resolved;
-  }
+  const resolved = resolveWorkspacePath(userPath);
+  if (resolved) return resolved;
   throw new Error(`Path escapes workspace: ${userPath}`);
 }
 
@@ -976,13 +957,14 @@ function currentDateStamp(): string {
 
 function normalizeMemoryFilePath(rawPath: unknown): string | null {
   if (typeof rawPath !== 'string' || rawPath.trim() === '') return null;
-  const normalized = rawPath
-    .trim()
-    .replace(/\\/g, '/')
-    .replace(/^\/workspace\//, '')
-    .replace(/^\.?\//, '');
-  if (MEMORY_ROOT_FILES.has(normalized)) return normalized;
-  if (DAILY_MEMORY_FILE_RE.test(normalized)) return normalized;
+  const normalized = rawPath.trim().replace(/\\/g, '/');
+  const workspaceRelative = stripWorkspaceRootPrefix(normalized).replace(
+    /^\.?\//,
+    '',
+  );
+  const sanitized = workspaceRelative || normalized;
+  if (MEMORY_ROOT_FILES.has(sanitized)) return sanitized;
+  if (DAILY_MEMORY_FILE_RE.test(sanitized)) return sanitized;
   return null;
 }
 
@@ -1329,14 +1311,14 @@ export async function executeTool(
         const pattern = args.pattern;
         try {
           // Use find as a simple glob implementation
-          const cmd = `find /workspace -path "${pattern.replace(/\*/g, '*')}" -type f 2>/dev/null | head -50`;
+          const cmd = `find "${WORKSPACE_ROOT.replace(/"/g, '\\"')}" -path "${String(pattern || '').replace(/"/g, '\\"')}" -type f 2>/dev/null | head -50`;
           const result = execSync(cmd, { timeout: 10000, encoding: 'utf-8' });
           if (!result.trim()) return 'No files found.';
           // Convert absolute paths to relative
           const files = result
             .trim()
             .split('\n')
-            .map((f) => f.replace('/workspace/', ''));
+            .map((f) => replaceWorkspaceRootInOutput(f));
           return abbreviatePreview(files.join('\n'));
         } catch {
           return 'No files found.';
@@ -1344,13 +1326,13 @@ export async function executeTool(
       }
 
       case 'grep': {
-        const searchPath = args.path ? safeJoin(args.path) : '/workspace';
+        const searchPath = args.path ? safeJoin(args.path) : WORKSPACE_ROOT;
         try {
           const cmd = `rg --no-heading --line-number "${args.pattern.replace(/"/g, '\\"')}" "${searchPath}" 2>/dev/null | head -30`;
           const result = execSync(cmd, { timeout: 10000, encoding: 'utf-8' });
           if (!result.trim()) return 'No matches found.';
           // Convert absolute paths to relative
-          return abbreviatePreview(result.replace(/\/workspace\//g, ''));
+          return abbreviatePreview(replaceWorkspaceRootInOutput(result));
         } catch {
           return 'No matches found.';
         }
@@ -1367,11 +1349,13 @@ export async function executeTool(
           const result = execSync(args.command, {
             timeout: timeoutMs,
             encoding: 'utf-8',
-            cwd: '/workspace',
+            cwd: WORKSPACE_ROOT,
             maxBuffer: BASH_EXEC_MAX_BUFFER_BYTES,
             env: cleanEnv,
           });
-          return formatBashOutput(result || '(no output)');
+          return formatBashOutput(
+            replaceWorkspaceRootInOutput(result || '(no output)'),
+          );
         } catch (err: unknown) {
           const execErr = err as {
             code?: string | number;
@@ -1408,7 +1392,7 @@ export async function executeTool(
             : errorMessage;
 
           if (!combinedOutput) return `Error: ${summary}`;
-          return `Error: ${summary}\n\n${formatBashOutput(combinedOutput)}`;
+          return `Error: ${summary}\n\n${formatBashOutput(replaceWorkspaceRootInOutput(combinedOutput))}`;
         }
       }
 
@@ -1830,6 +1814,7 @@ export async function executeTool(
       }
 
       case 'web_fetch': {
+        const { webFetch } = await import('./web-fetch.js');
         const result = await webFetch({
           url: args.url,
           extractMode: args.extractMode,

@@ -8,6 +8,7 @@ import { loadEnvFile } from './env.js';
 import {
   ensureRuntimeConfigFile,
   getRuntimeConfig,
+  isContainerSandboxModeExplicit,
   onRuntimeConfigChange,
   type RuntimeConfig,
 } from './runtime-config.js';
@@ -147,8 +148,12 @@ export let HYBRIDAI_MODELS: string[] = ['gpt-5-nano', 'gpt-5-mini', 'gpt-5'];
 
 export let CONTAINER_IMAGE = 'hybridclaw-agent';
 export let CONTAINER_MEMORY = '512m';
+export let CONTAINER_MEMORY_SWAP = '';
 export let CONTAINER_CPUS = '1';
+export let CONTAINER_NETWORK = 'bridge';
 export let CONTAINER_TIMEOUT = 300_000;
+export let CONTAINER_SANDBOX_MODE: RuntimeConfig['container']['sandboxMode'] =
+  'container';
 
 export const MOUNT_ALLOWLIST_PATH = path.join(
   os.homedir(),
@@ -220,6 +225,46 @@ export let PROACTIVE_AUTO_RETRY_BASE_DELAY_MS = 2_000;
 export let PROACTIVE_AUTO_RETRY_MAX_DELAY_MS = 8_000;
 export let PROACTIVE_RALPH_MAX_ITERATIONS = 0;
 
+const DOCKER_ENV_PATH = '/.dockerenv';
+let sandboxAutoDetectLogged = '';
+let sandboxModeOverride: RuntimeConfig['container']['sandboxMode'] | null =
+  (() => {
+    const raw = String(process.env.HYBRIDCLAW_SANDBOX_MODE_OVERRIDE || '')
+      .trim()
+      .toLowerCase();
+    if (raw === 'host') return 'host';
+    if (raw === 'container') return 'container';
+    return null;
+  })();
+
+function isRunningInsideContainer(): boolean {
+  if (process.env.HYBRIDCLAW_IN_CONTAINER === '1') return true;
+  try {
+    return fs.existsSync(DOCKER_ENV_PATH);
+  } catch {
+    return false;
+  }
+}
+
+function resolveSandboxMode(
+  config: RuntimeConfig,
+): RuntimeConfig['container']['sandboxMode'] {
+  if (sandboxModeOverride) return sandboxModeOverride;
+  const configuredMode = config.container.sandboxMode;
+  const sandboxModeExplicit = isContainerSandboxModeExplicit();
+  const runningInsideContainer = isRunningInsideContainer();
+  if (sandboxModeExplicit || !runningInsideContainer) return configuredMode;
+
+  const signature = `${configuredMode}:${runningInsideContainer}`;
+  if (sandboxAutoDetectLogged !== signature) {
+    sandboxAutoDetectLogged = signature;
+    console.info(
+      'Running in container mode — sandbox disabled (container-in-container not needed)',
+    );
+  }
+  return 'host';
+}
+
 function applyRuntimeConfig(config: RuntimeConfig): void {
   DISCORD_PREFIX = config.discord.prefix;
   DISCORD_GUILD_MEMBERS_INTENT = config.discord.guildMembersIntent;
@@ -276,9 +321,12 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   HYBRIDAI_ENABLE_RAG = config.hybridai.enableRag;
   HYBRIDAI_MODELS = [...config.hybridai.models];
 
+  CONTAINER_SANDBOX_MODE = resolveSandboxMode(config);
   CONTAINER_IMAGE = config.container.image;
   CONTAINER_MEMORY = config.container.memory;
+  CONTAINER_MEMORY_SWAP = config.container.memorySwap;
   CONTAINER_CPUS = config.container.cpus;
+  CONTAINER_NETWORK = config.container.network;
   CONTAINER_TIMEOUT = config.container.timeoutMs;
   ADDITIONAL_MOUNTS = config.container.additionalMounts;
   CONTAINER_MAX_OUTPUT_SIZE = config.container.maxOutputBytes;
@@ -409,4 +457,31 @@ onRuntimeConfigChange((next) => {
 export { onRuntimeConfigChange as onConfigChange };
 export function getConfigSnapshot(): RuntimeConfig {
   return getRuntimeConfig();
+}
+
+export function getResolvedSandboxMode(): RuntimeConfig['container']['sandboxMode'] {
+  return CONTAINER_SANDBOX_MODE;
+}
+
+export function setSandboxModeOverride(
+  mode: RuntimeConfig['container']['sandboxMode'] | null,
+): void {
+  sandboxModeOverride = mode;
+  if (mode) {
+    process.env.HYBRIDCLAW_SANDBOX_MODE_OVERRIDE = mode;
+  } else {
+    delete process.env.HYBRIDCLAW_SANDBOX_MODE_OVERRIDE;
+  }
+  applyRuntimeConfig(getRuntimeConfig());
+}
+
+export function getSandboxAutoDetectionState(): {
+  runningInsideContainer: boolean;
+  sandboxModeExplicit: boolean;
+} {
+  return {
+    runningInsideContainer: isRunningInsideContainer(),
+    sandboxModeExplicit:
+      sandboxModeOverride != null || isContainerSandboxModeExplicit(),
+  };
 }

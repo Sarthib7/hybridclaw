@@ -188,10 +188,13 @@ async function promptApprovalSelection(
   return command;
 }
 
-function printBanner(modelInfo: {
-  current: string;
-  defaultModel: string;
-}): void {
+function printBanner(
+  modelInfo: {
+    current: string;
+    defaultModel: string;
+  },
+  sandboxMode: 'container' | 'host',
+): void {
   const T = TEAL;
   const N = NAVY;
   const logo = [
@@ -236,7 +239,9 @@ function printBanner(modelInfo: {
   console.log(
     `  ${MUTED}Model:${RESET} ${TEAL}${modelInfo.current}${RESET}${MUTED} (default: ${modelInfo.defaultModel})${RESET}${MUTED} | Bot:${RESET} ${GOLD}${HYBRIDAI_CHATBOT_ID || 'unset'}${RESET}`,
   );
-  console.log(`  ${MUTED}Gateway:${RESET} ${TEAL}${GATEWAY_BASE_URL}${RESET}`);
+  console.log(
+    `  ${MUTED}Gateway:${RESET} ${TEAL}${GATEWAY_BASE_URL}${RESET}${MUTED} | Sandbox:${RESET} ${GOLD}${sandboxMode}${RESET}`,
+  );
   console.log(
     `  ${MUTED}HybridAI:${RESET} ${TEAL}${HYBRIDAI_BASE_URL}${RESET}`,
   );
@@ -693,9 +698,9 @@ async function pollProactiveMessages(rl: readline.Interface): Promise<void> {
 
 async function main(): Promise<void> {
   logger.level = 'warn';
-  await gatewayStatus();
+  const status = await gatewayStatus();
   const modelInfo = await fetchSessionAndDefaultModel();
-  printBanner(modelInfo);
+  printBanner(modelInfo, status.sandbox?.mode || 'container');
 
   const rl = readline.createInterface({
     input: process.stdin,

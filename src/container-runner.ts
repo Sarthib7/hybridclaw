@@ -11,6 +11,8 @@ import {
   CONTAINER_CPUS,
   CONTAINER_IMAGE,
   CONTAINER_MEMORY,
+  CONTAINER_MEMORY_SWAP,
+  CONTAINER_NETWORK,
   CONTAINER_TIMEOUT,
   DATA_DIR,
   DISCORD_FREE_RESPONSE_CHANNELS,
@@ -30,6 +32,7 @@ import {
   PROACTIVE_RALPH_MAX_ITERATIONS,
 } from './config.js';
 import {
+  agentWorkspaceDir,
   cleanupIpc,
   ensureAgentDirs,
   ensureSessionDirs,
@@ -70,7 +73,7 @@ const STREAM_DELTA_RE = /^\[stream\]\s+([A-Za-z0-9+/=]+)$/;
 const CONTAINER_WORKSPACE_ROOT = '/workspace';
 const CONTAINER_DISCORD_MEDIA_CACHE_ROOT = '/discord-media-cache';
 
-function collectConfiguredDiscordChannelIds(
+export function collectConfiguredDiscordChannelIds(
   currentChannelId: string,
 ): string[] {
   const seen = new Set<string>();
@@ -93,7 +96,7 @@ function collectConfiguredDiscordChannelIds(
   return out;
 }
 
-function resolveDiscordMediaCacheHostDir(): string {
+export function resolveDiscordMediaCacheHostDir(): string {
   return path.resolve(path.join(DATA_DIR, 'discord-media-cache'));
 }
 
@@ -221,7 +224,7 @@ function resolveArtifactHostPath(
   return null;
 }
 
-function remapOutputArtifacts(
+export function remapOutputArtifacts(
   output: ContainerOutput,
   workspacePath: string,
 ): void {
@@ -291,10 +294,17 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
     containerName,
     '--memory',
     CONTAINER_MEMORY,
+    ...(CONTAINER_MEMORY_SWAP.trim()
+      ? ['--memory-swap', CONTAINER_MEMORY_SWAP]
+      : []),
     `--cpus=${CONTAINER_CPUS}`,
     '--read-only',
+    '--cap-drop=ALL',
+    '--security-opt=no-new-privileges',
+    '--pids-limit=256',
+    `--network=${CONTAINER_NETWORK || 'bridge'}`,
     '--tmpfs',
-    '/tmp',
+    '/tmp:rw,nosuid,size=512m',
     '-v',
     `${workspacePath}:/workspace:rw`,
     '-v',
@@ -546,4 +556,57 @@ export function stopAllContainers(): void {
     stopContainer(entry.containerName);
   }
   pool.clear();
+}
+
+export class ContainerExecutor {
+  exec(params: {
+    sessionId: string;
+    messages: ChatMessage[];
+    chatbotId: string;
+    enableRag: boolean;
+    model?: string;
+    agentId?: string;
+    channelId?: string;
+    scheduledTasks?: ScheduledTask[];
+    allowedTools?: string[];
+    blockedTools?: string[];
+    onTextDelta?: (delta: string) => void;
+    onToolProgress?: (event: ToolProgressEvent) => void;
+    abortSignal?: AbortSignal;
+    media?: MediaContextItem[];
+  }): Promise<ContainerOutput> {
+    return runContainer(
+      params.sessionId,
+      params.messages,
+      params.chatbotId,
+      params.enableRag,
+      params.model,
+      params.agentId,
+      params.channelId,
+      params.scheduledTasks,
+      params.allowedTools,
+      params.blockedTools,
+      params.onTextDelta,
+      params.onToolProgress,
+      params.abortSignal,
+      params.media,
+    );
+  }
+
+  getWorkspacePath(agentId: string): string {
+    ensureAgentDirs(agentId);
+    return path.resolve(agentWorkspaceDir(agentId));
+  }
+
+  stopSession(sessionId: string): boolean {
+    return stopSessionContainer(sessionId);
+  }
+
+  stopAll(): void {
+    stopAllContainers();
+  }
+
+  getActiveSessionCount(): number {
+    return getActiveContainerCount();
+  }
 }

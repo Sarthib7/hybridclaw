@@ -128,6 +128,21 @@ export interface GatewayStatus {
   defaultModel: string;
   ragDefault: boolean;
   timestamp: string;
+  sandbox?: {
+    mode: 'container' | 'host';
+    modeExplicit: boolean;
+    runningInsideContainer: boolean;
+    image: string | null;
+    network: string | null;
+    memory: string | null;
+    memorySwap: string | null;
+    cpus: string | null;
+    securityFlags: string[];
+    mountAllowlistPath: string;
+    additionalMountsConfigured: number;
+    activeSessions: number;
+    warning: string | null;
+  };
   observability?: {
     enabled: boolean;
     running: boolean;

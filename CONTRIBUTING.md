@@ -34,8 +34,10 @@ Before committing, stage your files (`git add ...`). The hook validates and auto
 
 ## Container runtime image
 
-HybridClaw runtime commands (`gateway`, `tui`, `onboarding`) require a local Docker
-image matching `container.image` (default: `hybridclaw-agent`).
+HybridClaw runtime commands (`gateway`, `tui`, `onboarding`) use a local Docker
+image matching `container.image` (default: `hybridclaw-agent`) when sandbox mode
+is `container`. In `host` sandbox mode they run the packaged agent runtime
+directly instead.
 
 When the image is missing, startup logic in `src/container-setup.ts` does:
 
@@ -50,6 +52,16 @@ Maintainer overrides:
 
 Build context hygiene is enforced by `container/.dockerignore` to avoid accidentally
 shipping local secrets/artifacts into published images.
+
+## Sandbox modes
+
+HybridClaw can execute agent turns in two modes:
+
+- `container` (default) runs the agent inside Docker with read-only rootfs, dropped capabilities, `no-new-privileges`, PID limits, and tunable `container.memory`, `container.memorySwap`, `container.cpus`, and `container.network`.
+- `host` runs the bundled `container/dist/` runtime directly, intended for deployments where HybridClaw itself already runs inside a container and Docker-in-Docker is undesirable.
+- Set `container.sandboxMode` in `~/.hybridclaw/config.json` to pin the mode, or override a single launch with `hybridclaw gateway start --sandbox=container|host` / `hybridclaw gateway restart --sandbox=container|host`.
+- If HybridClaw detects it is already inside a container and `container.sandboxMode` is not explicitly set, it auto-selects `host`.
+- `hybridclaw gateway status` and `!claw status` surface the active sandbox mode and session count.
 
 ## Container publishing (GHCR + optional Docker Hub)
 
@@ -163,13 +175,14 @@ Useful maintainer commands:
 - `hybridclaw audit approvals 50 --denied`
 - `hybridclaw audit verify <sessionId>`
 - `hybridclaw audit instructions`
-- `hybridclaw audit instructions --approve`
+- `hybridclaw audit instructions --sync`
 
-Instruction approval baseline:
+Instruction runtime copies:
 
-- file: `~/.hybridclaw/data/audit/instruction-hashes.json`
-- `hybridclaw audit instructions` fails when instruction files changed
-- `hybridclaw audit instructions --approve` updates approved baseline
+- files: `~/.hybridclaw/instructions/SECURITY.md`, `~/.hybridclaw/instructions/TRUST_MODEL.md`
+- source of truth: installed package files (`SECURITY.md`, `TRUST_MODEL.md`)
+- `hybridclaw audit instructions` fails when runtime copies drift from installed sources
+- `hybridclaw audit instructions --sync` restores runtime copies from installed sources
 - `hybridclaw tui` performs this check before startup
 
 ### Observability push internals

@@ -2,7 +2,7 @@ import { makeAuditRunId, recordAuditEvent } from './audit-events.js';
 import { initDatabase } from './db.js';
 import { logger } from './logger.js';
 
-const INSTRUCTION_APPROVAL_ACTION = 'instruction:approve';
+const INSTRUCTION_APPROVAL_ACTION = 'instruction:sync';
 const INSTRUCTION_APPROVAL_POLICY = 'instruction-integrity';
 
 let auditReady = false;
@@ -22,10 +22,7 @@ function ensureAuditReady(): boolean {
     initDatabase({ quiet: true });
     auditReady = true;
   } catch (err) {
-    logger.warn(
-      { err },
-      'Failed to initialize DB for instruction approval audit',
-    );
+    logger.warn({ err }, 'Failed to initialize DB for instruction sync audit');
     auditReady = false;
   }
   return auditReady;
@@ -37,7 +34,7 @@ export function beginInstructionApprovalAudit(input: {
   description: string;
 }): InstructionApprovalAuditContext {
   const runId = makeAuditRunId('instructions');
-  const toolCallId = `${runId}:approval:1`;
+  const toolCallId = `${runId}:sync:1`;
   const context: InstructionApprovalAuditContext = {
     sessionId: input.sessionId,
     runId,

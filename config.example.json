@@ -1,5 +1,5 @@
 {
-  "version": 5,
+  "version": 6,
   "security": {
     "trustModelAccepted": false,
     "trustModelAcceptedAt": "",
@@ -69,9 +69,12 @@
     "models": ["gpt-5-nano", "gpt-5-mini", "gpt-5"]
   },
   "container": {
+    "sandboxMode": "container",
     "image": "hybridclaw-agent",
     "memory": "512m",
+    "memorySwap": "",
     "cpus": "1",
+    "network": "bridge",
     "timeoutMs": 300000,
     "additionalMounts": "",
     "maxOutputBytes": 10485760,
@@ -158,6 +161,8 @@
         "description": "Runs standup summary every weekday at 9am.",
         "schedule": {
           "kind": "cron",
+          "at": null,
+          "everyMs": null,
           "expr": "0 9 * * 1-5",
           "tz": "America/New_York"
         },
@@ -168,7 +173,8 @@
         "delivery": {
           "kind": "channel",
           "channel": "discord",
-          "to": "123456789012345678"
+          "to": "123456789012345678",
+          "webhookUrl": ""
         },
         "enabled": false
       }

@@ -1,15 +1,22 @@
 #!/usr/bin/env node
 
-import { spawn, spawnSync } from 'child_process';
-import fs from 'fs';
-import path from 'path';
-import readline from 'readline/promises';
-import { fileURLToPath } from 'url';
+import { spawn, spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import readline from 'node:readline/promises';
+import { fileURLToPath } from 'node:url';
+import {
+  hasSandboxFlag,
+  parseGatewayFlags,
+  type SandboxModeOverride,
+} from './cli-flags.js';
 import {
   APP_VERSION,
   DATA_DIR,
   GATEWAY_BASE_URL,
+  getResolvedSandboxMode,
   MissingRequiredEnvVarError,
+  setSandboxModeOverride,
 } from './config.js';
 import { ensureHybridAICredentials } from './onboarding.js';
 import { printUpdateUsage, runUpdateCommand } from './update.js';
@@ -48,7 +55,9 @@ function resolveInstallRoot(): string {
 async function ensureRuntimeContainer(
   commandName: string,
   required = true,
+  sandboxMode: SandboxModeOverride | null = null,
 ): Promise<void> {
+  if ((sandboxMode || getResolvedSandboxMode()) === 'host') return;
   const { ensureContainerImageReady } = await import('./container-setup.js');
   await ensureContainerImageReady({
     commandName,
@@ -97,13 +106,17 @@ async function ensureGatewayForTui(commandName: string): Promise<void> {
 
 function formatInstructionDiffLine(file: {
   path: string;
-  status: 'ok' | 'modified' | 'missing' | 'untracked';
+  status: 'ok' | 'modified' | 'missing' | 'source_missing';
+  sourcePath: string;
+  runtimePath: string;
   expectedHash: string | null;
   actualHash: string | null;
 }): string[] {
   if (file.status === 'modified') {
     return [
       `  - modified ${file.path}`,
+      `    source   ${file.sourcePath}`,
+      `    runtime  ${file.runtimePath}`,
       `    expected ${file.expectedHash}`,
       `    actual   ${file.actualHash}`,
     ];
@@ -111,13 +124,17 @@ function formatInstructionDiffLine(file: {
   if (file.status === 'missing') {
     return [
       `  - missing  ${file.path}`,
+      `    source   ${file.sourcePath}`,
+      `    runtime  ${file.runtimePath}`,
       `    expected ${file.expectedHash}`,
       '    actual   <missing>',
     ];
   }
   return [
-    `  - untracked ${file.path}`,
-    '    expected <not in baseline>',
+    `  - missing source ${file.path}`,
+    `    source   ${file.sourcePath}`,
+    `    runtime  ${file.runtimePath}`,
+    '    expected <missing source>',
     `    actual   ${file.actualHash || '<missing>'}`,
   ];
 }
@@ -126,32 +143,26 @@ async function ensureTuiInstructionApproval(
   commandName: string,
 ): Promise<void> {
   const {
-    approveInstructionBaseline,
-    INSTRUCTION_BASELINE_PATH,
     summarizeInstructionIntegrity,
-    verifyInstructionBaseline,
+    syncRuntimeInstructionCopies,
+    verifyInstructionIntegrity,
   } = await import('./instruction-integrity.js');
   const { beginInstructionApprovalAudit, completeInstructionApprovalAudit } =
     await import('./instruction-approval-audit.js');
 
-  const result = verifyInstructionBaseline();
+  const result = verifyInstructionIntegrity();
   if (result.ok) return;
   const summary = summarizeInstructionIntegrity(result);
   const auditContext = beginInstructionApprovalAudit({
     sessionId: 'tui:local',
     source: 'tui.startup',
-    description: `TUI startup instruction approval required (${summary}).`,
+    description: `TUI startup instruction sync required (${summary}).`,
   });
 
   console.error(`${commandName}: instruction integrity check failed.`);
-  if (result.baselineError) {
-    console.error(`Instruction baseline is invalid: ${result.baselineError}`);
-    console.error(`Baseline path: ${INSTRUCTION_BASELINE_PATH}`);
-  } else if (!result.baseline) {
-    console.error(
-      `No approved instruction baseline found at ${INSTRUCTION_BASELINE_PATH}.`,
-    );
-  }
+  console.error(
+    `Runtime instruction copies under ${result.runtimeRoot} differ from installed sources in ${result.installRoot}.`,
+  );
 
   const changed = result.files.filter((file) => file.status !== 'ok');
   if (changed.length > 0) {
@@ -169,10 +180,10 @@ async function ensureTuiInstructionApproval(
       approved: false,
       approvedBy: 'policy-engine',
       method: 'policy',
-      description: `TUI startup blocked: non-interactive instruction approval required (${summary}).`,
+      description: `TUI startup blocked: non-interactive instruction sync required (${summary}).`,
     });
     throw new Error(
-      'Instruction files are not approved. Run `hybridclaw audit instructions --approve` and try again.',
+      'Instruction runtime copies are modified. Run `hybridclaw audit instructions --sync` and try again.',
     );
   }
 
@@ -183,7 +194,9 @@ async function ensureTuiInstructionApproval(
   let answer = '';
   try {
     answer = (
-      await rl.question('Approve current instruction changes now? [y/N] ')
+      await rl.question(
+        'Restore runtime instruction files from installed defaults now? [y/N] ',
+      )
     )
       .trim()
       .toLowerCase();
@@ -197,24 +210,24 @@ async function ensureTuiInstructionApproval(
       approved: false,
       approvedBy: 'local-user',
       method: 'interactive',
-      description: `User declined TUI instruction approval (${summary}).`,
+      description: `User declined TUI instruction sync (${summary}).`,
     });
     throw new Error(
-      'Instruction approval required. Run `hybridclaw audit instructions --approve` and restart TUI.',
+      'Instruction restore required. Run `hybridclaw audit instructions --sync` and restart TUI.',
     );
   }
 
   try {
-    const baseline = approveInstructionBaseline();
+    const synced = syncRuntimeInstructionCopies();
     console.log(
-      `Approved instruction baseline at ${INSTRUCTION_BASELINE_PATH} (${baseline.approvedAt}).`,
+      `Restored runtime instruction files at ${synced.runtimeRoot} (${synced.syncedAt}).`,
     );
     completeInstructionApprovalAudit({
       context: auditContext,
       approved: true,
       approvedBy: 'local-user',
       method: 'interactive',
-      description: `User approved TUI instruction update (${baseline.approvedAt}).`,
+      description: `User restored runtime instruction files (${synced.syncedAt}).`,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -223,7 +236,7 @@ async function ensureTuiInstructionApproval(
       approved: false,
       approvedBy: 'local-user',
       method: 'interactive',
-      description: `TUI instruction approval failed (${message}).`,
+      description: `TUI instruction sync failed (${message}).`,
     });
     throw err;
   }
@@ -249,8 +262,8 @@ function printGatewayUsage(): void {
 
 Commands:
   hybridclaw gateway
-  hybridclaw gateway start [--foreground]
-  hybridclaw gateway restart [--foreground]
+  hybridclaw gateway start [--foreground] [--sandbox=container|host]
+  hybridclaw gateway restart [--foreground] [--sandbox=container|host]
   hybridclaw gateway stop
   hybridclaw gateway status
   hybridclaw gateway sessions
@@ -290,7 +303,7 @@ Commands:
   search <query> [n]                 Search structured audit events
   approvals [n] [--denied]           Show approval decisions
   verify <sessionId>                 Verify wire hash chain integrity
-  instructions [--approve]           Verify or approve instruction markdown SHA-256 hashes`);
+  instructions [--sync] [--approve]  Verify or restore runtime instruction files`);
 }
 
 function printHelpUsage(): void {
@@ -491,15 +504,22 @@ async function adoptReachableGatewayIfPossible(): Promise<boolean> {
   return false;
 }
 
-async function runGatewayForeground(commandName: string): Promise<void> {
+async function runGatewayForeground(
+  commandName: string,
+  sandboxMode: SandboxModeOverride | null = null,
+): Promise<void> {
   await ensureHybridAICredentials({ commandName });
-  await ensureRuntimeContainer(commandName);
+  if (sandboxMode) {
+    setSandboxModeOverride(sandboxMode);
+  }
+  await ensureRuntimeContainer(commandName, true, sandboxMode);
   await import('./gateway.js');
 }
 
 async function startGatewayBackend(
   commandName: string,
   waitForHealthy = false,
+  sandboxMode: SandboxModeOverride | null = null,
 ): Promise<void> {
   if (await isGatewayReachable()) {
     const existing = readGatewayPid();
@@ -549,13 +569,19 @@ async function startGatewayBackend(
   }
 
   await ensureHybridAICredentials({ commandName });
-  await ensureRuntimeContainer(commandName);
+  await ensureRuntimeContainer(commandName, true, sandboxMode);
 
   ensureGatewayRunDir();
   const out = fs.openSync(GATEWAY_LOG_PATH, 'a');
   const err = fs.openSync(GATEWAY_LOG_PATH, 'a');
   const cliEntry = process.argv[1];
-  const childArgs = [cliEntry, 'gateway', 'start', '--foreground'];
+  const childArgs = [
+    cliEntry,
+    'gateway',
+    'start',
+    '--foreground',
+    ...(sandboxMode ? [`--sandbox=${sandboxMode}`] : []),
+  ];
   const child = spawn(process.execPath, childArgs, {
     detached: true,
     stdio: ['ignore', out, err],
@@ -703,8 +729,8 @@ async function printGatewayLifecycleStatus(): Promise<void> {
   const runningByPid = Boolean(state && isPidRunning(state.pid));
   const reachable = await isGatewayReachable();
 
-  if (runningByPid) {
-    console.log(`PID file: running (pid ${state!.pid})`);
+  if (state && runningByPid) {
+    console.log(`PID file: running (pid ${state.pid})`);
   } else if (state) {
     console.log(`PID file: stale (pid ${state.pid})`);
   } else {
@@ -719,7 +745,7 @@ async function printGatewayLifecycleStatus(): Promise<void> {
       const { gatewayStatus } = await import('./gateway-client.js');
       const status = await gatewayStatus();
       console.log(
-        `Uptime: ${status.uptime}s | Sessions: ${status.sessions} | Containers: ${status.activeContainers}`,
+        `Uptime: ${status.uptime}s | Sessions: ${status.sessions} | Sandbox: ${status.sandbox?.mode || 'container'} (${status.sandbox?.activeSessions ?? status.activeContainers} active)`,
       );
     } catch (err) {
       console.log(
@@ -745,12 +771,6 @@ async function runGatewayApiCommand(args: string[]): Promise<void> {
   if (result.kind === 'error') process.exitCode = 1;
 }
 
-function parseGatewayFlags(args: string[]): { foreground: boolean } {
-  return {
-    foreground: args.includes('--foreground') || args.includes('-f'),
-  };
-}
-
 async function handleGatewayCommand(args: string[]): Promise<void> {
   const normalized = args.map((arg) => arg.trim()).filter(Boolean);
   if (normalized.length === 0) {
@@ -759,30 +779,77 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
   }
 
   const sub = normalized[0].toLowerCase();
+  const subArgs = normalized.slice(1);
   if (sub === 'help' || sub === '--help' || sub === '-h') {
     printGatewayUsage();
     return;
   }
 
+  if (hasSandboxFlag(normalized)) {
+    console.error(
+      '`--sandbox` is only supported with `hybridclaw gateway start` and `hybridclaw gateway restart`.',
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  if (sub === '--foreground' || sub === '-f') {
+    console.error(
+      '`--foreground` is only supported with `hybridclaw gateway start` and `hybridclaw gateway restart`.',
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  if (sub !== 'start' && sub !== 'restart' && hasSandboxFlag(subArgs)) {
+    console.error(
+      '`--sandbox` is only supported with `hybridclaw gateway start` and `hybridclaw gateway restart`.',
+    );
+    process.exitCode = 1;
+    return;
+  }
+
   if (sub === 'start') {
-    const flags = parseGatewayFlags(normalized.slice(1));
-    if (flags.foreground) {
-      await runGatewayForeground('hybridclaw gateway start --foreground');
+    const flags = parseGatewayFlags(subArgs);
+    if (flags.help) {
+      printGatewayUsage();
       return;
     }
-    await startGatewayBackend('hybridclaw gateway start');
+    if (flags.foreground) {
+      await runGatewayForeground(
+        'hybridclaw gateway start --foreground',
+        flags.sandboxMode,
+      );
+      return;
+    }
+    await startGatewayBackend(
+      'hybridclaw gateway start',
+      false,
+      flags.sandboxMode,
+    );
     return;
   }
 
   if (sub === 'restart') {
-    const flags = parseGatewayFlags(normalized.slice(1));
+    const flags = parseGatewayFlags(subArgs);
+    if (flags.help) {
+      printGatewayUsage();
+      return;
+    }
     await stopGatewayBackend();
 
     if (flags.foreground) {
-      await runGatewayForeground('hybridclaw gateway restart --foreground');
+      await runGatewayForeground(
+        'hybridclaw gateway restart --foreground',
+        flags.sandboxMode,
+      );
       return;
     }
-    await startGatewayBackend('hybridclaw gateway restart');
+    await startGatewayBackend(
+      'hybridclaw gateway restart',
+      false,
+      flags.sandboxMode,
+    );
     return;
   }
 
@@ -853,11 +920,11 @@ async function main(): Promise<void> {
         break;
       }
       const { runAuditCli } = await import('./audit-cli.js');
-      await runAuditCli(process.argv.slice(3));
+      await runAuditCli(subargs);
       break;
     }
     case 'help': {
-      const topic = (process.argv[3] || '').trim().toLowerCase();
+      const topic = (subargs[0] || '').trim().toLowerCase();
       if (!topic) {
         printMainUsage();
         console.log('');

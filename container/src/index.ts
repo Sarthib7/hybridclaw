@@ -15,6 +15,12 @@ import {
   shouldFallbackFromStreamError,
 } from './model-retry.js';
 import {
+  resolveMediaPath,
+  resolveWorkspacePath,
+  WORKSPACE_ROOT,
+  WORKSPACE_ROOT_DISPLAY,
+} from './runtime-paths.js';
+import {
   accumulateApiUsage,
   createTokenUsageStats,
   estimateMessageTokens,
@@ -75,7 +81,6 @@ const RALPH_MAX_EXTRA_ITERATIONS = Number.isFinite(
     : Math.max(0, Math.min(64, RAW_RALPH_MAX_EXTRA_ITERATIONS))
   : 0;
 const RALPH_ENABLED = RALPH_MAX_EXTRA_ITERATIONS !== 0;
-const WORKSPACE_ROOT = '/workspace';
 const ARTIFACT_MIME_TYPES: Record<string, string> = {
   '.gif': 'image/gif',
   '.jpeg': 'image/jpeg',
@@ -85,7 +90,6 @@ const ARTIFACT_MIME_TYPES: Record<string, string> = {
   '.svg': 'image/svg+xml',
   '.webp': 'image/webp',
 };
-const DISCORD_MEDIA_CACHE_ROOT = '/discord-media-cache';
 const NATIVE_VISION_MAX_IMAGES = 8;
 const NATIVE_VISION_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const DISCORD_CDN_HOST_PATTERNS: RegExp[] = [
@@ -119,22 +123,7 @@ function normalizePathSlashes(raw: string): string {
 function normalizeAllowedLocalImagePath(rawPath: string): string | null {
   const trimmed = rawPath.trim();
   if (!trimmed) return null;
-
-  const workspace = path.posix.normalize(WORKSPACE_ROOT);
-  const mediaRoot = path.posix.normalize(DISCORD_MEDIA_CACHE_ROOT);
-
-  const candidate = trimmed.startsWith('/')
-    ? path.posix.normalize(normalizePathSlashes(trimmed))
-    : path.posix.normalize(
-        path.posix.join(workspace, normalizePathSlashes(trimmed)),
-      );
-
-  const underWorkspace =
-    candidate === workspace || candidate.startsWith(`${workspace}/`);
-  const underMediaRoot =
-    candidate === mediaRoot || candidate.startsWith(`${mediaRoot}/`);
-  if (!underWorkspace && !underMediaRoot) return null;
-  return candidate;
+  return resolveWorkspacePath(trimmed) || resolveMediaPath(trimmed);
 }
 
 function inferImageMimeType(
@@ -417,21 +406,22 @@ function inferMimeType(filePath: string): string {
 function normalizeArtifactPath(rawPath: unknown): string | null {
   const value = String(rawPath || '').trim();
   if (!value) return null;
-  const normalized = value.replace(/\\/g, '/');
-  if (path.posix.isAbsolute(normalized)) {
-    const cleanAbs = path.posix.normalize(normalized);
-    if (
-      cleanAbs === WORKSPACE_ROOT ||
-      cleanAbs.startsWith(`${WORKSPACE_ROOT}/`)
-    ) {
-      return cleanAbs;
-    }
-    return null;
+
+  const workspacePath = resolveWorkspacePath(value);
+  if (workspacePath) {
+    const relative = path
+      .relative(WORKSPACE_ROOT, workspacePath)
+      .replace(/\\/g, '/');
+    return relative
+      ? `${WORKSPACE_ROOT_DISPLAY}/${relative}`
+      : WORKSPACE_ROOT_DISPLAY;
   }
 
+  const normalized = normalizePathSlashes(value);
+  if (path.posix.isAbsolute(normalized)) return null;
   const clean = path.posix.normalize(normalized);
   if (clean === '..' || clean.startsWith('../')) return null;
-  return path.posix.join(WORKSPACE_ROOT, clean);
+  return path.posix.join(WORKSPACE_ROOT_DISPLAY, clean);
 }
 
 function extractToolArtifacts(

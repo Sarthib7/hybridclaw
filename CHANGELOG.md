@@ -2,15 +2,22 @@
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.3.0)
+
 ### Added
+
+- **Configurable sandbox modes**: Gateway start/restart now accept `--sandbox=container|host`, runtime config adds `container.sandboxMode`, and gateway/TUI status surfaces show the active sandbox mode so operators can avoid Docker-in-Docker when HybridClaw itself already runs inside a container.
 
 ### Changed
 
-- **Container registry preference**: Runtime image bootstrap now tries GHCR (`ghcr.io/hybridaione/hybridclaw-agent`) before the optional Docker Hub mirror to avoid noisy pull failures when only GHCR is published.
+- **Container runtime hardening**: Container execution now drops Linux capabilities, disables privilege escalation, enforces a PID limit, uses a sized `/tmp` tmpfs, and adds `container.memorySwap` / `container.network` tuning alongside GHCR-first image pulls before the optional Docker Hub mirror.
+- **Packaged host runtime**: Root builds now compile and ship `container/dist/` so host sandbox mode can launch the bundled agent runtime from installed npm packages.
+- **Instruction sync workflow**: `hybridclaw audit instructions` now compares runtime copies in `~/.hybridclaw/instructions/` to installed package sources and uses `--sync` to restore shipped defaults instead of maintaining a local approval-hash baseline.
 
 ### Fixed
 
 - **Release container publishing resilience**: Release-tag container publishing now always publishes GHCR even when Docker Hub credentials are absent, instead of failing before any registry push occurs.
+- **Install-root asset resolution**: Runtime docs/templates/instructions now resolve from the actual install root, so onboarding, prompt guardrails, workspace bootstrap files, and the built-in site no longer depend on `process.cwd()`.
 
 ## [0.2.12](https://github.com/HybridAIOne/hybridclaw/tree/v0.2.12)
 

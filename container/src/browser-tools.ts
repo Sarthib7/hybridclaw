@@ -6,14 +6,20 @@ import net from 'node:net';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
+import {
+  DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
+  resolveMediaPath,
+  resolveWorkspacePath,
+  toWorkspaceRelativePath,
+  WORKSPACE_ROOT,
+  WORKSPACE_ROOT_DISPLAY,
+} from './runtime-paths.js';
 import type { ToolDefinition } from './types.js';
 
 const execFileAsync = promisify(execFile);
 
-const WORKSPACE_ROOT = '/workspace';
 const BROWSER_SOCKET_ROOT = '/tmp/hybridclaw-browser';
 const BROWSER_ARTIFACT_ROOT = path.join(WORKSPACE_ROOT, '.browser-artifacts');
-const DISCORD_MEDIA_CACHE_ROOT = '/discord-media-cache';
 const BROWSER_DEFAULT_TIMEOUT_MS = 45_000;
 const BROWSER_MAX_SNAPSHOT_CHARS = 12_000;
 const BROWSER_RUNTIME_ROOT = path.join(WORKSPACE_ROOT, '.hybridclaw-runtime');
@@ -488,24 +494,7 @@ function resolveUploadTarget(args: Record<string, unknown>): UploadTarget {
 }
 
 function normalizeUploadPath(rawPath: string): string | null {
-  const trimmed = rawPath.trim();
-  if (!trimmed) return null;
-  const normalizedInput = trimmed.replace(/\\/g, '/');
-  const candidate = normalizedInput.startsWith('/')
-    ? path.posix.normalize(normalizedInput)
-    : path.posix.normalize(path.posix.join(WORKSPACE_ROOT, normalizedInput));
-  if (
-    !(
-      candidate === WORKSPACE_ROOT || candidate.startsWith(`${WORKSPACE_ROOT}/`)
-    ) &&
-    !(
-      candidate === DISCORD_MEDIA_CACHE_ROOT ||
-      candidate.startsWith(`${DISCORD_MEDIA_CACHE_ROOT}/`)
-    )
-  ) {
-    return null;
-  }
-  return candidate;
+  return resolveWorkspacePath(rawPath) || resolveMediaPath(rawPath);
 }
 
 function resolveUploadPaths(args: Record<string, unknown>): string[] {
@@ -536,7 +525,7 @@ function resolveUploadPaths(args: Record<string, unknown>): string[] {
     const normalized = normalizeUploadPath(raw);
     if (!normalized) {
       throw new Error(
-        `invalid upload path "${raw}" (must stay within /workspace or /discord-media-cache)`,
+        `invalid upload path "${raw}" (must stay within ${WORKSPACE_ROOT_DISPLAY} or ${DISCORD_MEDIA_CACHE_ROOT_DISPLAY})`,
       );
     }
     if (!fs.existsSync(normalized)) {
@@ -1283,8 +1272,12 @@ export async function executeBrowserTool(
         );
         if (!result.success)
           return failure(result.error || 'failed to capture screenshot');
+        const relativePath = toWorkspaceRelativePath(outPath);
+        if (!relativePath) {
+          return failure('failed to normalize screenshot artifact path');
+        }
         return success({
-          path: path.relative(WORKSPACE_ROOT, outPath),
+          path: relativePath,
           full_page: fullPage,
         });
       }
@@ -1299,7 +1292,11 @@ export async function executeBrowserTool(
         );
         if (!result.success)
           return failure(result.error || 'failed to generate pdf');
-        return success({ path: path.relative(WORKSPACE_ROOT, outPath) });
+        const relativePath = toWorkspaceRelativePath(outPath);
+        if (!relativePath) {
+          return failure('failed to normalize pdf artifact path');
+        }
+        return success({ path: relativePath });
       }
 
       case 'browser_vision': {

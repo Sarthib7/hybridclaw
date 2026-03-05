@@ -3,11 +3,10 @@ import {
   completeInstructionApprovalAudit,
 } from './instruction-approval-audit.js';
 import {
-  approveInstructionBaseline,
-  INSTRUCTION_BASELINE_PATH,
   INSTRUCTION_FILES,
   summarizeInstructionIntegrity,
-  verifyInstructionBaseline,
+  syncRuntimeInstructionCopies,
+  verifyInstructionIntegrity,
 } from './instruction-integrity.js';
 
 const ANSI_RED = '\x1b[31m';
@@ -70,42 +69,44 @@ Commands:
   search <query> [n]                 Search structured audit events
   approvals [n] [--denied]           Show approval decisions
   verify <sessionId>                 Verify wire hash chain integrity
-  instructions [--approve]           Verify or approve instruction markdown SHA-256 hashes`);
+  instructions [--sync] [--approve]  Verify or restore runtime instruction files`);
 }
 
 function runInstructionHashesCommand(args: string[]): void {
-  const approve = args.includes('--approve');
-  const unknownArgs = args.filter((arg) => arg !== '--approve');
+  const sync = args.includes('--sync') || args.includes('--approve');
+  const unknownArgs = args.filter(
+    (arg) => arg !== '--sync' && arg !== '--approve',
+  );
   if (unknownArgs.length > 0) {
     printUsage();
     process.exitCode = 1;
     return;
   }
 
-  console.log('Instruction markdown SHA-256 integrity check');
+  console.log('Instruction runtime/source integrity check');
 
-  if (approve) {
-    const verifyBefore = verifyInstructionBaseline();
+  if (sync) {
+    const verifyBefore = verifyInstructionIntegrity();
     const auditContext = beginInstructionApprovalAudit({
       sessionId: 'cli:audit',
       source: 'audit.instructions',
-      description: `CLI instruction approval requested (${summarizeInstructionIntegrity(verifyBefore)}).`,
+      description: `CLI instruction sync requested (${summarizeInstructionIntegrity(verifyBefore)}).`,
     });
 
     try {
-      const baseline = approveInstructionBaseline();
+      const synced = syncRuntimeInstructionCopies();
       for (const relPath of INSTRUCTION_FILES) {
-        console.log(`approved  ${relPath} ${baseline.files[relPath]}`);
+        console.log(`synced    ${relPath} ${synced.files[relPath]}`);
       }
       console.log(
-        `Saved approved baseline at ${INSTRUCTION_BASELINE_PATH} (${baseline.approvedAt}).`,
+        `Restored runtime instruction files at ${synced.runtimeRoot} (${synced.syncedAt}).`,
       );
       completeInstructionApprovalAudit({
         context: auditContext,
         approved: true,
         approvedBy: 'local-user',
         method: 'cli',
-        description: `CLI instruction approval committed (${baseline.approvedAt}).`,
+        description: `CLI instruction sync committed (${synced.syncedAt}).`,
       });
     } catch (err) {
       process.exitCode = 1;
@@ -116,33 +117,13 @@ function runInstructionHashesCommand(args: string[]): void {
         approved: false,
         approvedBy: 'local-user',
         method: 'cli',
-        description: `CLI instruction approval failed (${message}).`,
+        description: `CLI instruction sync failed (${message}).`,
       });
     }
     return;
   }
 
-  const result = verifyInstructionBaseline();
-  if (result.baselineError) {
-    process.exitCode = 1;
-    console.log(red(`Invalid instruction baseline: ${result.baselineError}`));
-    console.log(`Path: ${INSTRUCTION_BASELINE_PATH}`);
-    console.log(
-      'Run `hybridclaw audit instructions --approve` to write a new baseline.',
-    );
-    return;
-  }
-
-  if (!result.baseline) {
-    process.exitCode = 1;
-    console.log(
-      `No approved instruction baseline found at ${INSTRUCTION_BASELINE_PATH}.`,
-    );
-    console.log(
-      'Run `hybridclaw audit instructions --approve` to approve current files.',
-    );
-    return;
-  }
+  const result = verifyInstructionIntegrity();
 
   for (const file of result.files) {
     if (file.status === 'ok') {
@@ -150,33 +131,40 @@ function runInstructionHashesCommand(args: string[]): void {
       continue;
     }
 
-    if (file.status === 'untracked') {
-      console.log(red(`untracked ${file.path}`));
-      console.log('  expected <not in baseline>');
+    if (file.status === 'source_missing') {
+      console.log(red(`source-missing ${file.path}`));
+      console.log(`  source   ${file.sourcePath}`);
+      console.log(`  runtime  ${file.runtimePath}`);
+      console.log('  expected <missing source>');
       console.log(`  actual   ${file.actualHash || '<missing>'}`);
       continue;
     }
 
     if (file.status === 'missing') {
       console.log(red(`missing   ${file.path}`));
+      console.log(`  source   ${file.sourcePath}`);
+      console.log(`  runtime  ${file.runtimePath}`);
       console.log(`  expected ${file.expectedHash}`);
       console.log('  actual   <missing>');
       continue;
     }
 
     console.log(red(`modified  ${file.path}`));
+    console.log(`  source   ${file.sourcePath}`);
+    console.log(`  runtime  ${file.runtimePath}`);
     console.log(`  expected ${file.expectedHash}`);
     console.log(`  actual   ${file.actualHash}`);
   }
 
   if (!result.ok) {
     process.exitCode = 1;
+    console.log(
+      'Run `hybridclaw audit instructions --sync` to restore runtime copies from installed sources.',
+    );
     return;
   }
 
-  console.log(
-    `Instruction files match approved baseline (${result.baseline.approvedAt}).`,
-  );
+  console.log('Runtime instruction files match installed sources.');
 }
 
 function summarizePayload(payloadRaw: string): string {

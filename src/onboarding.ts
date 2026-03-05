@@ -1,9 +1,13 @@
-import { spawn } from 'child_process';
-import fs from 'fs';
-import path from 'path';
-import readline from 'readline/promises';
+import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import readline from 'node:readline/promises';
 
 import { loadEnvFile } from './env.js';
+import {
+  ensureRuntimeInstructionCopies,
+  resolveRuntimeInstructionPath,
+} from './instruction-integrity.js';
 import {
   acceptSecurityTrustModel,
   ensureRuntimeConfigFile,
@@ -29,6 +33,11 @@ interface ApiKeyValidationResult {
 interface OnboardingOptions {
   force?: boolean;
   commandName?: string;
+}
+
+function trustModelDocPath(): string {
+  ensureRuntimeInstructionCopies();
+  return resolveRuntimeInstructionPath('TRUST_MODEL.md');
 }
 
 const RESET = '\x1b[0m';
@@ -116,7 +125,6 @@ const DEFAULT_VERIFY_PATH = '/verify_code';
 const BOT_LIST_PATH = '/api/v1/bot-management/bots';
 const API_KEY_RE = /\bhai-[A-Za-z0-9]{16,}\b/;
 const SECURITY_ACK_TOKEN = 'ACCEPT';
-const TRUST_MODEL_DOC_PATH = path.join(process.cwd(), 'TRUST_MODEL.md');
 
 function ensureEnvFileFromExample(): boolean {
   const envPath = path.join(process.cwd(), '.env');
@@ -467,7 +475,7 @@ async function ensureSecurityTrustAcceptance(
   );
   printMeta('Policy version', SECURITY_POLICY_VERSION);
   printMeta('Current acceptance', formatAcceptanceMeta());
-  printLink(`Policy document: ${TRUST_MODEL_DOC_PATH}`);
+  printLink(`Policy document: ${trustModelDocPath()}`);
   printInfo('Review TRUST_MODEL.md before continuing.');
   printInfo(
     'Acceptance confirms you understand container/tool risks, data handling, and operator responsibilities.',

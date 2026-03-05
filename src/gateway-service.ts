@@ -25,10 +25,6 @@ import {
   PROACTIVE_DELEGATION_MAX_PER_TURN,
   PROACTIVE_RALPH_MAX_ITERATIONS,
 } from './config.js';
-import {
-  getActiveContainerCount,
-  stopSessionContainer,
-} from './container-runner.js';
 import { buildConversationContext } from './conversation.js';
 import {
   createTask,
@@ -53,6 +49,7 @@ import {
   delegationQueueStatus,
   enqueueDelegation,
 } from './delegation-manager.js';
+import { getSandboxDiagnostics, stopSessionExecution } from './executor.js';
 import {
   type GatewayChatRequestBody,
   type GatewayChatResult,
@@ -946,16 +943,18 @@ function buildTokenUsageAuditPayload(
 }
 
 export function getGatewayStatus(): GatewayStatus {
+  const sandbox = getSandboxDiagnostics();
   return {
     status: 'ok',
     pid: process.pid,
     version: APP_VERSION,
     uptime: Math.floor(process.uptime()),
     sessions: getSessionCount(),
-    activeContainers: getActiveContainerCount(),
+    activeContainers: sandbox.activeSessions,
     defaultModel: HYBRIDAI_MODEL,
     ragDefault: HYBRIDAI_ENABLE_RAG,
     timestamp: new Date().toISOString(),
+    sandbox,
     observability: getObservabilityIngestState(),
     scheduler: {
       jobs: getSchedulerStatus(),
@@ -2417,7 +2416,7 @@ export async function handleGatewayCommand(
       updateRuntimeConfig((draft) => {
         draft.proactive.ralph.maxIterations = normalized;
       });
-      const restarted = stopSessionContainer(req.sessionId);
+      const restarted = stopSessionExecution(req.sessionId);
       const restartNote = restarted
         ? ' Current session container restarted to apply immediately.'
         : '';
@@ -2454,6 +2453,7 @@ export async function handleGatewayCommand(
           : metrics.contextUsedTokens != null
             ? `${formatCompactNumber(metrics.contextUsedTokens)}/? (window unknown)`
             : 'n/a';
+      const sandboxLabel = `${status.sandbox?.mode || 'container'} (${status.sandbox?.activeSessions ?? status.activeContainers} active)`;
       const lines = [
         `🦞 HybridClaw v${status.version}${commitShort ? ` (${commitShort})` : ''}`,
         `🧠 Model: ${sessionModel}`,
@@ -2462,9 +2462,9 @@ export async function handleGatewayCommand(
           ? `🗄️ Cache: ${formatPercent(metrics.cacheHitPercent)} hit · ${formatCompactNumber(metrics.cacheReadTokens)} cached, ${formatCompactNumber(metrics.cacheWriteTokens)} new`
           : '🗄️ Cache: n/a (provider did not report cache stats)',
         `📚 Context: ${contextLabel} · 🧹 Compactions: ${session.compaction_count}`,
-        `📊 Usage: uptime ${formatUptime(status.uptime)} · sessions ${status.sessions} · containers ${status.activeContainers}`,
+        `📊 Usage: uptime ${formatUptime(status.uptime)} · sessions ${status.sessions} · sandbox ${sandboxLabel}`,
         `🧵 Session: ${session.id} • updated ${formatRelativeTime(session.last_active)}`,
-        `⚙️ Runtime: direct · RAG: ${session.enable_rag ? 'on' : 'off'} · Ralph: ${formatRalphIterations(normalizeRalphIterations(PROACTIVE_RALPH_MAX_ITERATIONS))}`,
+        `⚙️ Runtime: ${status.sandbox?.mode || 'container'} · RAG: ${session.enable_rag ? 'on' : 'off'} · Ralph: ${formatRalphIterations(normalizeRalphIterations(PROACTIVE_RALPH_MAX_ITERATIONS))}`,
         `👥 Activation: ${resolveActivationModeLabel()} · 🪢 Queue: ${queueLabel} · 📬 Proactive queued: ${proactiveQueued}`,
       ];
       return infoCommand('Status', lines.join('\n'));

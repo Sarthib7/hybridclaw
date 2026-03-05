@@ -694,7 +694,7 @@
       <button class="hero-copy-btn" type="button" onclick="navigator.clipboard.writeText('npm install -g @hybridaione/hybridclaw'); this.textContent='Copied'; setTimeout(() => this.textContent='Copy', 1400);">Copy</button>
     </div>
     <code>npm install -g @hybridaione/hybridclaw</code>
-    <div class="hero-install-note">Prerequisites: Node.js 20+ (Docker required for full sandboxed tool execution). Browser automation tooling is preinstalled in the container image. HybridAI API key setup can be completed during onboarding. Current release: v0.2.8 (expanded Discord `message` actions, inline DM target resolution, channel-aware tool hints, and send-policy allowlist controls).</div>
+    <div class="hero-install-note">Prerequisites: Node.js 20+. Docker provides full container isolation, while containerized deployments can switch the gateway to host sandbox mode to avoid nested Docker. Browser automation tooling ships with the agent runtime. HybridAI API key setup can be completed during onboarding. Latest tagged release: v0.3.0.</div>
   </div>
   <div class="hero-cta">
     <a href="#quickstart" class="btn btn-primary">Get Started</a>
@@ -733,30 +733,30 @@
 
 <section id="latest">
   <div class="section-center">
-    <div class="section-label">v0.2.8</div>
-    <h2 class="section-title">Release highlights</h2>
-    <p class="section-desc">Key improvements included in the current release.</p>
+    <div class="section-label">Release v0.3.0</div>
+    <h2 class="section-title">Latest release highlights</h2>
+    <p class="section-desc">Key improvements included in the latest tagged release.</p>
   </div>
   <div class="features-grid">
     <div class="feature-card">
-      <div class="feature-icon">&#x1f513;</div>
-      <h3>Expanded Discord message actions</h3>
-      <p>The `message` tool now supports richer Discord workflows including reactions, quote replies, edit/delete, pin/unpin, and thread create/reply operations.</p>
+      <div class="feature-icon">&#x1f5a5;&#xfe0f;</div>
+      <h3>Selectable sandbox runtime</h3>
+      <p>Gateway start/restart now support <code>--sandbox=container|host</code>, status surfaces show the active mode, and containerized deployments can auto-switch to host execution to avoid Docker-in-Docker.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f5e3;&#xfe0f;</div>
-      <h3>Natural send + DM intent mapping</h3>
-      <p>Natural aliases like `dm`, `post`, and `reply` normalize automatically, and user targets (`@alice`, user IDs, mentions, display names) resolve inline for single-call DMs.</p>
+      <div class="feature-icon">&#x1f4c1;</div>
+      <h3>Install-root aware runtime assets</h3>
+      <p>Docs, templates, onboarding policy files, and safety prompt inputs now resolve from the installed package root, so npm installs no longer depend on the launch directory.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f4c8;</div>
-      <h3>Channel-aware tool discovery</h3>
-      <p>Message tool descriptions now include current and configured channel contexts with intent-focused guidance, improving autonomous tool selection in cron/isolated runs.</p>
+      <div class="feature-icon">&#x1f504;</div>
+      <h3>Instruction sync workflow</h3>
+      <p><code>hybridclaw audit instructions</code> now checks runtime copies under <code>~/.hybridclaw/instructions/</code> against installed sources, and <code>--sync</code> restores shipped defaults when they drift.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f4c2;</div>
-      <h3>Safer outbound send controls</h3>
-      <p>Runtime send governance now supports `discord.sendPolicy` plus channel/guild/user/role allowlist checks, with structured disambiguation errors for ambiguous user lookups.</p>
+      <div class="feature-icon">&#x1f6e1;&#xfe0f;</div>
+      <h3>Hardened container defaults</h3>
+      <p>Container execution now prefers GHCR before the optional Docker Hub mirror, always publishes GHCR on release tags, and tightens isolation with dropped capabilities, no-new-privileges, PID limits, and configurable network/memory-swap settings.</p>
     </div>
   </div>
 </section>
@@ -829,7 +829,7 @@
     <div class="feature-card">
       <div class="feature-icon">&#x1f512;</div>
       <h3>Execute safely</h3>
-      <p>Run useful actions behind trust acceptance, runtime guardrails, and instruction approval checks so automation stays controlled.</p>
+      <p>Run useful actions behind trust acceptance, runtime guardrails, sandbox controls, and instruction integrity checks so automation stays controlled.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f504;</div>
@@ -937,7 +937,7 @@
         <tr>
           <td>Enterprise Readiness</td>
           <td>
-            <span class="compare-text">Hash-chained audit plus local instruction approval controls</span>
+            <span class="compare-text">Hash-chained audit plus local instruction integrity controls</span>
           </td>
           <td>
             <span class="compare-text">Strong base, extended per team</span>
@@ -1045,7 +1045,7 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Safety Model</h3>
-      <p>Trust-model acceptance is required during onboarding, execution uses runtime guardrails by default, user-directed browser auth-flow testing is supported, and TUI blocks on unapproved instruction changes.</p>
+      <p>Trust-model acceptance is required during onboarding, execution uses container or host sandbox modes with runtime guardrails, user-directed browser auth-flow testing is supported, and TUI blocks when runtime instruction copies drift from installed defaults.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Prompt Orchestration</h3>
@@ -1053,7 +1053,7 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Configuration</h3>
-      <p>Typed <code>config.json</code> with defaults, validation, and hot reload. Includes memory controls (<code>memory.decayRate</code>, <code>memory.consolidationIntervalHours</code>), compaction controls (<code>sessionCompaction.tokenBudget</code>, <code>sessionCompaction.budgetRatio</code>), Discord policy controls, and proactive <code>scheduler.jobs[]</code> automation. Secrets remain in <code>.env</code>.</p>
+      <p>Typed <code>config.json</code> with defaults, validation, and hot reload. Includes container isolation controls (<code>container.sandboxMode</code>, <code>container.memorySwap</code>, <code>container.network</code>), memory controls (<code>memory.decayRate</code>, <code>memory.consolidationIntervalHours</code>), compaction controls (<code>sessionCompaction.tokenBudget</code>, <code>sessionCompaction.budgetRatio</code>), Discord policy controls, and proactive <code>scheduler.jobs[]</code> automation. Secrets remain in <code>.env</code>.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Memory Continuity</h3>
@@ -1109,7 +1109,7 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Gateway Lifecycle</h3>
-      <p>Runtime supports start, stop, and restart flows with graceful shutdown handling for both managed and unmanaged gateway processes.</p>
+      <p>Runtime supports start, stop, and restart flows with graceful shutdown handling, explicit sandbox overrides (<code>--sandbox=container|host</code>), and status reporting for both managed and unmanaged gateway processes.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Command Surface</h3>
@@ -1244,15 +1244,15 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">3. Start runtime</h3>
-      <p><code>hybridclaw gateway</code> to launch the core service with your configured bot/model.</p>
+      <p><code>hybridclaw gateway</code> to launch the core service with your configured bot/model. Use <code>hybridclaw gateway start --sandbox=host</code> when HybridClaw itself already runs inside a container.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">4. Connect interface</h3>
-      <p>Use Discord or run <code>hybridclaw tui</code> for a terminal-native chat experience. If core instructions changed, TUI asks you to approve first.</p>
+      <p>Use Discord or run <code>hybridclaw tui</code> for a terminal-native chat experience. If runtime instruction copies drift from installed defaults, TUI asks you to restore them first.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">5. Restart safely</h3>
-      <p>Use <code>hybridclaw gateway restart</code> when config or runtime behavior changes and keep observability export aligned.</p>
+      <p>Use <code>hybridclaw gateway restart [--sandbox=container|host]</code> when config or runtime placement changes and keep observability export aligned.</p>
     </div>
   </div>
   <div class="quickstart-box">
@@ -1284,7 +1284,7 @@
     </div>
     <div class="faq-item">
       <div class="faq-q">Is it safe to let the agent run shell commands?</div>
-      <div class="faq-a">Yes. All tools execute inside ephemeral Docker containers with read-only filesystems, memory caps, and a deny-list of 28+ dangerous command patterns. The host machine is never exposed.</div>
+      <div class="faq-a">By default, tools execute inside ephemeral Docker containers with read-only filesystems, memory caps, dropped capabilities, <code>no-new-privileges</code>, PID limits, and a deny-list of dangerous command patterns. When HybridClaw itself already runs inside a container, operators can switch to host sandbox mode to avoid Docker-in-Docker, trading container isolation for workspace fencing and command guardrails.</div>
     </div>
     <div class="faq-item">
       <div class="faq-q">Can browser tools test real login flows?</div>
@@ -1300,7 +1300,7 @@
     </div>
     <div class="faq-item">
       <div class="faq-q">What happens if instruction files are changed?</div>
-      <div class="faq-a">HybridClaw checks core instruction files before TUI startup. If they changed, you must approve them first. Use <code>hybridclaw audit instructions</code> to review status and <code>hybridclaw audit instructions --approve</code> to approve updates. Approval decisions are audit logged.</div>
+      <div class="faq-a">HybridClaw keeps runtime copies of <code>SECURITY.md</code> and <code>TRUST_MODEL.md</code> under <code>~/.hybridclaw/instructions/</code>. TUI checks them before startup. Use <code>hybridclaw audit instructions</code> to review drift and <code>hybridclaw audit instructions --sync</code> to restore them from installed sources. Sync actions are audit logged.</div>
     </div>
     <div class="faq-item">
       <div class="faq-q">Can I use it without Discord?</div>

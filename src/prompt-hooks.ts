@@ -1,8 +1,7 @@
-import fs from 'node:fs';
 import os from 'node:os';
-import path from 'node:path';
 import { resolveChannelMessageToolHints } from './channels/prompt-adapters.js';
 import { APP_VERSION, HYBRIDAI_MODEL } from './config.js';
+import { readRuntimeInstructionFile } from './instruction-integrity.js';
 import {
   getRuntimeConfig,
   isSecurityTrustAccepted,
@@ -78,8 +77,7 @@ function buildMemoryHook(context: PromptHookContext): string {
 }
 
 function readSecurityPromptGuardrails(): string {
-  const securityDocPath = path.join(process.cwd(), 'SECURITY.md');
-  return fs.readFileSync(securityDocPath, 'utf-8').trim();
+  return readRuntimeInstructionFile('SECURITY.md');
 }
 
 function buildSafetyHook(context: PromptHookContext): string {

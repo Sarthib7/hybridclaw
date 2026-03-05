@@ -4,6 +4,14 @@
 
 ### Added
 
+### Changed
+
+### Fixed
+
+## [0.2.12](https://github.com/HybridAIOne/hybridclaw/tree/v0.2.12)
+
+### Added
+
 - **Automatic container publishing**: Added release-tag GitHub Actions publishing to Docker Hub (`hybridaione/hybridclaw-agent`) plus GHCR mirror (`ghcr.io/<org>/hybridclaw-agent`) with versioned tags (`vX.Y.Z`) and stable `latest` updates.
 - **Container build context guardrails**: Added `container/.dockerignore` and included it in npm package files so local secrets/artifacts are excluded from image build context.
 

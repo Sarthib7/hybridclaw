@@ -11,13 +11,13 @@ npm install -g @hybridaione/hybridclaw
 hybridclaw onboarding
 ```
 
-Latest release: [v0.2.11](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.2.11)
+Latest release: [v0.2.12](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.2.12)
 
-## Release highlights (v0.2.11)
+## Release highlights (v0.2.12)
 
-- Added explicit cron-instruction scheduling (`at_seconds` + prompt aliases) so timer tasks are authored as clear model instructions.
-- Fixed scheduler UTC parsing for legacy SQLite timestamps to prevent interval timers from firing immediately due to timezone drift.
-- Added TUI proactive polling (`/api/proactive/pull`) so local `tui` reminder deliveries are surfaced reliably.
+- Runtime config/data now default to `~/.hybridclaw`, with automatic migration from legacy `./config.json` and `./data`.
+- HybridClaw now auto-pulls prebuilt runtime images (Docker Hub first, GHCR fallback) before trying a local build.
+- Discord slash command registration now removes duplicate guild `/status` entries and keeps global-only commands clean.
 
 ## HybridAI Advantage
 

@@ -1072,7 +1072,9 @@ async function ensureSlashCommands(): Promise<void> {
     logger.warn({ error }, 'Failed to register global slash commands');
   }
   const guildDefinitions = globalRegistrationSucceeded
-    ? definitions.filter((definition) => !globalCommandNames.has(definition.name))
+    ? definitions.filter(
+        (definition) => !globalCommandNames.has(definition.name),
+      )
     : definitions;
 
   await Promise.allSettled(

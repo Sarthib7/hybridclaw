@@ -12,6 +12,11 @@ import {
   loginCodexInteractive,
 } from './auth/codex-auth.js';
 import {
+  clearHybridAICredentials,
+  getHybridAIAuthStatus,
+  loginHybridAIInteractive,
+} from './auth/hybridai-auth.js';
+import {
   findUnsupportedGatewayLifecycleFlag,
   parseGatewayFlags,
   type SandboxModeOverride,
@@ -260,6 +265,7 @@ function printMainUsage(): void {
   gateway    Manage core runtime (start/stop/status) or run gateway commands
   tui        Start terminal adapter (starts gateway automatically when needed)
   onboarding Run interactive auth + trust-model onboarding
+  hybridai   Manage HybridAI API-key login/logout/status
   codex      Manage OpenAI Codex OAuth login/logout/status
   update     Check and apply HybridClaw CLI updates
   audit      Inspect/verify structured audit trail
@@ -318,6 +324,18 @@ Commands:
   hybridclaw codex status`);
 }
 
+function printHybridAIUsage(): void {
+  console.log(`Usage: hybridclaw hybridai <command>
+
+Commands:
+  hybridclaw hybridai login
+  hybridclaw hybridai login --device-code
+  hybridclaw hybridai login --browser
+  hybridclaw hybridai login --import
+  hybridclaw hybridai logout
+  hybridclaw hybridai status`);
+}
+
 function printAuditUsage(): void {
   console.log(`Usage: hybridclaw audit <command>
 
@@ -337,6 +355,7 @@ Topics:
   gateway     Help for gateway lifecycle and passthrough commands
   tui         Help for terminal client
   onboarding  Help for onboarding flow
+  hybridai    Help for HybridAI API-key auth commands
   codex       Help for OpenAI Codex auth commands
   update      Help for checking/applying CLI updates
   audit       Help for audit commands
@@ -359,6 +378,9 @@ function printHelpTopic(topic: string): boolean {
       return true;
     case 'onboarding':
       printOnboardingUsage();
+      return true;
+    case 'hybridai':
+      printHybridAIUsage();
       return true;
     case 'codex':
       printCodexUsage();
@@ -908,6 +930,65 @@ function parseCodexLoginMethod(
   return requested[0] || 'auto';
 }
 
+function parseHybridAILoginMethod(
+  args: string[],
+): 'auto' | 'device-code' | 'browser' | 'import' {
+  const flags = new Set(args.map((arg) => arg.trim().toLowerCase()));
+  const requested = [
+    flags.has('--device-code') ? 'device-code' : null,
+    flags.has('--browser') ? 'browser' : null,
+    flags.has('--import') ? 'import' : null,
+  ].filter(Boolean) as Array<'device-code' | 'browser' | 'import'>;
+
+  if (requested.length > 1) {
+    throw new Error(
+      'Use only one of `--device-code`, `--browser`, or `--import`.',
+    );
+  }
+  return requested[0] || 'auto';
+}
+
+async function handleHybridAICommand(args: string[]): Promise<void> {
+  const normalized = args.map((arg) => arg.trim()).filter(Boolean);
+  if (normalized.length === 0 || isHelpRequest(normalized)) {
+    printHybridAIUsage();
+    return;
+  }
+
+  const sub = normalized[0].toLowerCase();
+  if (sub === 'login') {
+    const method = parseHybridAILoginMethod(normalized.slice(1));
+    const result = await loginHybridAIInteractive({ method });
+    console.log(`Saved HybridAI credentials to ${result.path}.`);
+    console.log(`Login method: ${result.method}`);
+    console.log(`API key: ${result.maskedApiKey}`);
+    console.log(`Validated: ${result.validated ? 'yes' : 'no'}`);
+    return;
+  }
+
+  if (sub === 'logout') {
+    const filePath = clearHybridAICredentials();
+    console.log(`Cleared HybridAI credentials in ${filePath}.`);
+    console.log(
+      'If HYBRIDAI_API_KEY is still exported in your shell, unset it separately.',
+    );
+    return;
+  }
+
+  if (sub === 'status') {
+    const status = getHybridAIAuthStatus();
+    console.log(`Path: ${status.path}`);
+    console.log(`Authenticated: ${status.authenticated ? 'yes' : 'no'}`);
+    if (status.authenticated) {
+      console.log(`Source: ${status.source}`);
+      console.log(`API key: ${status.maskedApiKey}`);
+    }
+    return;
+  }
+
+  throw new Error(`Unknown hybridai subcommand: ${sub}`);
+}
+
 async function handleCodexCommand(args: string[]): Promise<void> {
   const normalized = args.map((arg) => arg.trim()).filter(Boolean);
   if (normalized.length === 0 || isHelpRequest(normalized)) {
@@ -986,6 +1067,9 @@ async function main(): Promise<void> {
         commandName: 'hybridclaw onboarding',
       });
       await ensureRuntimeContainer('hybridclaw onboarding', false);
+      break;
+    case 'hybridai':
+      await handleHybridAICommand(subargs);
       break;
     case 'codex':
       await handleCodexCommand(subargs);

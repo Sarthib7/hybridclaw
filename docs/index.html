@@ -694,7 +694,7 @@
       <button class="hero-copy-btn" type="button" onclick="navigator.clipboard.writeText('npm install -g @hybridaione/hybridclaw'); this.textContent='Copied'; setTimeout(() => this.textContent='Copy', 1400);">Copy</button>
     </div>
     <code>npm install -g @hybridaione/hybridclaw</code>
-    <div class="hero-install-note">Prerequisites: Node.js 20+. Docker provides full container isolation, while containerized deployments can switch the gateway to host sandbox mode to avoid nested Docker. Browser automation tooling ships with the agent runtime. HybridAI API key setup can be completed during onboarding. Latest tagged release: v0.4.0.</div>
+    <div class="hero-install-note">Prerequisites: Node.js 20+. Docker provides full container isolation, while containerized deployments can switch the gateway to host sandbox mode to avoid nested Docker. Browser automation tooling ships with the agent runtime. HybridAI API key setup can be completed during onboarding. Latest tagged release: v0.4.1.</div>
   </div>
   <div class="hero-cta">
     <a href="#quickstart" class="btn btn-primary">Get Started</a>
@@ -733,15 +733,15 @@
 
 <section id="latest">
   <div class="section-center">
-    <div class="section-label">Release v0.4.0</div>
+    <div class="section-label">Release v0.4.1</div>
     <h2 class="section-title">Latest release highlights</h2>
     <p class="section-desc">Key improvements included in the latest tagged release.</p>
   </div>
     <div class="features-grid">
       <div class="feature-card">
       <div class="feature-icon">&#x1f511;</div>
-      <h3>Codex OAuth built in</h3>
-      <p><code>hybridclaw codex login</code>, <code>status</code>, and <code>logout</code> now support browser PKCE, device-code auth, and one-time Codex CLI import with a dedicated <code>~/.hybridclaw/codex-auth.json</code> store.</p>
+      <h3>HybridAI auth commands</h3>
+      <p><code>hybridclaw hybridai login</code>, <code>status</code>, and <code>logout</code> now cover browser-assisted, headless/manual, and env-import API-key flows backed by <code>~/.hybridclaw/credentials.json</code>.</p>
       </div>
       <div class="feature-card">
       <div class="feature-icon">&#x1f9ed;</div>

@@ -11,7 +11,7 @@ npm install -g @hybridaione/hybridclaw
 hybridclaw onboarding
 ```
 
-Latest release: [v0.4.0](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.4.0)
+Latest release: [v0.4.1](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.4.1)
 
 ## HybridAI Advantage
 
@@ -65,8 +65,23 @@ hybridclaw tui
 
 HybridClaw supports two auth paths:
 
-- `HybridAI API key` via `hybridclaw onboarding`
+- `HybridAI API key` via `hybridclaw hybridai ...` or `hybridclaw onboarding`
 - `OpenAI Codex OAuth` via `hybridclaw codex ...`
+
+HybridAI commands:
+
+```bash
+hybridclaw hybridai login
+hybridclaw hybridai login --device-code
+hybridclaw hybridai login --browser
+hybridclaw hybridai login --import
+hybridclaw hybridai status
+hybridclaw hybridai logout
+```
+
+- `hybridclaw hybridai login` auto-selects browser login on local GUI machines and a manual/headless API-key flow on SSH, CI, and container shells.
+- `hybridclaw hybridai login --import` copies the current `HYBRIDAI_API_KEY` from your shell into `~/.hybridclaw/credentials.json`.
+- HybridAI secrets are stored in `~/.hybridclaw/credentials.json`.
 
 Codex commands:
 
@@ -81,7 +96,6 @@ hybridclaw codex logout
 
 - `hybridclaw codex login` auto-selects browser PKCE on local GUI machines and device code on headless or remote shells.
 - Codex credentials are stored separately in `~/.hybridclaw/codex-auth.json`.
-- HybridAI secrets remain in `~/.hybridclaw/credentials.json`.
 
 ## Model Selection
 
@@ -135,6 +149,9 @@ CLI runtime commands:
 - `hybridclaw gateway <command...>` — Send a command to a running gateway (for example `sessions`, `bot info`)
 - `hybridclaw tui` — Start terminal client connected to gateway
 - `hybridclaw onboarding` — Run HybridAI account/API key onboarding
+- `hybridclaw hybridai login [--device-code|--browser|--import]` — Store HybridAI API credentials via browser-assisted, headless/manual, or env-import flows
+- `hybridclaw hybridai status` — Show stored HybridAI auth state, token mask, and source
+- `hybridclaw hybridai logout` — Clear stored HybridAI credentials
 - `hybridclaw codex login [--device-code|--browser|--import]` — Authenticate OpenAI Codex via OAuth or one-time Codex CLI import
 - `hybridclaw codex status` — Show stored Codex auth state, token mask, expiry, and source
 - `hybridclaw codex logout` — Clear stored Codex credentials

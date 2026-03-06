@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.4.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.4.1)
+
+### Added
+
+- **HybridAI auth commands**: Added `hybridclaw hybridai login`, `status`, and `logout` commands with browser-assisted, headless/manual, and env-import flows backed by the existing `~/.hybridclaw/credentials.json` secrets store.
+
 ## [0.4.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.4.0)
 
 ### Added

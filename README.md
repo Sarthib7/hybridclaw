@@ -11,8 +11,6 @@ npm install -g @hybridaione/hybridclaw
 hybridclaw onboarding
 ```
 
-Latest release: [v0.4.1](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.4.1)
-
 ## HybridAI Advantage
 
 - Security-focused foundation

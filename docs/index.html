@@ -694,7 +694,7 @@
       <button class="hero-copy-btn" type="button" onclick="navigator.clipboard.writeText('npm install -g @hybridaione/hybridclaw'); this.textContent='Copied'; setTimeout(() => this.textContent='Copy', 1400);">Copy</button>
     </div>
     <code>npm install -g @hybridaione/hybridclaw</code>
-    <div class="hero-install-note">Prerequisites: Node.js 20+. Docker provides full container isolation, while containerized deployments can switch the gateway to host sandbox mode to avoid nested Docker. Browser automation tooling ships with the agent runtime. HybridAI API key setup can be completed during onboarding. Latest tagged release: v0.3.1.</div>
+    <div class="hero-install-note">Prerequisites: Node.js 20+. Docker provides full container isolation, while containerized deployments can switch the gateway to host sandbox mode to avoid nested Docker. Browser automation tooling ships with the agent runtime. HybridAI API key setup can be completed during onboarding. Latest tagged release: v0.4.0.</div>
   </div>
   <div class="hero-cta">
     <a href="#quickstart" class="btn btn-primary">Get Started</a>
@@ -733,30 +733,30 @@
 
 <section id="latest">
   <div class="section-center">
-    <div class="section-label">Release v0.3.1</div>
+    <div class="section-label">Release v0.4.0</div>
     <h2 class="section-title">Latest release highlights</h2>
     <p class="section-desc">Key improvements included in the latest tagged release.</p>
   </div>
     <div class="features-grid">
       <div class="feature-card">
       <div class="feature-icon">&#x1f511;</div>
-      <h3>Home-scoped credentials</h3>
-      <p>Runtime secrets now live in <code>~/.hybridclaw/credentials.json</code>, and supported keys from an existing <code>.env</code> are migrated there automatically for compatibility.</p>
+      <h3>Codex OAuth built in</h3>
+      <p><code>hybridclaw codex login</code>, <code>status</code>, and <code>logout</code> now support browser PKCE, device-code auth, and one-time Codex CLI import with a dedicated <code>~/.hybridclaw/codex-auth.json</code> store.</p>
       </div>
       <div class="feature-card">
-      <div class="feature-icon">&#x1f6aa;</div>
-      <h3>No cwd runtime probes</h3>
-      <p>Startup no longer reads or migrates legacy <code>./config.json</code> or <code>./data</code>, so launching HybridClaw from a project directory does not create or relocate runtime state there.</p>
+      <div class="feature-icon">&#x1f9ed;</div>
+      <h3>Provider-aware model selection</h3>
+      <p>Runtime config, onboarding, and model commands now understand both HybridAI and <code>openai-codex/...</code> models, including the expanded default Codex model catalog and provider-specific credential routing.</p>
       </div>
       <div class="feature-card">
-      <div class="feature-icon">&#x2699;&#xfe0f;</div>
-      <h3>Gateway flag fix</h3>
-      <p><code>hybridclaw gateway start --sandbox=host</code> and restart now parse correctly, while non-lifecycle subcommands still reject misplaced lifecycle flags.</p>
+      <div class="feature-icon">&#x1f4cb;</div>
+      <h3>Clearer tool guidance</h3>
+      <p>System prompts now include a compact grouped tool inventory, and delegated subagents see the same summary filtered to their allowed tools for more reliable tool selection.</p>
       </div>
       <div class="feature-card">
-      <div class="feature-icon">&#x1f4be;</div>
-      <h3>Defensive image state</h3>
-      <p>Container image fingerprinting and state recording now tolerate missing files more gracefully and emit clearer command-scoped pull/build status lines for operators.</p>
+      <div class="feature-icon">&#x1f50d;</div>
+      <h3>Smarter web/browser routing</h3>
+      <p>Prompt guidance and gateway media routing now steer read-only fetches toward <code>web_fetch</code>, keep browser vision focused on active browser-tab tasks, and surface Codex auth status in gateway status output.</p>
       </div>
   </div>
 </section>

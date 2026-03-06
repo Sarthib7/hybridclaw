@@ -2,9 +2,21 @@
 
 ## [Unreleased]
 
+## [0.4.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.4.0)
+
+### Added
+
+- **OpenAI Codex OAuth support**: Added `hybridclaw codex login`, `status`, and `logout` commands with browser PKCE, device-code, and Codex CLI import flows backed by a dedicated `~/.hybridclaw/codex-auth.json` store.
+- **Provider-aware model selection**: Runtime config and onboarding now support `openai-codex/...` models alongside HybridAI models, including an expanded default Codex model catalog and provider-specific credential routing.
+
 ### Changed
 
 - **Human-readable tool summary in prompts**: System prompts now include a compact grouped tool inventory, and delegated subagents see the same summary filtered to their actual allowed toolset so plain-language tool selection guidance reinforces the API schemas.
+- **Gateway/runtime provider plumbing**: Gateway status output now surfaces Codex auth state, model resolution routes provider-prefixed models through dedicated adapters, and the container runtime uses provider-specific model clients.
+
+### Fixed
+
+- **Web-vs-browser tool routing**: Prompt guidance now pushes read-only retrieval toward `web_fetch`, while gateway media routing avoids `browser_vision` for Discord-uploaded images unless the task is explicitly about the active browser tab.
 
 ## [0.3.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.3.1)
 

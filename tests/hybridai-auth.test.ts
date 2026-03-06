@@ -170,7 +170,9 @@ describe('HybridAI auth credential management', () => {
     const hybridAIAuth = await importFreshHybridAIAuth(homeDir);
     const filePath = hybridAIAuth.clearHybridAICredentials(homeDir);
 
-    expect(filePath).toBe(path.join(homeDir, '.hybridclaw', 'credentials.json'));
+    expect(filePath).toBe(
+      path.join(homeDir, '.hybridclaw', 'credentials.json'),
+    );
     expect(fs.existsSync(filePath)).toBe(false);
     expect(hybridAIAuth.getHybridAIAuthStatus(homeDir)).toEqual({
       authenticated: false,
@@ -188,9 +190,7 @@ describe('HybridAI login helpers', () => {
     process.env.SSH_CONNECTION = 'host 1 2';
 
     const hybridAIAuth = await importFreshHybridAIAuth(homeDir);
-    expect(hybridAIAuth.selectDefaultHybridAILoginMethod()).toBe(
-      'device-code',
-    );
+    expect(hybridAIAuth.selectDefaultHybridAILoginMethod()).toBe('device-code');
   });
 
   it('prefers browser login when a local interactive environment is available', async () => {
@@ -227,11 +227,12 @@ describe('HybridAI login helpers', () => {
 
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(JSON.stringify({ data: [] }), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        }),
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ data: [] }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          }),
       ),
     );
 

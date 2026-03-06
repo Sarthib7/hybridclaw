@@ -246,7 +246,9 @@ async function loginWithApiKeyPrompt(options: {
     if (method === 'browser') {
       console.log('HybridAI browser login');
       console.log(`Login page: ${loginUrl}`);
-      if (await promptYesNo(rl, 'Open the login page in your browser now?', true)) {
+      if (
+        await promptYesNo(rl, 'Open the login page in your browser now?', true)
+      ) {
         const opened = await tryOpenUrl(loginUrl);
         if (!opened) {
           console.log('Could not auto-open browser. Open the link manually.');
@@ -322,9 +324,7 @@ export function importHybridAIEnvCredentials(
   };
 }
 
-export function selectDefaultHybridAILoginMethod():
-  | 'device-code'
-  | 'browser' {
+export function selectDefaultHybridAILoginMethod(): 'device-code' | 'browser' {
   if (
     process.env.SSH_CONNECTION ||
     process.env.SSH_CLIENT ||

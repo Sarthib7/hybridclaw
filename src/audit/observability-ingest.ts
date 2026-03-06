@@ -15,6 +15,7 @@ import {
   OBSERVABILITY_INGEST_PATH,
   OBSERVABILITY_LABEL,
 } from '../config/config.js';
+import { logger } from '../logger.js';
 import {
   deleteObservabilityIngestToken,
   getObservabilityIngestToken,
@@ -23,7 +24,6 @@ import {
   setObservabilityIngestToken,
   setObservabilityOffset,
 } from '../memory/db.js';
-import { logger } from '../logger.js';
 import type { StructuredAuditEntry } from '../types.js';
 
 const PLATFORM_MAX_EVENTS = 1_000;

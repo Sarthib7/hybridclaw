@@ -9,10 +9,9 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
-
+import { getRuntimeConfig } from '../config/runtime-config.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
-import { getRuntimeConfig } from '../config/runtime-config.js';
 import { guardSkillDirectory } from './skills-guard.js';
 
 type SkillSource =

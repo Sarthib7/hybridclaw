@@ -9,6 +9,8 @@ import path from 'node:path';
 import { CronExpressionParser } from 'cron-parser';
 
 import { DATA_DIR, getConfigSnapshot } from '../config/config.js';
+import type { RuntimeSchedulerJob } from '../config/runtime-config.js';
+import { logger } from '../logger.js';
 import {
   deleteTask,
   getAllEnabledTasks,
@@ -16,8 +18,6 @@ import {
   markTaskSuccess,
   updateTaskLastRun,
 } from '../memory/db.js';
-import { logger } from '../logger.js';
-import type { RuntimeSchedulerJob } from '../config/runtime-config.js';
 import type { ScheduledTask } from '../types.js';
 
 const MAX_TIMER_DELAY_MS = 300_000; // 5 min safety net for clock drift

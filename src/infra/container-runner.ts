@@ -30,18 +30,9 @@ import {
   PROACTIVE_AUTO_RETRY_MAX_DELAY_MS,
   PROACTIVE_RALPH_MAX_ITERATIONS,
 } from '../config/config.js';
-import {
-  agentWorkspaceDir,
-  cleanupIpc,
-  ensureAgentDirs,
-  ensureSessionDirs,
-  getSessionPaths,
-  readOutput,
-  writeInput,
-} from './ipc.js';
 import { logger } from '../logger.js';
-import { validateAdditionalMounts } from '../security/mount-security.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
+import { validateAdditionalMounts } from '../security/mount-security.js';
 import type {
   AdditionalMount,
   ArtifactMetadata,
@@ -52,6 +43,15 @@ import type {
   ScheduledTask,
   ToolProgressEvent,
 } from '../types.js';
+import {
+  agentWorkspaceDir,
+  cleanupIpc,
+  ensureAgentDirs,
+  ensureSessionDirs,
+  getSessionPaths,
+  readOutput,
+  writeInput,
+} from './ipc.js';
 
 const IDLE_TIMEOUT_MS = 300_000; // 5 minutes — matches container-side default
 

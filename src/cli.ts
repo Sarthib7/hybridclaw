@@ -6,6 +6,12 @@ import path from 'node:path';
 import readline from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
 import {
+  CodexAuthError,
+  clearCodexCredentials,
+  getCodexAuthStatus,
+  loginCodexInteractive,
+} from './auth/codex-auth.js';
+import {
   findUnsupportedGatewayLifecycleFlag,
   parseGatewayFlags,
   type SandboxModeOverride,
@@ -18,12 +24,6 @@ import {
   MissingRequiredEnvVarError,
   setSandboxModeOverride,
 } from './config/config.js';
-import {
-  CodexAuthError,
-  clearCodexCredentials,
-  getCodexAuthStatus,
-  loginCodexInteractive,
-} from './auth/codex-auth.js';
 import { ensureRuntimeCredentials } from './onboarding.js';
 import { runtimeSecretsPath } from './security/runtime-secrets.js';
 import { printUpdateUsage, runUpdateCommand } from './update.js';
@@ -65,7 +65,9 @@ async function ensureRuntimeContainer(
   sandboxMode: SandboxModeOverride | null = null,
 ): Promise<void> {
   if ((sandboxMode || getResolvedSandboxMode()) === 'host') return;
-  const { ensureContainerImageReady } = await import('./infra/container-setup.js');
+  const { ensureContainerImageReady } = await import(
+    './infra/container-setup.js'
+  );
   await ensureContainerImageReady({
     commandName,
     required,
@@ -894,7 +896,9 @@ function parseCodexLoginMethod(
     flags.has('--device-code') ? 'device-code' : null,
     flags.has('--browser') ? 'browser-pkce' : null,
     flags.has('--import') ? 'codex-cli-import' : null,
-  ].filter(Boolean) as Array<'device-code' | 'browser-pkce' | 'codex-cli-import'>;
+  ].filter(Boolean) as Array<
+    'device-code' | 'browser-pkce' | 'codex-cli-import'
+  >;
 
   if (requested.length > 1) {
     throw new Error(

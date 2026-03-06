@@ -1,11 +1,10 @@
 import type { AttachmentBuilder, Message as DiscordMessage } from 'discord.js';
-
-import { chunkMessage } from '../../memory/chunk.js';
 import {
   DISCORD_MAX_LINES_PER_MESSAGE,
   DISCORD_TEXT_CHUNK_LIMIT,
 } from '../../config/config.js';
 import { logger } from '../../logger.js';
+import { chunkMessage } from '../../memory/chunk.js';
 import {
   getHumanDelayMs,
   type HumanDelayConfig,

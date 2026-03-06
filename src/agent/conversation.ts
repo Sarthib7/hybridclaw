@@ -1,18 +1,18 @@
 import {
-  buildSystemPromptFromHooks,
-  type PromptMode,
-  type PromptRuntimeInfo,
-} from './prompt-hooks.js';
+  type HistoryOptimizationStats,
+  optimizeHistoryMessagesForPrompt,
+} from '../session/token-efficiency.js';
 import {
   expandSkillInvocation,
   loadSkills,
   type Skill,
 } from '../skills/skills.js';
-import {
-  type HistoryOptimizationStats,
-  optimizeHistoryMessagesForPrompt,
-} from '../session/token-efficiency.js';
 import type { ChatMessage } from '../types.js';
+import {
+  buildSystemPromptFromHooks,
+  type PromptMode,
+  type PromptRuntimeInfo,
+} from './prompt-hooks.js';
 
 interface HistoryMessage {
   role: string;

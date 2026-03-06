@@ -4,6 +4,12 @@
  */
 
 import { runAgent } from '../agent/agent.js';
+import { buildConversationContext } from '../agent/conversation.js';
+import {
+  isWithinActiveHours,
+  proactiveWindowLabel,
+} from '../agent/proactive-policy.js';
+import { processSideEffects } from '../agent/side-effects.js';
 import {
   emitToolExecutionAuditEvents,
   makeAuditRunId,
@@ -16,22 +22,16 @@ import {
   HYBRIDAI_ENABLE_RAG,
   HYBRIDAI_MODEL,
 } from '../config/config.js';
-import { buildConversationContext } from '../agent/conversation.js';
-import { getTasksForSession } from '../memory/db.js';
 import { logger } from '../logger.js';
+import { getTasksForSession } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
 import {
   modelRequiresChatbotId,
   resolveAgentIdForModel,
   resolveModelProvider,
 } from '../providers/factory.js';
-import {
-  isWithinActiveHours,
-  proactiveWindowLabel,
-} from '../agent/proactive-policy.js';
 import { maybeCompactSession } from '../session/session-maintenance.js';
 import { appendSessionTranscript } from '../session/session-transcripts.js';
-import { processSideEffects } from '../agent/side-effects.js';
 import {
   estimateTokenCountFromMessages,
   estimateTokenCountFromText,

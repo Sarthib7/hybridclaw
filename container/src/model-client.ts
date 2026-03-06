@@ -1,4 +1,3 @@
-import type { ChatCompletionResponse } from './types.js';
 import {
   callHybridAIProvider,
   callHybridAIProviderStream,
@@ -12,6 +11,7 @@ import {
   normalizeCallArgs,
   normalizeStreamCallArgs,
 } from './providers/shared.js';
+import type { ChatCompletionResponse } from './types.js';
 
 export { HybridAIRequestError } from './providers/shared.js';
 

@@ -352,7 +352,9 @@ async function buildAndValidateImage(params: {
           await tagContainerImage(pullImage, imageName);
           recordImageState(cwd, imageName, fingerprint);
           if (pullImage === imageName) {
-            console.log(`${commandName}: Pulled container image '${imageName}'.`);
+            console.log(
+              `${commandName}: Pulled container image '${imageName}'.`,
+            );
           } else {
             console.log(
               `${commandName}: Pulled container image '${pullImage}' and tagged it as '${imageName}'.`,

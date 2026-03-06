@@ -158,9 +158,7 @@ describe('codex auth JWT helpers', () => {
     expect(authUrl.searchParams.get('code_challenge')).toBe('challenge-value');
     expect(authUrl.searchParams.get('code_challenge_method')).toBe('S256');
     expect(authUrl.searchParams.get('state')).toBe('state-value');
-    expect(authUrl.searchParams.get('id_token_add_organizations')).toBe(
-      'true',
-    );
+    expect(authUrl.searchParams.get('id_token_add_organizations')).toBe('true');
     expect(
       authUrl.searchParams.get(codexAuth.CODEX_SIMPLIFIED_FLOW_PARAM),
     ).toBe('true');
@@ -183,7 +181,9 @@ describe('codex auth JWT helpers', () => {
         code: 'codex_auth_missing_access_token',
       }),
     );
-    expect(() => codexAuth.extractAccountIdFromJwt(noAccountIdJwt)).toThrowError(
+    expect(() =>
+      codexAuth.extractAccountIdFromJwt(noAccountIdJwt),
+    ).toThrowError(
       expect.objectContaining({
         code: 'codex_account_id_missing',
       }),
@@ -225,7 +225,9 @@ describe('codex auth store I/O', () => {
     const stored = codexAuth.loadCodexAuthStore(homeDir);
     const mode = fs.statSync(storePath).mode & 0o777;
 
-    expect(storePath).toBe(path.join(homeDir, '.hybridclaw', 'codex-auth.json'));
+    expect(storePath).toBe(
+      path.join(homeDir, '.hybridclaw', 'codex-auth.json'),
+    );
     expect(stored.credentials?.accountId).toBe('acct_123');
     expect(mode).toBe(0o600);
   });
@@ -364,17 +366,16 @@ describe('codex auth refresh', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => {
-        return new Response(
-          JSON.stringify({ error: 'invalid_grant' }),
-          {
-            status: 401,
-            headers: { 'Content-Type': 'application/json' },
-          },
-        );
+        return new Response(JSON.stringify({ error: 'invalid_grant' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        });
       }),
     );
 
-    await expect(codexAuth.ensureFreshCredentials(homeDir)).rejects.toMatchObject({
+    await expect(
+      codexAuth.ensureFreshCredentials(homeDir),
+    ).rejects.toMatchObject({
       code: 'codex_refresh_failed',
       reloginRequired: true,
     });
@@ -490,11 +491,14 @@ describe('codex auth browser flow', () => {
       chatgpt_account_id: 'acct_browser',
     });
     let callbackHandler:
-      | ((req: { url?: string }, res: {
-          statusCode: number;
-          setHeader: (name: string, value: string) => void;
-          end: (body?: string) => void;
-        }) => void)
+      | ((
+          req: { url?: string },
+          res: {
+            statusCode: number;
+            setHeader: (name: string, value: string) => void;
+            end: (body?: string) => void;
+          },
+        ) => void)
       | null = null;
     const spawnMock = vi.fn(() => {
       const child = new EventEmitter() as EventEmitter & { unref: () => void };
@@ -504,11 +508,14 @@ describe('codex auth browser flow', () => {
     });
     const httpServerMock = vi.fn(
       (
-        handler: (req: { url?: string }, res: {
-          statusCode: number;
-          setHeader: (name: string, value: string) => void;
-          end: (body?: string) => void;
-        }) => void,
+        handler: (
+          req: { url?: string },
+          res: {
+            statusCode: number;
+            setHeader: (name: string, value: string) => void;
+            end: (body?: string) => void;
+          },
+        ) => void,
       ) => {
         callbackHandler = handler;
         const server = new EventEmitter() as EventEmitter & {
@@ -652,7 +659,10 @@ describe('codex auth CLI import', () => {
 
     const result = await codexAuth.importCodexCliCredentials(homeDir);
     const stored = codexAuth.loadCodexAuthStore(homeDir);
-    const importedRaw = fs.readFileSync(path.join(codexHome, 'auth.json'), 'utf-8');
+    const importedRaw = fs.readFileSync(
+      path.join(codexHome, 'auth.json'),
+      'utf-8',
+    );
 
     expect(result.importedFrom).toBe(path.join(codexHome, 'auth.json'));
     expect(result.credentials.source).toBe('codex-cli-import');

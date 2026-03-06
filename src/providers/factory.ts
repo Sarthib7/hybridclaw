@@ -5,8 +5,8 @@ import { openAIProvider } from './openai.js';
 import type {
   AIProvider,
   AIProviderId,
-  ResolveProviderRuntimeParams,
   ResolvedModelRuntimeCredentials,
+  ResolveProviderRuntimeParams,
 } from './types.js';
 
 const PROVIDERS: AIProvider[] = [
@@ -56,7 +56,8 @@ export function resolveAgentIdForModel(
 export async function resolveModelRuntimeCredentials(
   params?: ResolveProviderRuntimeParams,
 ): Promise<ResolvedModelRuntimeCredentials> {
-  const model = String(params?.model || HYBRIDAI_MODEL).trim() || HYBRIDAI_MODEL;
+  const model =
+    String(params?.model || HYBRIDAI_MODEL).trim() || HYBRIDAI_MODEL;
   const provider = resolveProviderForModel(model);
   return provider.resolveRuntimeCredentials({
     model,

@@ -1,3 +1,6 @@
+import { logger } from '../logger.js';
+import { logStructuredAuditEvent } from '../memory/db.js';
+import type { ToolExecution } from '../types.js';
 import {
   type AuditEventPayload,
   appendAuditEvent,
@@ -5,9 +8,6 @@ import {
   parseJsonObject,
   truncateAuditText,
 } from './audit-trail.js';
-import { logStructuredAuditEvent } from '../memory/db.js';
-import { logger } from '../logger.js';
-import type { ToolExecution } from '../types.js';
 
 export interface RecordAuditEventInput {
   sessionId: string;

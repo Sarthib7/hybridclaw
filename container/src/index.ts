@@ -8,8 +8,8 @@ import {
   runAfterToolHooks,
   runBeforeToolHooks,
 } from './extensions.js';
-import { callHybridAI, callHybridAIStream } from './model-client.js';
 import { waitForInput, writeOutput } from './ipc.js';
+import { callHybridAI, callHybridAIStream } from './model-client.js';
 import {
   isRetryableModelError,
   shouldFallbackFromStreamError,

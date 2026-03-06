@@ -1,15 +1,10 @@
 import { spawn } from 'node:child_process';
 import readline from 'node:readline/promises';
-
-import { refreshRuntimeSecretsFromEnv } from './config/config.js';
 import {
   getCodexAuthStatus,
   loginCodexInteractive,
 } from './auth/codex-auth.js';
-import {
-  ensureRuntimeInstructionCopies,
-  resolveRuntimeInstructionPath,
-} from './security/instruction-integrity.js';
+import { refreshRuntimeSecretsFromEnv } from './config/config.js';
 import {
   acceptSecurityTrustModel,
   ensureRuntimeConfigFile,
@@ -19,12 +14,16 @@ import {
   SECURITY_POLICY_VERSION,
   updateRuntimeConfig,
 } from './config/runtime-config.js';
+import { isCodexModel, resolveModelProvider } from './providers/factory.js';
+import {
+  ensureRuntimeInstructionCopies,
+  resolveRuntimeInstructionPath,
+} from './security/instruction-integrity.js';
 import {
   loadRuntimeSecrets,
   runtimeSecretsPath,
   saveRuntimeSecrets,
 } from './security/runtime-secrets.js';
-import { isCodexModel, resolveModelProvider } from './providers/factory.js';
 
 interface HybridAIBot {
   id: string;
@@ -776,9 +775,7 @@ export async function ensureRuntimeCredentials(
   const resolvedCurrentProvider = resolveModelProvider(currentModel);
   const currentAuth =
     options.preferredAuth ||
-    (resolvedCurrentProvider === 'openai-codex'
-      ? 'openai-codex'
-      : 'hybridai');
+    (resolvedCurrentProvider === 'openai-codex' ? 'openai-codex' : 'hybridai');
   const force = options.force === true;
   const securityAccepted = isSecurityTrustAccepted(runtimeConfig);
   const needsSecurityAcceptance = !securityAccepted || force;

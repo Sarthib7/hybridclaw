@@ -5,11 +5,11 @@ import {
   recordAuditEvent,
 } from '../audit/audit-events.js';
 import { recordUsageEvent } from '../memory/db.js';
+import { resolveModelProvider } from '../providers/factory.js';
 import {
   estimateTokenCountFromMessages,
   estimateTokenCountFromText,
 } from '../session/token-efficiency.js';
-import { resolveModelProvider } from '../providers/factory.js';
 import type { ChatMessage } from '../types.js';
 
 export async function runIsolatedScheduledTask(params: {

@@ -1,16 +1,16 @@
 import os from 'node:os';
 import { resolveChannelMessageToolHints } from '../channels/prompt-adapters.js';
 import { APP_VERSION, HYBRIDAI_MODEL } from '../config/config.js';
-import { readRuntimeInstructionFile } from '../security/instruction-integrity.js';
 import {
   getRuntimeConfig,
   isSecurityTrustAccepted,
   SECURITY_POLICY_VERSION,
 } from '../config/runtime-config.js';
-import { SILENT_REPLY_TOKEN, stripSilentToken } from './silent-reply.js';
+import { readRuntimeInstructionFile } from '../security/instruction-integrity.js';
 import { buildSkillsPrompt, type Skill } from '../skills/skills.js';
-import { buildToolsSummary } from './tool-summary.js';
 import { buildContextPrompt, loadBootstrapFiles } from '../workspace.js';
+import { SILENT_REPLY_TOKEN, stripSilentToken } from './silent-reply.js';
+import { buildToolsSummary } from './tool-summary.js';
 
 export type PromptHookName = 'bootstrap' | 'memory' | 'safety' | 'runtime';
 export type ExtendedPromptHookName = PromptHookName | 'proactivity';

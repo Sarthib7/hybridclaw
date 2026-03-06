@@ -1,22 +1,16 @@
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
-import {
-  HYBRIDAI_BASE_URL,
-  HYBRIDAI_ENABLE_RAG,
-} from '../config/config.js';
+import { HYBRIDAI_BASE_URL, HYBRIDAI_ENABLE_RAG } from '../config/config.js';
 import type {
   AIProvider,
-  ResolveProviderRuntimeParams,
   ResolvedModelRuntimeCredentials,
+  ResolveProviderRuntimeParams,
 } from './types.js';
 
 function normalizeChatbotId(chatbotId: string | undefined): string {
   return String(chatbotId || '').trim();
 }
 
-function resolveHybridAIAgentId(
-  _model: string,
-  chatbotId: string,
-): string {
+function resolveHybridAIAgentId(_model: string, chatbotId: string): string {
   const trimmedChatbotId = normalizeChatbotId(chatbotId);
   return trimmedChatbotId || 'default';
 }

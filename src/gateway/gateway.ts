@@ -1,5 +1,16 @@
 import fs from 'node:fs';
 import { AttachmentBuilder } from 'discord.js';
+import { stopAllExecutions } from '../agent/executor.js';
+import {
+  isWithinActiveHours,
+  proactiveWindowLabel,
+} from '../agent/proactive-policy.js';
+import { isSilentReply, stripSilentToken } from '../agent/silent-reply.js';
+import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
+import {
+  startObservabilityIngest,
+  stopObservabilityIngest,
+} from '../audit/observability-ingest.js';
 import {
   buildResponseText,
   formatError,
@@ -22,6 +33,7 @@ import {
   onConfigChange,
   PROACTIVE_QUEUE_OUTSIDE_HOURS,
 } from '../config/config.js';
+import { logger } from '../logger.js';
 import {
   deleteQueuedProactiveMessage,
   enqueueProactiveMessage,
@@ -30,7 +42,16 @@ import {
   initDatabase,
   listQueuedProactiveMessages,
 } from '../memory/db.js';
-import { stopAllExecutions } from '../agent/executor.js';
+import { memoryService } from '../memory/memory-service.js';
+import { resolveAgentIdForModel } from '../providers/factory.js';
+import { startHeartbeat, stopHeartbeat } from '../scheduler/heartbeat.js';
+import {
+  rearmScheduler,
+  type SchedulerDispatchRequest,
+  startScheduler,
+  stopScheduler,
+} from '../scheduler/scheduler.js';
+import type { ArtifactMetadata } from '../types.js';
 import {
   getGatewayStatus,
   handleGatewayCommand,
@@ -39,27 +60,6 @@ import {
   runGatewayScheduledTask,
 } from './gateway-service.js';
 import { startHealthServer } from './health.js';
-import { startHeartbeat, stopHeartbeat } from '../scheduler/heartbeat.js';
-import { logger } from '../logger.js';
-import { memoryService } from '../memory/memory-service.js';
-import {
-  startObservabilityIngest,
-  stopObservabilityIngest,
-} from '../audit/observability-ingest.js';
-import {
-  isWithinActiveHours,
-  proactiveWindowLabel,
-} from '../agent/proactive-policy.js';
-import { resolveAgentIdForModel } from '../providers/factory.js';
-import {
-  rearmScheduler,
-  type SchedulerDispatchRequest,
-  startScheduler,
-  stopScheduler,
-} from '../scheduler/scheduler.js';
-import { isSilentReply, stripSilentToken } from '../agent/silent-reply.js';
-import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
-import type { ArtifactMetadata } from '../types.js';
 
 let detachConfigListener: (() => void) | null = null;
 let proactiveFlushTimer: ReturnType<typeof setInterval> | null = null;

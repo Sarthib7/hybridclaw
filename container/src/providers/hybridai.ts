@@ -1,7 +1,4 @@
-import type {
-  ChatCompletionResponse,
-  ToolCall,
-} from '../types.js';
+import type { ChatCompletionResponse, ToolCall } from '../types.js';
 import {
   buildRequestHeaders,
   HybridAIRequestError,

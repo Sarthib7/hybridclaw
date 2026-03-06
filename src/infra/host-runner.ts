@@ -17,6 +17,16 @@ import {
   PROACTIVE_AUTO_RETRY_MAX_DELAY_MS,
   PROACTIVE_RALPH_MAX_ITERATIONS,
 } from '../config/config.js';
+import { logger } from '../logger.js';
+import { resolveModelRuntimeCredentials } from '../providers/factory.js';
+import type {
+  ChatMessage,
+  ContainerInput,
+  ContainerOutput,
+  MediaContextItem,
+  ScheduledTask,
+  ToolProgressEvent,
+} from '../types.js';
 import {
   collectConfiguredDiscordChannelIds,
   remapOutputArtifacts,
@@ -31,16 +41,6 @@ import {
   readOutput,
   writeInput,
 } from './ipc.js';
-import { logger } from '../logger.js';
-import { resolveModelRuntimeCredentials } from '../providers/factory.js';
-import type {
-  ChatMessage,
-  ContainerInput,
-  ContainerOutput,
-  MediaContextItem,
-  ScheduledTask,
-  ToolProgressEvent,
-} from '../types.js';
 
 const IDLE_TIMEOUT_MS = 300_000;
 const TOOL_RESULT_RE =

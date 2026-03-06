@@ -1,7 +1,4 @@
-import type {
-  ChatMessage,
-  ToolDefinition,
-} from '../types.js';
+import type { ChatMessage, ToolDefinition } from '../types.js';
 
 export type RuntimeProvider = 'hybridai' | 'openai-codex';
 

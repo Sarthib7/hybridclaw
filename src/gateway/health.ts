@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
+import { isSilentReply, stripSilentToken } from '../agent/silent-reply.js';
+import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
 import { runDiscordToolAction } from '../channels/discord/runtime.js';
 import {
   type DiscordToolActionRequest,
@@ -12,7 +14,10 @@ import {
   HEALTH_PORT,
   WEB_API_TOKEN,
 } from '../config/config.js';
+import { resolveInstallPath } from '../infra/install-root.js';
+import { logger } from '../logger.js';
 import { claimQueuedProactiveMessages } from '../memory/db.js';
+import type { ToolProgressEvent } from '../types.js';
 import {
   type GatewayChatRequest,
   type GatewayCommandRequest,
@@ -22,11 +27,6 @@ import {
   handleGatewayMessage,
 } from './gateway-service.js';
 import type { GatewayChatRequestBody } from './gateway-types.js';
-import { resolveInstallPath } from '../infra/install-root.js';
-import { logger } from '../logger.js';
-import { isSilentReply, stripSilentToken } from '../agent/silent-reply.js';
-import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
-import type { ToolProgressEvent } from '../types.js';
 
 const SITE_DIR = resolveInstallPath('docs');
 const MAX_REQUEST_BYTES = 1_000_000; // 1MB

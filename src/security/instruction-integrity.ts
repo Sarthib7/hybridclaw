@@ -2,7 +2,10 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { resolveInstallPath, resolveInstallRoot } from '../infra/install-root.js';
+import {
+  resolveInstallPath,
+  resolveInstallRoot,
+} from '../infra/install-root.js';
 
 const RUNTIME_HOME_DIR = path.join(os.homedir(), '.hybridclaw');
 

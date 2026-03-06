@@ -1,7 +1,7 @@
 import type {
   AIProvider,
-  ResolveProviderRuntimeParams,
   ResolvedModelRuntimeCredentials,
+  ResolveProviderRuntimeParams,
 } from './types.js';
 
 const ANTHROPIC_MODEL_PREFIX = 'anthropic/';

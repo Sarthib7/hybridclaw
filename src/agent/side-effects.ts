@@ -1,5 +1,5 @@
-import { createTask, deleteTask } from '../memory/db.js';
 import { logger } from '../logger.js';
+import { createTask, deleteTask } from '../memory/db.js';
 import { rearmScheduler } from '../scheduler/scheduler.js';
 import type { ContainerOutput, DelegationSideEffect } from '../types.js';
 

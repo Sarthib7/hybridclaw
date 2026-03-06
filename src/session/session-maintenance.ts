@@ -1,4 +1,5 @@
 import { runAgent } from '../agent/agent.js';
+import { buildSystemPromptFromHooks } from '../agent/prompt-hooks.js';
 import {
   PRE_COMPACTION_MEMORY_FLUSH_ENABLED,
   PRE_COMPACTION_MEMORY_FLUSH_MAX_CHARS,
@@ -12,14 +13,13 @@ import {
 } from '../config/config.js';
 import { logger } from '../logger.js';
 import { memoryService } from '../memory/memory-service.js';
-import { buildSystemPromptFromHooks } from '../agent/prompt-hooks.js';
-import { exportCompactedSessionJsonl } from './session-export.js';
 import { loadSkills } from '../skills/skills.js';
+import type { ChatMessage, StoredMessage } from '../types.js';
+import { exportCompactedSessionJsonl } from './session-export.js';
 import {
   estimateTokenCountFromMessages,
   estimateTokenCountFromText,
 } from './token-efficiency.js';
-import type { ChatMessage, StoredMessage } from '../types.js';
 
 const COMPACTION_SOURCE_MAX_MESSAGES = 240;
 const COMPACTION_SOURCE_MAX_CHARS = 80_000;

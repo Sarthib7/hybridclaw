@@ -1,6 +1,6 @@
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
-import { initDatabase } from '../memory/db.js';
 import { logger } from '../logger.js';
+import { initDatabase } from '../memory/db.js';
 
 const INSTRUCTION_APPROVAL_ACTION = 'instruction:sync';
 const INSTRUCTION_APPROVAL_POLICY = 'instruction-integrity';

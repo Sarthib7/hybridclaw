@@ -1,11 +1,25 @@
 import { spawnSync } from 'node:child_process';
 import { CronExpressionParser } from 'cron-parser';
 import { runAgent } from '../agent/agent.js';
+import { buildConversationContext } from '../agent/conversation.js';
+import {
+  delegationQueueStatus,
+  enqueueDelegation,
+} from '../agent/delegation-manager.js';
+import {
+  getSandboxDiagnostics,
+  stopSessionExecution,
+} from '../agent/executor.js';
+import { processSideEffects } from '../agent/side-effects.js';
+import { isSilentReply } from '../agent/silent-reply.js';
+import { buildToolsSummary } from '../agent/tool-summary.js';
 import {
   emitToolExecutionAuditEvents,
   makeAuditRunId,
   recordAuditEvent,
 } from '../audit/audit-events.js';
+import { getObservabilityIngestState } from '../audit/observability-ingest.js';
+import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import {
   APP_VERSION,
   DISCORD_COMMANDS_ONLY,
@@ -25,8 +39,8 @@ import {
   PROACTIVE_DELEGATION_MAX_PER_TURN,
   PROACTIVE_RALPH_MAX_ITERATIONS,
 } from '../config/config.js';
-import { buildConversationContext } from '../agent/conversation.js';
-import { getCodexAuthStatus } from '../auth/codex-auth.js';
+import { updateRuntimeConfig } from '../config/runtime-config.js';
+import { logger } from '../logger.js';
 import {
   createTask,
   deleteTask,
@@ -46,46 +60,24 @@ import {
   updateSessionModel,
   updateSessionRag,
 } from '../memory/db.js';
-import {
-  delegationQueueStatus,
-  enqueueDelegation,
-} from '../agent/delegation-manager.js';
-import {
-  getSandboxDiagnostics,
-  stopSessionExecution,
-} from '../agent/executor.js';
-import {
-  type GatewayChatRequestBody,
-  type GatewayChatResult,
-  type GatewayCommandRequest,
-  type GatewayCommandResult,
-  type GatewayStatus,
-  renderGatewayCommand,
-} from './gateway-types.js';
-import { fetchHybridAIBots } from '../providers/hybridai-bots.js';
-import { resolveModelContextWindowFallback } from '../providers/hybridai-models.js';
-import { logger } from '../logger.js';
 import { memoryService } from '../memory/memory-service.js';
-import { getObservabilityIngestState } from '../audit/observability-ingest.js';
-import { updateRuntimeConfig } from '../config/runtime-config.js';
-import { runIsolatedScheduledTask } from '../scheduler/scheduled-task-runner.js';
-import { getSchedulerStatus, rearmScheduler } from '../scheduler/scheduler.js';
-import { exportSessionSnapshotJsonl } from '../session/session-export.js';
-import { maybeCompactSession } from '../session/session-maintenance.js';
-import { appendSessionTranscript } from '../session/session-transcripts.js';
-import { processSideEffects } from '../agent/side-effects.js';
-import { isSilentReply } from '../agent/silent-reply.js';
-import { expandSkillInvocation } from '../skills/skills.js';
-import {
-  estimateTokenCountFromMessages,
-  estimateTokenCountFromText,
-} from '../session/token-efficiency.js';
-import { buildToolsSummary } from '../agent/tool-summary.js';
 import {
   modelRequiresChatbotId,
   resolveAgentIdForModel,
   resolveModelProvider,
 } from '../providers/factory.js';
+import { fetchHybridAIBots } from '../providers/hybridai-bots.js';
+import { resolveModelContextWindowFallback } from '../providers/hybridai-models.js';
+import { runIsolatedScheduledTask } from '../scheduler/scheduled-task-runner.js';
+import { getSchedulerStatus, rearmScheduler } from '../scheduler/scheduler.js';
+import { exportSessionSnapshotJsonl } from '../session/session-export.js';
+import { maybeCompactSession } from '../session/session-maintenance.js';
+import { appendSessionTranscript } from '../session/session-transcripts.js';
+import {
+  estimateTokenCountFromMessages,
+  estimateTokenCountFromText,
+} from '../session/token-efficiency.js';
+import { expandSkillInvocation } from '../skills/skills.js';
 import type {
   ArtifactMetadata,
   CanonicalSessionContext,
@@ -100,6 +92,14 @@ import type {
   ToolProgressEvent,
 } from '../types.js';
 import { ensureBootstrapFiles } from '../workspace.js';
+import {
+  type GatewayChatRequestBody,
+  type GatewayChatResult,
+  type GatewayCommandRequest,
+  type GatewayCommandResult,
+  type GatewayStatus,
+  renderGatewayCommand,
+} from './gateway-types.js';
 
 const BOT_CACHE_TTL = 300_000; // 5 minutes
 const MAX_HISTORY_MESSAGES = 40;
@@ -1869,9 +1869,9 @@ export async function handleGatewayMessage(
       sessionId: req.sessionId,
       runId,
       event: {
-          type: 'model.usage',
-          provider,
-          model,
+        type: 'model.usage',
+        provider,
+        model,
         durationMs: Date.now() - startedAt,
         toolCallCount: toolExecutions.length,
         ...usagePayload,

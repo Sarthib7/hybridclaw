@@ -2,7 +2,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { DATA_DIR } from '../config/config.js';
-import { getExecutor } from './executor.js';
 import type {
   ChatMessage,
   ContainerOutput,
@@ -10,6 +9,7 @@ import type {
   ScheduledTask,
   ToolProgressEvent,
 } from '../types.js';
+import { getExecutor } from './executor.js';
 
 /** Write full prompt context to data/last_prompt.jsonl for debugging (Pi-Mono style). */
 function dumpPrompt(

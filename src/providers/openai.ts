@@ -1,9 +1,9 @@
-import { CODEX_BASE_URL } from '../config/config.js';
 import { resolveCodexCredentials } from '../auth/codex-auth.js';
+import { CODEX_BASE_URL } from '../config/config.js';
 import type {
   AIProvider,
-  ResolveProviderRuntimeParams,
   ResolvedModelRuntimeCredentials,
+  ResolveProviderRuntimeParams,
 } from './types.js';
 
 const OPENAI_CODEX_MODEL_PREFIX = 'openai-codex/';
@@ -27,7 +27,11 @@ async function resolveOpenAIRuntimeCredentials(
   return {
     provider: 'openai-codex',
     apiKey: codex.apiKey,
-    baseUrl: (process.env.HYBRIDCLAW_CODEX_BASE_URL || CODEX_BASE_URL || codex.baseUrl)
+    baseUrl: (
+      process.env.HYBRIDCLAW_CODEX_BASE_URL ||
+      CODEX_BASE_URL ||
+      codex.baseUrl
+    )
       .trim()
       .replace(/\/+$/g, ''),
     chatbotId: '',

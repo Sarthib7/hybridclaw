@@ -1,3 +1,15 @@
+import type {
+  CanonicalSession,
+  CanonicalSessionContext,
+  KnowledgeEntityTypeValue,
+  KnowledgeGraphMatch,
+  KnowledgeGraphPattern,
+  KnowledgeRelationTypeValue,
+  SemanticMemoryEntry,
+  Session,
+  StoredMessage,
+  StructuredMemoryEntry,
+} from '../types.js';
 import {
   addKnowledgeEntity as dbAddKnowledgeEntity,
   addKnowledgeRelation as dbAddKnowledgeRelation,
@@ -29,18 +41,6 @@ import {
   MemoryConsolidationEngine,
   type MemoryConsolidationReport,
 } from './memory-consolidation.js';
-import type {
-  CanonicalSession,
-  CanonicalSessionContext,
-  KnowledgeEntityTypeValue,
-  KnowledgeGraphMatch,
-  KnowledgeGraphPattern,
-  KnowledgeRelationTypeValue,
-  SemanticMemoryEntry,
-  Session,
-  StoredMessage,
-  StructuredMemoryEntry,
-} from '../types.js';
 
 export interface CompactionCandidate {
   cutoffId: number;

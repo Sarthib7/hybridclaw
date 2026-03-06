@@ -1,7 +1,4 @@
-import {
-  GATEWAY_API_TOKEN,
-  GATEWAY_BASE_URL,
-} from '../config/config.js';
+import { GATEWAY_API_TOKEN, GATEWAY_BASE_URL } from '../config/config.js';
 import {
   type GatewayChatRequestBody,
   type GatewayChatResult,

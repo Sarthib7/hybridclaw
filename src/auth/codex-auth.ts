@@ -1,10 +1,10 @@
+import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline/promises';
-import { spawn } from 'node:child_process';
 
 export const CODEX_AUTH_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 export const CODEX_AUTH_ISSUER = 'https://auth.openai.com';
@@ -175,9 +175,7 @@ function toBase64Url(buffer: Buffer): string {
 
 function generatePkcePair(): PkcePair {
   const verifier = toBase64Url(randomBytes(32));
-  const challenge = toBase64Url(
-    createHash('sha256').update(verifier).digest(),
-  );
+  const challenge = toBase64Url(createHash('sha256').update(verifier).digest());
   return { verifier, challenge };
 }
 
@@ -276,11 +274,15 @@ export function loadCodexAuthStore(
   if (!fs.existsSync(filePath)) return defaultStore();
 
   const parsed = parseStoreJson(filePath, fs.readFileSync(filePath, 'utf-8'));
-  const rawCredentials = isRecord(parsed.credentials) ? parsed.credentials : null;
+  const rawCredentials = isRecord(parsed.credentials)
+    ? parsed.credentials
+    : null;
 
   return {
     version: 1,
-    credentials: rawCredentials ? normalizeStoredCredentials(rawCredentials) : null,
+    credentials: rawCredentials
+      ? normalizeStoredCredentials(rawCredentials)
+      : null,
     updatedAt: normalizeString(parsed.updatedAt) || nowIso(),
   };
 }
@@ -431,7 +433,10 @@ function assertStoredCredentials(
       { reloginRequired: true },
     );
   }
-  if (!Number.isFinite(store.credentials.expiresAt) || store.credentials.expiresAt <= 0) {
+  if (
+    !Number.isFinite(store.credentials.expiresAt) ||
+    store.credentials.expiresAt <= 0
+  ) {
     throw new CodexAuthError(
       'codex_auth_missing_access_token',
       'Stored Codex credentials are missing a valid expiry time.',
@@ -441,7 +446,10 @@ function assertStoredCredentials(
   return store.credentials;
 }
 
-function buildHeaders(accessToken: string, accountId: string): Record<string, string> {
+function buildHeaders(
+  accessToken: string,
+  accountId: string,
+): Record<string, string> {
   return {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${accessToken}`,
@@ -488,10 +496,7 @@ async function readJsonResponse(response: Response): Promise<unknown> {
   }
 }
 
-function parseResponseError(
-  payload: unknown,
-  fallback: string,
-): string {
+function parseResponseError(payload: unknown, fallback: string): string {
   if (typeof payload === 'string' && payload.trim()) return payload.trim();
   if (!isRecord(payload)) return fallback;
 
@@ -648,8 +653,7 @@ async function refreshAccessToken(
 
   const payload = await readJsonResponse(response);
   if (!response.ok) {
-    const reloginRequired =
-      response.status === 401 || response.status === 403;
+    const reloginRequired = response.status === 401 || response.status === 403;
     throw new CodexAuthError(
       'codex_refresh_failed',
       `Failed to refresh Codex credentials: ${parseResponseError(payload, `HTTP ${response.status}`)}`,
@@ -664,9 +668,7 @@ async function refreshAccessToken(
   return normalizeTokenResponse(payload, current.refreshToken, current.source);
 }
 
-async function acquireFileLock(
-  homeDir: string,
-): Promise<() => void> {
+async function acquireFileLock(homeDir: string): Promise<() => void> {
   const lockPath = codexAuthLockPath(homeDir);
   const startedAt = Date.now();
   let backoffMs = 100;
@@ -1023,7 +1025,10 @@ async function waitForBrowserCallback(
 
   const callbackPromise = new Promise<string>((resolve, reject) => {
     server = http.createServer((req, res) => {
-      const url = new URL(req.url || '/', `http://${CODEX_DEFAULT_CALLBACK_HOST}:${port}`);
+      const url = new URL(
+        req.url || '/',
+        `http://${CODEX_DEFAULT_CALLBACK_HOST}:${port}`,
+      );
       if (url.pathname !== '/auth/callback') {
         res.statusCode = 404;
         res.end('Not Found');
@@ -1171,7 +1176,9 @@ export async function loginWithBrowserPkce(
 
     const opened = await openUrl(authUrl);
     if (!opened) {
-      console.log('Could not open a browser automatically. Open the URL above.');
+      console.log(
+        'Could not open a browser automatically. Open the URL above.',
+      );
     }
 
     const code = await waitForBrowserCallback(
@@ -1278,7 +1285,11 @@ function readImportedTokenData(filePath: string): {
 
 export async function importCodexCliCredentials(
   homeDir: string = os.homedir(),
-): Promise<{ credentials: CodexStoredCredentials; path: string; importedFrom: string }> {
+): Promise<{
+  credentials: CodexStoredCredentials;
+  path: string;
+  importedFrom: string;
+}> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new Error('Codex CLI import requires an interactive terminal.');
   }

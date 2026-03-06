@@ -29,7 +29,9 @@ describe('instruction integrity', () => {
     vi.stubEnv('HOME', homeDir);
     process.chdir(unrelatedCwd);
 
-    const instructions = await import('../src/security/instruction-integrity.js');
+    const instructions = await import(
+      '../src/security/instruction-integrity.js'
+    );
 
     const initial = instructions.verifyInstructionIntegrity();
     expect(initial.ok).toBe(true);

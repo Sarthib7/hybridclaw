@@ -363,7 +363,9 @@ function normalizeCodexPartText(part: Record<string, unknown>): string {
 function normalizeCodexUsage(
   value: unknown,
 ): ChatCompletionResponse['usage'] | undefined {
-  return isRecord(value) ? (value as ChatCompletionResponse['usage']) : undefined;
+  return isRecord(value)
+    ? (value as ChatCompletionResponse['usage'])
+    : undefined;
 }
 
 function mergeCodexMessageItem(
@@ -454,7 +456,10 @@ function parseCodexStreamError(payload: Record<string, unknown>): string {
       return payload.error.code.trim();
     }
   }
-  if (isRecord(payload.response) && typeof payload.response.status === 'string') {
+  if (
+    isRecord(payload.response) &&
+    typeof payload.response.status === 'string'
+  ) {
     return `Codex stream ended with status ${payload.response.status}`;
   }
   return 'Codex streaming request failed';
@@ -566,7 +571,8 @@ function consumeCodexStreamPayload(
     typeof payload.output_index === 'number' && payload.output_index >= 0
       ? payload.output_index
       : undefined;
-  const itemId = typeof payload.item_id === 'string' ? payload.item_id : undefined;
+  const itemId =
+    typeof payload.item_id === 'string' ? payload.item_id : undefined;
 
   if (
     (type === 'response.output_item.added' ||
@@ -704,13 +710,19 @@ export async function callOpenAICodexProviderStream(
     contentType.includes('application/json') &&
     !contentType.includes('event-stream')
   ) {
-    const adapted = adaptCodexResponse((await response.json()) as unknown, args.model);
+    const adapted = adaptCodexResponse(
+      (await response.json()) as unknown,
+      args.model,
+    );
     emitResponseTextDeltas(adapted, args.onTextDelta);
     return adapted;
   }
 
   if (!response.body) {
-    const adapted = adaptCodexResponse((await response.json()) as unknown, args.model);
+    const adapted = adaptCodexResponse(
+      (await response.json()) as unknown,
+      args.model,
+    );
     emitResponseTextDeltas(adapted, args.onTextDelta);
     return adapted;
   }

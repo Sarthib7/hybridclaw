@@ -479,6 +479,13 @@ const WATCHER_RETRY_MAX_ATTEMPTS = 10;
 let watcherRetryAttempt = 0;
 let watcherRestartTimer: ReturnType<typeof setTimeout> | null = null;
 
+function isRuntimeConfigWatcherDisabled(): boolean {
+  const raw = String(process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER || '')
+    .trim()
+    .toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes';
+}
+
 function cloneConfig<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
@@ -1851,6 +1858,7 @@ function scheduleReload(trigger: string): void {
 }
 
 function scheduleWatcherRestart(reason: string): void {
+  if (isRuntimeConfigWatcherDisabled()) return;
   if (watcherRestartTimer) return;
   if (watcherRetryAttempt >= WATCHER_RETRY_MAX_ATTEMPTS) {
     console.warn(
@@ -1874,6 +1882,7 @@ function scheduleWatcherRestart(reason: string): void {
 }
 
 function startWatcher(): void {
+  if (isRuntimeConfigWatcherDisabled()) return;
   if (configWatcher) return;
 
   try {

@@ -158,7 +158,9 @@ describe('HybridAI auth credential management', () => {
     delete process.env.HYBRIDAI_API_KEY;
 
     const hybridAIAuth = await importFreshHybridAIAuth(homeDir);
-    expect(() => hybridAIAuth.importHybridAIEnvCredentials(homeDir)).toThrowError(
+    expect(() =>
+      hybridAIAuth.importHybridAIEnvCredentials(homeDir),
+    ).toThrowError(
       expect.objectContaining({
         envVar: 'HYBRIDAI_API_KEY',
       }),
@@ -328,11 +330,12 @@ describe('HybridAI login helpers', () => {
 
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(JSON.stringify({ data: [] }), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        }),
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ data: [] }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          }),
       ),
     );
 
@@ -345,7 +348,11 @@ describe('HybridAI login helpers', () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
     const hybridAIAuth = await importFreshHybridAIAuth(homeDir, {
-      readlineAnswers: ['yes', '', 'https://hybridai.one/path?token=hai-browser1234567890'],
+      readlineAnswers: [
+        'yes',
+        '',
+        'https://hybridai.one/path?token=hai-browser1234567890',
+      ],
       spawnMock,
     });
     const result = await hybridAIAuth.loginHybridAIInteractive({
@@ -381,7 +388,8 @@ describe('HybridAI login helpers', () => {
 
     vi.stubGlobal(
       'fetch',
-      vi.fn()
+      vi
+        .fn()
         .mockRejectedValueOnce(new Error('network down'))
         .mockResolvedValueOnce(
           new Response(JSON.stringify({ data: [] }), {
@@ -427,11 +435,12 @@ describe('HybridAI login helpers', () => {
 
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(JSON.stringify({ error: { message: 'bad key' } }), {
-          status: 401,
-          headers: { 'content-type': 'application/json' },
-        }),
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: { message: 'bad key' } }), {
+            status: 401,
+            headers: { 'content-type': 'application/json' },
+          }),
       ),
     );
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});

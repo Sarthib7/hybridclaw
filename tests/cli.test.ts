@@ -51,7 +51,10 @@ async function importFreshCli(options?: {
   class CodexAuthError extends Error {
     reloginRequired: boolean;
 
-    constructor(message = 'codex error', options?: { reloginRequired?: boolean }) {
+    constructor(
+      message = 'codex error',
+      options?: { reloginRequired?: boolean },
+    ) {
       super(message);
       this.name = 'CodexAuthError';
       this.reloginRequired = options?.reloginRequired === true;
@@ -233,7 +236,9 @@ describe('CLI hybridai commands', () => {
 
     await expect(
       cli.main(['hybridai', 'login', '--browser', '--import']),
-    ).rejects.toThrow('Use only one of `--device-code`, `--browser`, or `--import`.');
+    ).rejects.toThrow(
+      'Use only one of `--device-code`, `--browser`, or `--import`.',
+    );
   });
 
   it('prints help and exits for an unknown help topic', async () => {

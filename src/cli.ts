@@ -1034,7 +1034,9 @@ async function handleCodexCommand(args: string[]): Promise<void> {
   throw new Error(`Unknown codex subcommand: ${sub}`);
 }
 
-export async function main(argv: string[] = process.argv.slice(2)): Promise<void> {
+export async function main(
+  argv: string[] = process.argv.slice(2),
+): Promise<void> {
   const command = argv[0];
   const subargs = argv.slice(1);
 

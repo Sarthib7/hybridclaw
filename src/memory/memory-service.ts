@@ -18,14 +18,15 @@ import type {
   StoredMessage,
   StructuredMemoryEntry,
 } from '../types.js';
+import { compactConversation } from './compaction.js';
 import {
   addKnowledgeEntity as dbAddKnowledgeEntity,
   addKnowledgeRelation as dbAddKnowledgeRelation,
   appendCanonicalMessages as dbAppendCanonicalMessages,
   clearSessionHistory as dbClearSessionHistory,
   deleteMemoryValue as dbDeleteMemoryValue,
-  deleteMessagesByIds as dbDeleteMessagesByIds,
   deleteMessagesBeforeId as dbDeleteMessagesBeforeId,
+  deleteMessagesByIds as dbDeleteMessagesByIds,
   forgetSemanticMemory as dbForgetSemanticMemory,
   getCanonicalContext as dbGetCanonicalContext,
   getCompactionCandidateMessages as dbGetCompactionCandidateMessages,
@@ -45,7 +46,6 @@ import {
   decaySemanticMemories,
   type SemanticRecallFilter,
 } from './db.js';
-import { compactConversation } from './compaction.js';
 import {
   type MemoryConsolidationConfig,
   MemoryConsolidationEngine,

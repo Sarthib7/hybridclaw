@@ -41,6 +41,7 @@ import {
 } from '../config/config.js';
 import { updateRuntimeConfig } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
+import { NoCompactableMessagesError } from '../memory/compaction.js';
 import {
   createTask,
   deleteTask,
@@ -60,7 +61,6 @@ import {
   updateSessionModel,
   updateSessionRag,
 } from '../memory/db.js';
-import { NoCompactableMessagesError } from '../memory/compaction.js';
 import { memoryService } from '../memory/memory-service.js';
 import {
   modelRequiresChatbotId,

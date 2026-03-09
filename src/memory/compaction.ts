@@ -167,7 +167,9 @@ function buildStructuredSystemPrompt(params: {
   targetTokens: number;
   stageKind: CompactionStage['kind'];
 }): string {
-  const sections = STRUCTURED_SUMMARY_SECTIONS.map((section) => `## ${section}`);
+  const sections = STRUCTURED_SUMMARY_SECTIONS.map(
+    (section) => `## ${section}`,
+  );
   const stageDirective =
     params.stageKind === 'merge'
       ? MERGE_SUMMARY_INSTRUCTIONS
@@ -239,7 +241,9 @@ function resolveMaxChunkTokens(params: {
     minChunkRatio: params.config.minChunkRatio,
     safetyMargin: params.config.safetyMargin,
   });
-  const shareLimit = Math.floor((contextWindow * ratio) / params.config.safetyMargin);
+  const shareLimit = Math.floor(
+    (contextWindow * ratio) / params.config.safetyMargin,
+  );
   return clamp(
     Math.min(params.config.maxSingleStageTokens, shareLimit),
     1_000,
@@ -252,7 +256,10 @@ function isOversizedForSummary(
   contextWindowTokens: number,
   config: CompactionConfig,
 ): boolean {
-  return estimateMessageTokens(message) * config.safetyMargin > contextWindowTokens * 0.5;
+  return (
+    estimateMessageTokens(message) * config.safetyMargin >
+    contextWindowTokens * 0.5
+  );
 }
 
 async function runSummaryAttempt(params: {
@@ -380,7 +387,9 @@ export function computeAdaptiveChunkRatio(
   >,
 ): number {
   if (messages.length === 0) {
-    return overrides?.baseChunkRatio ?? DEFAULT_COMPACTION_CONFIG.baseChunkRatio;
+    return (
+      overrides?.baseChunkRatio ?? DEFAULT_COMPACTION_CONFIG.baseChunkRatio
+    );
   }
 
   const baseChunkRatio =
@@ -529,7 +538,9 @@ async function summarizeInStages(params: {
   previousSummary?: string | null;
   config: CompactionConfig;
 }): Promise<{ summary: string; stages: CompactionStage[] }> {
-  const totalTokens = estimateTokenCountFromMessages(toChatMessages(params.messages));
+  const totalTokens = estimateTokenCountFromMessages(
+    toChatMessages(params.messages),
+  );
   const maxChunkTokens = resolveMaxChunkTokens({
     messages: params.messages,
     session: params.session,
@@ -578,7 +589,11 @@ async function summarizeInStages(params: {
       session: params.session,
       promptRunner: params.promptRunner,
       messages: chunk,
-      targetTokens: computeTargetSummaryTokens(chunkTokens, 'part', params.config),
+      targetTokens: computeTargetSummaryTokens(
+        chunkTokens,
+        'part',
+        params.config,
+      ),
       stageKind: 'part',
       stageIndex: index,
       stageTotal: chunks.length,
@@ -599,15 +614,17 @@ async function summarizeInStages(params: {
     return { summary: partialSummaries[0], stages };
   }
 
-  const mergeMessages = partialSummaries.map<StoredMessage>((summary, index) => ({
-    id: -1 - index,
-    session_id: params.session.id,
-    user_id: 'compaction',
-    username: null,
-    role: 'assistant',
-    content: summary,
-    created_at: new Date().toISOString(),
-  }));
+  const mergeMessages = partialSummaries.map<StoredMessage>(
+    (summary, index) => ({
+      id: -1 - index,
+      session_id: params.session.id,
+      user_id: 'compaction',
+      username: null,
+      role: 'assistant',
+      content: summary,
+      created_at: new Date().toISOString(),
+    }),
+  );
   const mergeInputTokens = estimateTokenCountFromMessages(
     toChatMessages(mergeMessages),
   );
@@ -664,7 +681,9 @@ export async function compactConversation(
   const normalizedSummary = normalizeSummary(summary, config.maxSummaryChars);
   const metadata = {
     archivePath: archive.path,
-    tokensBefore: estimateTokenCountFromMessages(toChatMessages(params.messages)),
+    tokensBefore: estimateTokenCountFromMessages(
+      toChatMessages(params.messages),
+    ),
     stages: stages.length,
     compactedMessages: split.compactable.length,
     preservedMessages: split.system.length + split.recent.length,
@@ -698,7 +717,9 @@ export async function compactConversation(
     );
   }
 
-  const tokensBefore = estimateTokenCountFromMessages(toChatMessages(params.messages));
+  const tokensBefore = estimateTokenCountFromMessages(
+    toChatMessages(params.messages),
+  );
   const tokensAfter =
     estimateTokenCountFromMessages(
       toChatMessages([...split.system, ...split.recent]),

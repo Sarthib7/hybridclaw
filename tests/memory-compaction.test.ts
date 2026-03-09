@@ -3,12 +3,11 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { describe, expect, test } from 'vitest';
-
-import { listArchives } from '../src/memory/compaction-archive.js';
 import {
   compactConversation,
   splitConversation,
 } from '../src/memory/compaction.js';
+import { listArchives } from '../src/memory/compaction-archive.js';
 import type { Session, StoredMessage } from '../src/types.js';
 
 function makeSession(partial?: Partial<Session>): Session {
@@ -95,7 +94,9 @@ describe('memory compaction', () => {
     const archiveBaseDir = fs.mkdtempSync(
       path.join(os.tmpdir(), 'hybridclaw-compact-'),
     );
-    const detail = 'Include dates, owners, risks, and dependencies. '.repeat(12);
+    const detail = 'Include dates, owners, risks, and dependencies. '.repeat(
+      12,
+    );
     const messages = [
       makeMessage(1, 'user', `Kick off release planning. ${detail}`),
       makeMessage(2, 'assistant', `Drafting the first release plan. ${detail}`),

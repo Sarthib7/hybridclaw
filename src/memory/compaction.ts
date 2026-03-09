@@ -679,11 +679,12 @@ export async function compactConversation(
   });
 
   const normalizedSummary = normalizeSummary(summary, config.maxSummaryChars);
+  const tokensBefore = estimateTokenCountFromMessages(
+    toChatMessages(params.messages),
+  );
   const metadata = {
     archivePath: archive.path,
-    tokensBefore: estimateTokenCountFromMessages(
-      toChatMessages(params.messages),
-    ),
+    tokensBefore,
     stages: stages.length,
     compactedMessages: split.compactable.length,
     preservedMessages: split.system.length + split.recent.length,
@@ -717,9 +718,6 @@ export async function compactConversation(
     );
   }
 
-  const tokensBefore = estimateTokenCountFromMessages(
-    toChatMessages(params.messages),
-  );
   const tokensAfter =
     estimateTokenCountFromMessages(
       toChatMessages([...split.system, ...split.recent]),

@@ -2335,25 +2335,30 @@ export function deleteMessagesByIds(
   );
   if (ids.length === 0) return 0;
 
-  let deleted = 0;
   const chunkSize = 900;
-  for (let index = 0; index < ids.length; index += chunkSize) {
-    const chunk = ids.slice(index, index + chunkSize);
-    const placeholders = chunk.map(() => '?').join(', ');
-    const result = db
-      .prepare(
-        `DELETE FROM messages
-         WHERE session_id = ?
-           AND id IN (${placeholders})`,
-      )
-      .run(sessionId, ...chunk);
-    deleted += result.changes;
-  }
-
-  db.prepare(
+  const updateSessionCounts = db.prepare(
     "UPDATE sessions SET message_count = (SELECT COUNT(*) FROM messages WHERE session_id = ?), last_active = datetime('now') WHERE id = ?",
-  ).run(sessionId, sessionId);
-  return deleted;
+  );
+  const transaction = db.transaction((rowIds: number[]): number => {
+    let deleted = 0;
+    for (let index = 0; index < rowIds.length; index += chunkSize) {
+      const chunk = rowIds.slice(index, index + chunkSize);
+      const placeholders = chunk.map(() => '?').join(', ');
+      const result = db
+        .prepare(
+          `DELETE FROM messages
+           WHERE session_id = ?
+             AND id IN (${placeholders})`,
+        )
+        .run(sessionId, ...chunk);
+      deleted += result.changes;
+    }
+
+    updateSessionCounts.run(sessionId, sessionId);
+    return deleted;
+  });
+
+  return transaction(ids);
 }
 
 export function updateSessionSummary(sessionId: string, summary: string): void {

@@ -60,6 +60,7 @@ import {
   updateSessionModel,
   updateSessionRag,
 } from '../memory/db.js';
+import { NoCompactableMessagesError } from '../memory/compaction.js';
 import { memoryService } from '../memory/memory-service.js';
 import {
   modelRequiresChatbotId,
@@ -2263,6 +2264,7 @@ export async function handleGatewayCommand(
         '`channel policy [open|allowlist|disabled]` — Set or inspect guild channel policy',
         '`ralph [on|off|set <n>|info]` — Configure Ralph loop (0 off, -1 unlimited)',
         '`clear` — Clear session history',
+        '`/compact` — Archive older history, summarize it, and retain recent context',
         '`/status` — Show runtime status (Discord slash command, private to caller)',
         '`/approve [view|yes|session|agent|no] [approval_id]` — View/respond to pending approvals privately',
         '`/channel-mode <off|mention|free>` — Set this Discord channel response mode',
@@ -2586,6 +2588,34 @@ export async function handleGatewayCommand(
         'Session Cleared',
         `Deleted ${deleted} messages. Workspace files preserved.`,
       );
+    }
+
+    case 'compact': {
+      try {
+        const result = await memoryService.compactSession(session.id);
+        const compressionRatio =
+          result.tokensBefore > 0
+            ? 1 - result.tokensAfter / result.tokensBefore
+            : 0;
+        return infoCommand(
+          'Session Compacted',
+          [
+            `Tokens: ${formatCompactNumber(result.tokensBefore)} -> ${formatCompactNumber(result.tokensAfter)} (${formatPercent(compressionRatio)} smaller)`,
+            `Messages: compacted ${result.messagesCompacted}, preserved ${result.messagesPreserved}`,
+            `Archive: ${result.archivePath}`,
+          ].join('\n'),
+        );
+      } catch (err) {
+        if (err instanceof NoCompactableMessagesError) {
+          return plainCommand(
+            'Nothing to compact. The session is already within the preserved recent window.',
+          );
+        }
+        return badCommand(
+          'Compaction Failed',
+          err instanceof Error ? err.message : String(err),
+        );
+      }
     }
 
     case 'status': {

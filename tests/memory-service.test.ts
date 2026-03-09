@@ -683,6 +683,7 @@ describe('MemoryService', () => {
       decaySemanticMemories: () => 0,
       clearSessionHistory: () => 0,
       deleteMessagesBeforeId: () => 0,
+      deleteMessagesByIds: () => 0,
       updateSessionSummary: () => {},
       markSessionMemoryFlush: () => {},
     };
@@ -774,6 +775,7 @@ describe('MemoryService', () => {
       decaySemanticMemories: () => 0,
       clearSessionHistory: () => 0,
       deleteMessagesBeforeId: () => 0,
+      deleteMessagesByIds: () => 0,
       updateSessionSummary: () => {},
       markSessionMemoryFlush: () => {},
     };
@@ -854,6 +856,7 @@ describe('MemoryService', () => {
       decaySemanticMemories: () => 0,
       clearSessionHistory: () => 0,
       deleteMessagesBeforeId: () => 0,
+      deleteMessagesByIds: () => 0,
       updateSessionSummary: () => {},
       markSessionMemoryFlush: () => {},
     };
@@ -1064,6 +1067,7 @@ describe('MemoryService', () => {
       decaySemanticMemories: () => 0,
       clearSessionHistory: () => 0,
       deleteMessagesBeforeId: () => 0,
+      deleteMessagesByIds: () => 0,
       updateSessionSummary: () => {},
       markSessionMemoryFlush: () => {},
     };

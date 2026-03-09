@@ -262,6 +262,7 @@ function printHelp(): void {
   console.log(`  ${TEAL}/rag [on|off]${RESET}     Toggle or set RAG`);
   console.log(`  ${TEAL}/ralph [on|off|set n]${RESET} Configure Ralph loop`);
   console.log(`  ${TEAL}/info${RESET}             Show current settings`);
+  console.log(`  ${TEAL}/compact${RESET}          Archive and compact older session history`);
   console.log(`  ${TEAL}/clear${RESET}            Clear session history`);
   console.log(`  ${TEAL}/stop${RESET}             Interrupt current request`);
   console.log(`  ${TEAL}/exit${RESET}             Quit`);
@@ -535,6 +536,9 @@ async function handleSlashCommand(
       await runGatewayCommand(['bot', 'info']);
       await runGatewayCommand(['model', 'info']);
       await runGatewayCommand(['status']);
+      return true;
+    case 'compact':
+      await runGatewayCommand(['compact']);
       return true;
     case 'clear':
       await runGatewayCommand(['clear']);

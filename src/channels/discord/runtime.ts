@@ -562,6 +562,46 @@ function isAuthorizedCommandUserId(userId: string): boolean {
   });
 }
 
+function requiresCompactPermission(args: string[]): boolean {
+  return (args[0] || '').trim().toLowerCase() === 'compact';
+}
+
+const COMPACT_PERMISSION_DENIED_MESSAGE =
+  'You need Manage Messages, Manage Server, or Administrator permissions to run `/compact` in a server.';
+
+function hasCompactPermission(
+  permissions:
+    | {
+        has: (permission: bigint) => boolean;
+      }
+    | null
+    | undefined,
+): boolean {
+  if (!permissions) return false;
+  return (
+    permissions.has(PermissionFlagsBits.Administrator) ||
+    permissions.has(PermissionFlagsBits.ManageGuild) ||
+    permissions.has(PermissionFlagsBits.ManageMessages)
+  );
+}
+
+function shouldDenyCompactCommand(params: {
+  args: string[];
+  inGuild: boolean;
+  permissions:
+    | {
+        has: (permission: bigint) => boolean;
+      }
+    | null
+    | undefined;
+}): boolean {
+  return (
+    params.inGuild &&
+    requiresCompactPermission(params.args) &&
+    !hasCompactPermission(params.permissions)
+  );
+}
+
 function buildSessionIdFromContext(
   guildId: string | null,
   channelId: string,
@@ -983,6 +1023,11 @@ async function ensureSlashCommands(): Promise<void> {
           required: false,
         },
       ],
+    },
+    {
+      name: 'compact',
+      description: 'Archive older session history and compact it into memory',
+      dmPermission: true,
     },
     {
       name: 'channel-mode',
@@ -1585,6 +1630,7 @@ export function initDiscord(
     if (
       interaction.commandName !== 'status' &&
       interaction.commandName !== 'approve' &&
+      interaction.commandName !== 'compact' &&
       interaction.commandName !== 'channel-mode' &&
       interaction.commandName !== 'channel-policy' &&
       interaction.commandName !== 'model'
@@ -1632,6 +1678,9 @@ export function initDiscord(
         return approvalId
           ? ['approve', action, approvalId]
           : ['approve', action];
+      }
+      if (interaction.commandName === 'compact') {
+        return ['compact'];
       }
       if (interaction.commandName === 'channel-mode') {
         if (!interaction.guildId) return null;
@@ -1682,6 +1731,19 @@ export function initDiscord(
       await sendChunkedInteractionReply(
         interaction,
         'This command can only be used in a server channel with valid options.',
+      );
+      return;
+    }
+    if (
+      shouldDenyCompactCommand({
+        args,
+        inGuild: Boolean(interaction.guildId),
+        permissions: interaction.memberPermissions,
+      })
+    ) {
+      await sendChunkedInteractionReply(
+        interaction,
+        COMPACT_PERMISSION_DENIED_MESSAGE,
       );
       return;
     }
@@ -2214,6 +2276,16 @@ export function initDiscord(
         }
         return;
       }
+      if (
+        shouldDenyCompactCommand({
+          args: [parsed.command, ...parsed.args],
+          inGuild: Boolean(msg.guild),
+          permissions: msg.member?.permissions,
+        })
+      ) {
+        await commandReply(COMPACT_PERMISSION_DENIED_MESSAGE);
+        return;
+      }
       await commandHandler(
         sessionId,
         guildId,
@@ -2254,6 +2326,16 @@ export function initDiscord(
     }
 
     if (parsed.isCommand && hasCommandInvocation) {
+      if (
+        shouldDenyCompactCommand({
+          args: [parsed.command, ...parsed.args],
+          inGuild: Boolean(msg.guild),
+          permissions: msg.member?.permissions,
+        })
+      ) {
+        await commandReply(COMPACT_PERMISSION_DENIED_MESSAGE);
+        return;
+      }
       await commandHandler(
         sessionId,
         guildId,

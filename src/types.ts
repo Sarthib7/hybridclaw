@@ -243,6 +243,46 @@ export interface StructuredMemoryEntry {
   updated_at: string;
 }
 
+export interface ArchiveEntry {
+  sessionId: string;
+  path: string;
+  archivedAt: string;
+  messageCount: number;
+  estimatedTokens: number;
+}
+
+export interface CompactionStage {
+  kind: 'single' | 'part' | 'merge';
+  index: number;
+  total: number;
+  inputTokens: number;
+  outputTokens: number;
+  messageCount: number;
+}
+
+export interface CompactionConfig {
+  keepRecentMessages: number;
+  compactRatio: number;
+  baseChunkRatio: number;
+  minChunkRatio: number;
+  safetyMargin: number;
+  maxSingleStageTokens: number;
+  minSummaryTokens: number;
+  maxSummaryTokens: number;
+  maxSummaryChars: number;
+  archiveBaseDir?: string;
+}
+
+export interface CompactionResult {
+  tokensBefore: number;
+  tokensAfter: number;
+  messagesCompacted: number;
+  messagesPreserved: number;
+  archivePath: string;
+  durationMs: number;
+  stages: CompactionStage[];
+}
+
 export enum KnowledgeEntityType {
   Person = 'person',
   Organization = 'organization',

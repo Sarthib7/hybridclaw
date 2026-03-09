@@ -1,6 +1,14 @@
+import { runAgent } from '../agent/agent.js';
+import {
+  HYBRIDAI_CHATBOT_ID,
+  HYBRIDAI_MODEL,
+  SESSION_COMPACTION_SUMMARY_MAX_CHARS,
+} from '../config/config.js';
+import { resolveAgentIdForModel } from '../providers/factory.js';
 import type {
   CanonicalSession,
   CanonicalSessionContext,
+  CompactionResult,
   KnowledgeEntityTypeValue,
   KnowledgeGraphMatch,
   KnowledgeGraphPattern,
@@ -16,6 +24,7 @@ import {
   appendCanonicalMessages as dbAppendCanonicalMessages,
   clearSessionHistory as dbClearSessionHistory,
   deleteMemoryValue as dbDeleteMemoryValue,
+  deleteMessagesByIds as dbDeleteMessagesByIds,
   deleteMessagesBeforeId as dbDeleteMessagesBeforeId,
   forgetSemanticMemory as dbForgetSemanticMemory,
   getCanonicalContext as dbGetCanonicalContext,
@@ -36,6 +45,7 @@ import {
   decaySemanticMemories,
   type SemanticRecallFilter,
 } from './db.js';
+import { compactConversation } from './compaction.js';
 import {
   type MemoryConsolidationConfig,
   MemoryConsolidationEngine,
@@ -136,6 +146,7 @@ export interface MemoryBackend {
   }) => number;
   clearSessionHistory: (sessionId: string) => number;
   deleteMessagesBeforeId: (sessionId: string, cutoffId: number) => number;
+  deleteMessagesByIds: (sessionId: string, messageIds: number[]) => number;
   updateSessionSummary: (sessionId: string, summary: string) => void;
   markSessionMemoryFlush: (sessionId: string) => void;
 }
@@ -226,6 +237,7 @@ const DEFAULT_BACKEND: MemoryBackend = {
   decaySemanticMemories,
   clearSessionHistory: dbClearSessionHistory,
   deleteMessagesBeforeId: dbDeleteMessagesBeforeId,
+  deleteMessagesByIds: dbDeleteMessagesByIds,
   updateSessionSummary: dbUpdateSessionSummary,
   markSessionMemoryFlush: dbMarkSessionMemoryFlush,
 };
@@ -321,6 +333,10 @@ export class MemoryService {
   private readonly config: MemoryServiceConfig;
   private readonly embeddingProvider: EmbeddingProvider;
   private readonly consolidationEngine: MemoryConsolidationEngine;
+  private readonly compactionLocks = new Map<
+    string,
+    Promise<CompactionResult>
+  >();
 
   constructor(
     backend: MemoryBackend = DEFAULT_BACKEND,
@@ -427,6 +443,56 @@ export class MemoryService {
     overrides?: Partial<MemoryConsolidationConfig>,
   ): MemoryConsolidationReport {
     return this.consolidationEngine.consolidate(overrides);
+  }
+
+  async compactSession(sessionId: string): Promise<CompactionResult> {
+    const existing = this.compactionLocks.get(sessionId);
+    if (existing) return existing;
+
+    const promise = (async () => {
+      const session = this.backend.getSessionById(sessionId);
+      if (!session) {
+        throw new Error(`Session ${sessionId} was not found.`);
+      }
+
+      const messages = this.backend.getRecentMessages(sessionId);
+      return compactConversation({
+        session,
+        messages,
+        backend: {
+          deleteMessagesByIds: this.backend.deleteMessagesByIds,
+          storeSemanticMemory: this.backend.storeSemanticMemory,
+          updateSessionSummary: this.backend.updateSessionSummary,
+        },
+        promptRunner: {
+          run: ({
+            session: targetSession,
+            systemPrompt,
+            userPrompt,
+            stageKind,
+            stageIndex,
+            stageTotal,
+          }) =>
+            this.runCompactionPrompt({
+              session: targetSession,
+              systemPrompt,
+              userPrompt,
+              stageKind,
+              stageIndex,
+              stageTotal,
+            }),
+        },
+        embed: (text) => this.embeddingProvider.embed(text),
+        config: {
+          maxSummaryChars: SESSION_COMPACTION_SUMMARY_MAX_CHARS,
+        },
+      });
+    })().finally(() => {
+      this.compactionLocks.delete(sessionId);
+    });
+
+    this.compactionLocks.set(sessionId, promise);
+    return promise;
   }
 
   recallSemanticMemories(
@@ -600,6 +666,38 @@ export class MemoryService {
     const compact = content.replace(/\s+/g, ' ').trim();
     if (compact.length <= this.config.semanticMaxContentChars) return compact;
     return compact.slice(0, this.config.semanticMaxContentChars);
+  }
+
+  private async runCompactionPrompt(params: {
+    session: Session;
+    systemPrompt: string;
+    userPrompt: string;
+    stageKind: 'single' | 'part' | 'merge';
+    stageIndex: number;
+    stageTotal: number;
+  }): Promise<string> {
+    const model = params.session.model || HYBRIDAI_MODEL;
+    const chatbotId = params.session.chatbot_id || HYBRIDAI_CHATBOT_ID;
+    const agentId = resolveAgentIdForModel(model, chatbotId);
+    const output = await runAgent(
+      `compact:${params.stageKind}:${params.session.id}:${params.stageIndex + 1}-of-${params.stageTotal}:${Date.now()}`,
+      [
+        { role: 'system', content: params.systemPrompt },
+        { role: 'user', content: params.userPrompt },
+      ],
+      chatbotId,
+      params.session.enable_rag !== 0,
+      model,
+      agentId,
+      params.session.channel_id,
+      undefined,
+      [],
+    );
+
+    if (output.status === 'error' || !output.result?.trim()) {
+      throw new Error(output.error || 'Compaction prompt returned no summary.');
+    }
+    return output.result;
   }
 }
 

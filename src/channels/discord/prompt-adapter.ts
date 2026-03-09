@@ -13,6 +13,7 @@ export const discordAgentPromptAdapter: ChannelAgentPromptAdapter = {
       '- Discord targets: use `channelId` (aliases: `to`, `target`) with a snowflake ID, `<#channelId>`, or `#channel-name` (prefer adding `guildId` for `#channel-name` lookup).',
       '- Supported actions: `read` (channel history), `member-info` (user lookup), `channel-info` (channel metadata), and `send` (post/DM).',
       '- For DMs from names/mentions, call `member-info` first to resolve the user, then call `send` with the resolved target plus `content`.',
+      '- For local Discord uploads, include `filePath` in `send`; it may be workspace-relative or under `/discord-media-cache`.',
       '- Mentions are supported in `content` using raw Discord markup (for example `<@userId>` and `<#channelId>`).',
     ];
 

@@ -1,4 +1,4 @@
-import type { Client, GuildMember } from 'discord.js';
+import type { AttachmentBuilder, Client, GuildMember } from 'discord.js';
 import type {
   ResolveSendAllowedParams,
   ResolveSendAllowedResult,
@@ -78,6 +78,7 @@ export function normalizeDiscordToolAction(
 
 export interface DiscordToolActionRequest {
   action: DiscordToolAction;
+  sessionId?: string;
   channelId?: string;
   guildId?: string;
   userId?: string;
@@ -90,6 +91,7 @@ export interface DiscordToolActionRequest {
   after?: string;
   around?: string;
   content?: string;
+  filePath?: string;
   components?: unknown;
   contextChannelId?: string;
   messageId?: string;
@@ -114,6 +116,9 @@ export interface DiscordToolActionDependencies {
   requireDiscordClientReady: () => Client;
   getDiscordPresence: (userId: string) => CachedDiscordPresence | undefined;
   sendToChannel: (channelId: string, text: string) => Promise<void>;
+  resolveSendAttachments?: (
+    request: DiscordToolActionRequest,
+  ) => Promise<AttachmentBuilder[]>;
   resolveSendAllowed: (
     params: ResolveSendAllowedParams,
   ) => ResolveSendAllowedResult;
@@ -1060,12 +1065,16 @@ async function runDiscordSendAction(
   }
   const channelId = sanitizeDiscordId(resolvedTarget.channelId, 'channelId');
   const content = (request.content || '').trim();
+  const attachments = deps.resolveSendAttachments
+    ? await deps.resolveSendAttachments(request)
+    : [];
+  const hasAttachments = attachments.length > 0;
   const hasComponents =
     Array.isArray(request.components) ||
     (request.components !== null && typeof request.components === 'object');
-  if (!content && !hasComponents) {
+  if (!content && !hasComponents && !hasAttachments) {
     throw new Error(
-      'content is required for send action unless components are provided.',
+      'content is required for send action unless components or filePath are provided.',
     );
   }
 
@@ -1080,19 +1089,28 @@ async function runDiscordSendAction(
     request,
   });
 
-  if (hasComponents) {
+  if (hasComponents || hasAttachments) {
+    if (content.length > 2_000) {
+      throw new Error(
+        'content must be 2000 characters or fewer when send includes components or filePath.',
+      );
+    }
     const sendableChannel = channel as {
       send?: (payload: {
         content?: string;
         components?: unknown;
+        files?: AttachmentBuilder[];
       }) => Promise<{ id?: string }>;
     };
     if (typeof sendableChannel.send !== 'function') {
-      throw new Error('Channel does not support sending component messages.');
+      throw new Error(
+        'Channel does not support sending component or attachment messages.',
+      );
     }
     await sendableChannel.send({
       ...(content ? { content } : {}),
-      components: request.components,
+      ...(hasComponents ? { components: request.components } : {}),
+      ...(hasAttachments ? { files: attachments } : {}),
     });
   } else {
     await deps.sendToChannel(channelId, content);
@@ -1107,6 +1125,7 @@ async function runDiscordSendAction(
       ? { candidates: resolvedTarget.candidates }
       : {}),
     contentLength: content.length,
+    ...(hasAttachments ? { attachmentCount: attachments.length } : {}),
     ...(hasComponents ? { componentsIncluded: true } : {}),
   };
 }

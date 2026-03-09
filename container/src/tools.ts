@@ -123,7 +123,7 @@ type DiscordMessageToolAction =
 const MESSAGE_TOOL_ACTION_LIST =
   'read, member-info, channel-info, send, react, quote-reply, edit, delete, pin, unpin, thread-create, thread-reply';
 const MESSAGE_TOOL_DESCRIPTION_BASE =
-  'Send messages, DMs, read channel history, and look up member info in Discord. Use this when asked to send/post/DM/notify someone, read messages, or look up users.';
+  'Send messages, DMs, upload local files, read channel history, and look up member info in Discord. Use this when asked to send/post/DM/notify someone, post a local file/image, read messages, or look up users.';
 let gatewayConfiguredChannels: string[] = [];
 
 function normalizeConfiguredChannelList(value: unknown): string[] {
@@ -405,11 +405,19 @@ async function callGatewayDiscordAction(
   }
 
   let response: Response;
+  const requestPayload = { ...payload };
+  if (
+    currentSessionId &&
+    typeof requestPayload.sessionId !== 'string' &&
+    !Array.isArray(requestPayload.sessionId)
+  ) {
+    requestPayload.sessionId = currentSessionId;
+  }
   try {
     response = await fetch(url, {
       method: 'POST',
       headers,
-      body: JSON.stringify(payload),
+      body: JSON.stringify(requestPayload),
     });
   } catch (err) {
     return `Error: Discord action request failed: ${err instanceof Error ? err.message : String(err)}`;
@@ -1778,6 +1786,12 @@ export async function executeTool(
             readStringValue(args.content) ||
             readStringValue(args.text) ||
             readStringValue(args.message);
+          const filePath =
+            readStringValue(args.filePath) ||
+            readStringValue(args.attachmentPath) ||
+            readStringValue(args.mediaPath) ||
+            readStringValue(args.imagePath) ||
+            readStringValue(args.file);
           const components =
             Array.isArray(args.components) ||
             (args.components &&
@@ -1785,12 +1799,27 @@ export async function executeTool(
               !Array.isArray(args.components))
               ? args.components
               : undefined;
-          if (!content && components === undefined) {
-            return 'Error: content is required for message action "send" unless components is provided.';
+          if (filePath) {
+            const resolvedFilePath =
+              resolveWorkspacePath(filePath) || resolveMediaPath(filePath);
+            if (!resolvedFilePath) {
+              return `Error: filePath must stay within ${WORKSPACE_ROOT_DISPLAY} or ${DISCORD_MEDIA_CACHE_ROOT_DISPLAY}.`;
+            }
+            if (!fs.existsSync(resolvedFilePath)) {
+              return `Error: filePath does not exist: ${filePath}`;
+            }
+            const stat = fs.statSync(resolvedFilePath);
+            if (!stat.isFile()) {
+              return `Error: filePath is not a file: ${filePath}`;
+            }
+          }
+          if (!content && components === undefined && !filePath) {
+            return 'Error: content is required for message action "send" unless components or filePath is provided.';
           }
           if (channelId) payload.channelId = channelId;
           if (userLookupTarget) payload.user = userLookupTarget;
           if (content) payload.content = content;
+          if (filePath) payload.filePath = filePath;
           if (components !== undefined) payload.components = components;
 
           const requestingUserId = resolveDiscordRequestingUserId(args);
@@ -2524,6 +2553,31 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           content: {
             type: 'string',
             description: 'Message text payload (required for action="send").',
+          },
+          filePath: {
+            type: 'string',
+            description:
+              'Optional local file to upload for action="send". Use a workspace-relative path or an absolute /discord-media-cache path.',
+          },
+          attachmentPath: {
+            type: 'string',
+            description:
+              'Alias for filePath in action="send". Use for local Discord uploads.',
+          },
+          mediaPath: {
+            type: 'string',
+            description:
+              'Alias for filePath in action="send". Use for local Discord uploads.',
+          },
+          imagePath: {
+            type: 'string',
+            description:
+              'Alias for filePath in action="send" when uploading a local image.',
+          },
+          file: {
+            type: 'string',
+            description:
+              'Alias for filePath in action="send". Use a local file path to attach.',
           },
           components: {
             type: ['object', 'array'],

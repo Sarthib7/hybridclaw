@@ -1,4 +1,4 @@
-import type { Client } from 'discord.js';
+import type { AttachmentBuilder, Client } from 'discord.js';
 import { expect, test, vi } from 'vitest';
 import type { ResolveSendAllowedResult } from '../src/channels/discord/send-permissions.js';
 import { createDiscordToolActionRunner } from '../src/channels/discord/tool-actions.js';
@@ -12,6 +12,9 @@ const REQUESTING_ROLE_ID = '444444444444444444';
 function createRunner(params?: {
   channel?: Record<string, unknown> | null;
   sendAllowed?: ResolveSendAllowedResult;
+  resolveSendAttachments?: (
+    request: Record<string, unknown>,
+  ) => Promise<AttachmentBuilder[]>;
 }) {
   const channel =
     params?.channel ??
@@ -27,11 +30,14 @@ function createRunner(params?: {
   const resolveSendAllowed = vi
     .fn()
     .mockReturnValue(params?.sendAllowed ?? { allowed: true });
+  const resolveSendAttachments =
+    params?.resolveSendAttachments ?? vi.fn(async () => []);
 
   const runner = createDiscordToolActionRunner({
     requireDiscordClientReady: () => client,
     getDiscordPresence: () => undefined,
     sendToChannel,
+    resolveSendAttachments,
     resolveSendAllowed,
   });
 
@@ -39,6 +45,7 @@ function createRunner(params?: {
     runner,
     fetchChannel,
     sendToChannel,
+    resolveSendAttachments,
     resolveSendAllowed,
   };
 }
@@ -146,6 +153,40 @@ test('send action supports Discord component payloads', async () => {
     action: 'send',
     channelId: CHANNEL_ID,
     componentsIncluded: true,
+  });
+});
+
+test('send action supports local file attachments', async () => {
+  const fakeAttachment = {
+    name: 'dashboard.html.png',
+  } as unknown as AttachmentBuilder;
+  const send = vi.fn(async () => ({ id: '777777777777777777' }));
+  const { runner, sendToChannel, resolveSendAttachments } = createRunner({
+    channel: { id: CHANNEL_ID, guildId: GUILD_ID, send },
+    resolveSendAttachments: vi.fn(async () => [fakeAttachment]),
+  });
+
+  const result = await runner({
+    action: 'send',
+    channelId: CHANNEL_ID,
+    filePath: 'invoices/dashboard.html.png',
+  });
+
+  expect(sendToChannel).not.toHaveBeenCalled();
+  expect(resolveSendAttachments).toHaveBeenCalledWith(
+    expect.objectContaining({
+      action: 'send',
+      filePath: 'invoices/dashboard.html.png',
+    }),
+  );
+  expect(send).toHaveBeenCalledWith({
+    files: [fakeAttachment],
+  });
+  expect(result).toMatchObject({
+    ok: true,
+    action: 'send',
+    channelId: CHANNEL_ID,
+    attachmentCount: 1,
   });
 });
 

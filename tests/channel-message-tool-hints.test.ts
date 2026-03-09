@@ -23,6 +23,7 @@ test('resolves Discord message tool hints when channelType is discord', () => {
   expect(
     hints.some((entry) => entry.includes('Supported actions: `read`')),
   ).toBe(true);
+  expect(hints.some((entry) => entry.includes('`filePath`'))).toBe(true);
 });
 
 test('falls back to Discord adapter when ids look like Discord context', () => {

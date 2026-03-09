@@ -389,6 +389,7 @@ async function handleApiDiscordAction(
 
   const request: DiscordToolActionRequest = {
     action,
+    sessionId: typeof body.sessionId === 'string' ? body.sessionId : undefined,
     channelId: typeof body.channelId === 'string' ? body.channelId : undefined,
     guildId: typeof body.guildId === 'string' ? body.guildId : undefined,
     userId: typeof body.userId === 'string' ? body.userId : undefined,
@@ -404,6 +405,7 @@ async function handleApiDiscordAction(
     after: typeof body.after === 'string' ? body.after : undefined,
     around: typeof body.around === 'string' ? body.around : undefined,
     content: typeof body.content === 'string' ? body.content : undefined,
+    filePath: typeof body.filePath === 'string' ? body.filePath : undefined,
     components:
       Array.isArray(body.components) ||
       (body.components !== null && typeof body.components === 'object')

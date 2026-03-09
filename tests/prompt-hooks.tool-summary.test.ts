@@ -88,6 +88,15 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
     'If the current turn already includes an attachment, local file path, `MediaItems`, injected `<file>` content, or `[PDFContext]`, use that artifact first.',
   );
   expect(prompt).toContain(
+    'For local Discord uploads, call `message` with `action="send"` and `filePath` pointing to a file in the current workspace or `/discord-media-cache`.',
+  );
+  expect(prompt).toContain(
+    'User: "Post `invoices/dashboard.html.png` here on Discord"',
+  );
+  expect(prompt).toContain(
+    'Tool call: `message` {"action":"send","filePath":"invoices/dashboard.html.png"}',
+  );
+  expect(prompt).toContain(
     'User: "Pull the key fields from this attached invoice PDF."',
   );
   expect(prompt).toContain(

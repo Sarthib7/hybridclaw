@@ -1,7 +1,9 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import {
   type ApplicationCommandDataResolvable,
   ApplicationCommandOptionType,
-  type AttachmentBuilder,
+  AttachmentBuilder,
   Client,
   type Message as DiscordMessage,
   GatewayIntentBits,
@@ -35,8 +37,14 @@ import {
   DISCORD_SUPPRESS_PATTERNS,
   DISCORD_TOKEN,
   DISCORD_TYPING_MODE,
+  DATA_DIR,
+  HYBRIDAI_CHATBOT_ID,
+  HYBRIDAI_MODEL,
 } from '../../config/config.js';
+import { agentWorkspaceDir } from '../../infra/ipc.js';
 import { logger } from '../../logger.js';
+import { getSessionById } from '../../memory/db.js';
+import { resolveAgentIdForModel } from '../../providers/factory.js';
 import type { MediaContextItem } from '../../types.js';
 import { buildAttachmentContext } from './attachments.js';
 import {
@@ -90,6 +98,7 @@ import {
   createDiscordToolActionRunner,
   type DiscordToolActionRequest,
 } from './tool-actions.js';
+import { resolveDiscordLocalFileForSend } from './send-files.js';
 import { createTypingController } from './typing.js';
 
 export type ReplyFn = (
@@ -524,10 +533,71 @@ function requireDiscordClientReady(): Client {
   return client;
 }
 
+const DISCORD_MEDIA_CACHE_HOST_DIR = path.resolve(
+  path.join(DATA_DIR, 'discord-media-cache'),
+);
+
+function resolveDiscordToolSessionWorkspaceRoot(
+  sessionId: string | undefined,
+): string | null {
+  const normalizedSessionId = String(sessionId || '').trim();
+  if (!normalizedSessionId) return null;
+
+  const session = getSessionById(normalizedSessionId);
+  if (!session) return null;
+
+  const model = String(session.model || HYBRIDAI_MODEL).trim() || HYBRIDAI_MODEL;
+  const chatbotId =
+    String(session.chatbot_id || HYBRIDAI_CHATBOT_ID).trim() ||
+    HYBRIDAI_CHATBOT_ID;
+  const agentId = resolveAgentIdForModel(model, chatbotId);
+  return path.resolve(agentWorkspaceDir(agentId));
+}
+
+async function resolveDiscordToolSendAttachments(
+  request: DiscordToolActionRequest,
+): Promise<AttachmentBuilder[]> {
+  const rawPath = String(request.filePath || '').trim();
+  if (!rawPath) return [];
+
+  const workspaceRoot = resolveDiscordToolSessionWorkspaceRoot(
+    request.sessionId,
+  );
+  const resolvedPath = resolveDiscordLocalFileForSend({
+    filePath: rawPath,
+    sessionWorkspaceRoot: workspaceRoot,
+    mediaCacheRoot: DISCORD_MEDIA_CACHE_HOST_DIR,
+  });
+  if (!resolvedPath) {
+    if (!workspaceRoot) {
+      throw new Error(
+        'filePath could not be resolved. Use /discord-media-cache/... or include session context for workspace files.',
+      );
+    }
+    throw new Error(
+      'filePath must stay within the current session workspace or /discord-media-cache.',
+    );
+  }
+
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(resolvedPath);
+  } catch {
+    throw new Error(`filePath does not exist: ${rawPath}`);
+  }
+  if (!stat.isFile()) {
+    throw new Error(`filePath is not a file: ${rawPath}`);
+  }
+
+  const content = fs.readFileSync(resolvedPath);
+  return [new AttachmentBuilder(content, { name: path.basename(resolvedPath) })];
+}
+
 const runDiscordToolActionInternal = createDiscordToolActionRunner({
   requireDiscordClientReady,
   getDiscordPresence,
   sendToChannel,
+  resolveSendAttachments: resolveDiscordToolSendAttachments,
   resolveSendAllowed,
 });
 

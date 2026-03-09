@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Discord message tool uploads**: The Discord `message` tool now supports native local-file uploads via `filePath`, with prompt guidance and validation for current-workspace and `/discord-media-cache` paths so image/file posts use real Discord attachments instead of broken URL-button fallbacks.
+
 ## [0.4.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.4.3)
 
 ### Added

@@ -1,8 +1,10 @@
+import fs from 'node:fs';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import {
   executeTool,
   getMessageToolDescription,
+  setSessionContext,
   setGatewayContext,
 } from '../container/src/tools.js';
 
@@ -21,7 +23,9 @@ function mockGatewayFetch(responsePayload: Record<string, unknown>) {
 
 describe.sequential('container message tool normalization', () => {
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    setSessionContext('');
     setGatewayContext('', '', '');
   });
 
@@ -132,6 +136,37 @@ describe.sequential('container message tool normalization', () => {
     >;
     expect(payload.channelId).toBe('@alice');
     expect(payload.contextChannelId).toBe(CHANNEL_ID);
+  });
+
+  test('send payload includes filePath and sessionId for local uploads', async () => {
+    const fetchMock = mockGatewayFetch({
+      ok: true,
+      action: 'send',
+      channelId: CHANNEL_ID,
+    });
+    vi.spyOn(fs, 'existsSync').mockReturnValue(true);
+    vi.spyOn(fs, 'statSync').mockReturnValue({
+      isFile: () => true,
+    } as fs.Stats);
+    setGatewayContext('http://gateway.local', 'token', CHANNEL_ID);
+    setSessionContext('dm:439508376087560193');
+
+    const result = await executeTool(
+      'message',
+      JSON.stringify({
+        action: 'send',
+        filePath: 'package.json',
+      }),
+    );
+
+    expect(result).toContain('"ok": true');
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    const payload = JSON.parse(String(init.body || '{}')) as Record<
+      string,
+      unknown
+    >;
+    expect(payload.filePath).toBe('package.json');
+    expect(payload.sessionId).toBe('dm:439508376087560193');
   });
 
   test('send normalizes explicit user mentions to ids', async () => {

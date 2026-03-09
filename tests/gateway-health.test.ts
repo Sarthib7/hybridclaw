@@ -50,7 +50,9 @@ function makeResponse() {
       response.headers = headers;
     },
     write(chunk: unknown) {
-      response.body += Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+      response.body += Buffer.isBuffer(chunk)
+        ? chunk.toString('utf8')
+        : String(chunk);
       return true;
     },
     end(chunk?: unknown) {
@@ -79,7 +81,10 @@ async function importFreshHealth(options?: {
 
   const docsDir = options?.docsDir || makeTempDocsDir();
   let handler:
-    | ((req: Parameters<Parameters<typeof createServer>[0]>[0], res: Parameters<Parameters<typeof createServer>[0]>[1]) => void)
+    | ((
+        req: Parameters<Parameters<typeof createServer>[0]>[0],
+        res: Parameters<Parameters<typeof createServer>[0]>[1],
+      ) => void)
     | null = null;
   let listenArgs: { port: number; host: string } | null = null;
 

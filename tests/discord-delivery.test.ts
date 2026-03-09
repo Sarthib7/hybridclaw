@@ -62,11 +62,9 @@ describe('discord delivery', () => {
     chunkMessage.mockReturnValue(['chunk-1', 'chunk-2']);
     const files = [{ name: 'report.txt' }] as unknown as [];
 
-    const payloads = delivery.prepareChunkedPayloads(
-      '@alice hello',
-      files,
-      { byAlias: new Map() },
-    );
+    const payloads = delivery.prepareChunkedPayloads('@alice hello', files, {
+      byAlias: new Map(),
+    });
 
     expect(rewriteUserMentions).toHaveBeenCalledWith(
       '@alice hello',

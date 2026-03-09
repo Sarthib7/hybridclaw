@@ -55,9 +55,10 @@ describe('chunkMessage', () => {
   });
 
   test('splits on maxLines boundaries', () => {
-    const text = Array.from({ length: 9 }, (_, index) => `line ${index + 1}`).join(
-      '\n',
-    );
+    const text = Array.from(
+      { length: 9 },
+      (_, index) => `line ${index + 1}`,
+    ).join('\n');
 
     const chunks = chunkMessage(text, { maxLines: 4 });
 

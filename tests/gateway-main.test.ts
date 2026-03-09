@@ -11,8 +11,12 @@ async function importFreshGatewayMain() {
   const state = {
     commandHandler: null as null | ((...args: unknown[]) => Promise<void>),
     messageHandler: null as null | ((...args: unknown[]) => Promise<void>),
-    configChangeListener:
-      null as null | ((next: Record<string, unknown>, prev: Record<string, unknown>) => void),
+    configChangeListener: null as
+      | null
+      | ((
+          next: Record<string, unknown>,
+          prev: Record<string, unknown>,
+        ) => void),
     currentConfig: {
       heartbeat: { enabled: true, intervalMs: 1_000 },
       hybridai: { defaultChatbotId: 'bot-default' },
@@ -25,7 +29,9 @@ async function importFreshGatewayMain() {
         ? `${text}\n*Tools: ${toolsUsed.join(', ')}*`
         : text,
     ),
-    formatError: vi.fn((title: string, detail: string) => `**${title}:** ${detail}`),
+    formatError: vi.fn(
+      (title: string, detail: string) => `**${title}:** ${detail}`,
+    ),
     formatInfo: vi.fn((title: string, body: string) => `**${title}**\n${body}`),
     getConfigSnapshot: vi.fn(),
     getGatewayStatus: vi.fn(() => ({ status: 'ok', sessions: 1 })),
@@ -47,11 +53,16 @@ async function importFreshGatewayMain() {
     initDatabase: vi.fn(),
     initDiscord: vi.fn(),
     listQueuedProactiveMessages: vi.fn(() => []),
-    memoryServiceConsolidate: vi.fn(() => ({ memoriesDecayed: 0, durationMs: 1 })),
+    memoryServiceConsolidate: vi.fn(() => ({
+      memoriesDecayed: 0,
+      durationMs: 1,
+    })),
     onConfigChange: vi.fn(),
     processOn: vi.spyOn(process, 'on'),
     rearmScheduler: vi.fn(),
-    renderGatewayCommand: vi.fn((result: { text: string }) => `rendered:${result.text}`),
+    renderGatewayCommand: vi.fn(
+      (result: { text: string }) => `rendered:${result.text}`,
+    ),
     resolveAgentIdForModel: vi.fn(() => 'agent-resolved'),
     rewriteUserMentionsForMessage: vi.fn(async (text: string) => text),
     setInterval: vi.fn(() => ({ timer: true })),
@@ -63,7 +74,12 @@ async function importFreshGatewayMain() {
 
   state.getConfigSnapshot.mockImplementation(() => state.currentConfig);
   state.onConfigChange.mockImplementation(
-    (listener: (next: Record<string, unknown>, prev: Record<string, unknown>) => void) => {
+    (
+      listener: (
+        next: Record<string, unknown>,
+        prev: Record<string, unknown>,
+      ) => void,
+    ) => {
       state.configChangeListener = listener;
       return vi.fn();
     },
@@ -177,7 +193,11 @@ async function importFreshGatewayMain() {
   await import('../src/gateway/gateway.ts');
   await settle();
 
-  if (!state.commandHandler || !state.messageHandler || !state.configChangeListener) {
+  if (
+    !state.commandHandler ||
+    !state.messageHandler ||
+    !state.configChangeListener
+  ) {
     throw new Error('Gateway bootstrap did not capture handlers.');
   }
 

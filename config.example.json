@@ -95,6 +95,12 @@
     "maxConcurrent": 5
   },
   "mcpServers": {
+    "filesystem": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/absolute/path/to/a/workspace"],
+      "enabled": false
+    },
     "tavily": {
       "transport": "stdio",
       "command": "npx",
@@ -107,7 +113,7 @@
     "playwright": {
       "transport": "stdio",
       "command": "npx",
-      "args": ["@playwright/mcp@latest"],
+      "args": ["-y", "@playwright/mcp@latest"],
       "enabled": false
     }
   },

@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import path from 'node:path';
 import { CronExpressionParser } from 'cron-parser';
 import { runAgent } from '../agent/agent.js';
 import { buildConversationContext } from '../agent/conversation.js';
@@ -23,6 +24,7 @@ import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import {
   APP_VERSION,
   CONFIGURED_MODELS,
+  DATA_DIR,
   DISCORD_COMMANDS_ONLY,
   DISCORD_FREE_RESPONSE_CHANNELS,
   DISCORD_GROUP_POLICY,
@@ -492,6 +494,18 @@ function formatPercent(value: number | null): string {
   if (value == null || Number.isNaN(value) || !Number.isFinite(value))
     return 'n/a';
   return `${Math.max(0, Math.min(100, Math.round(value)))}%`;
+}
+
+function formatArchiveReference(archivePath: string): string {
+  const normalized = archivePath.trim();
+  if (!normalized) return 'archive.json';
+
+  const relative = path.relative(DATA_DIR, normalized);
+  if (relative && !relative.startsWith('..') && !path.isAbsolute(relative)) {
+    return relative;
+  }
+
+  return path.basename(normalized) || 'archive.json';
 }
 
 function formatUsd(value: number | null): string {
@@ -2602,7 +2616,7 @@ export async function handleGatewayCommand(
           [
             `Tokens: ${formatCompactNumber(result.tokensBefore)} -> ${formatCompactNumber(result.tokensAfter)} (${formatPercent(compressionRatio)} smaller)`,
             `Messages: compacted ${result.messagesCompacted}, preserved ${result.messagesPreserved}`,
-            `Archive: ${result.archivePath}`,
+            `Archive: ${formatArchiveReference(result.archivePath)}`,
           ].join('\n'),
         );
       } catch (err) {

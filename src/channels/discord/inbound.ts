@@ -20,6 +20,7 @@ const KNOWN_SUBCOMMANDS = new Set([
   'channel',
   'ralph',
   'clear',
+  'compact',
   'help',
 ]);
 

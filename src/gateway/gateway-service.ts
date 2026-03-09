@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import path from 'node:path';
 import { CronExpressionParser } from 'cron-parser';
 import { runAgent } from '../agent/agent.js';
 import { buildConversationContext } from '../agent/conversation.js';
@@ -23,6 +24,7 @@ import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import {
   APP_VERSION,
   CONFIGURED_MODELS,
+  DATA_DIR,
   DISCORD_COMMANDS_ONLY,
   DISCORD_FREE_RESPONSE_CHANNELS,
   DISCORD_GROUP_POLICY,
@@ -41,6 +43,7 @@ import {
 } from '../config/config.js';
 import { updateRuntimeConfig } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
+import { NoCompactableMessagesError } from '../memory/compaction.js';
 import {
   createTask,
   deleteTask,
@@ -491,6 +494,18 @@ function formatPercent(value: number | null): string {
   if (value == null || Number.isNaN(value) || !Number.isFinite(value))
     return 'n/a';
   return `${Math.max(0, Math.min(100, Math.round(value)))}%`;
+}
+
+function formatArchiveReference(archivePath: string): string {
+  const normalized = archivePath.trim();
+  if (!normalized) return 'archive.json';
+
+  const relative = path.relative(DATA_DIR, normalized);
+  if (relative && !relative.startsWith('..') && !path.isAbsolute(relative)) {
+    return relative;
+  }
+
+  return path.basename(normalized) || 'archive.json';
 }
 
 function formatUsd(value: number | null): string {
@@ -2263,6 +2278,7 @@ export async function handleGatewayCommand(
         '`channel policy [open|allowlist|disabled]` — Set or inspect guild channel policy',
         '`ralph [on|off|set <n>|info]` — Configure Ralph loop (0 off, -1 unlimited)',
         '`clear` — Clear session history',
+        '`/compact` — Archive older history, summarize it, and retain recent context',
         '`/status` — Show runtime status (Discord slash command, private to caller)',
         '`/approve [view|yes|session|agent|no] [approval_id]` — View/respond to pending approvals privately',
         '`/channel-mode <off|mention|free>` — Set this Discord channel response mode',
@@ -2586,6 +2602,34 @@ export async function handleGatewayCommand(
         'Session Cleared',
         `Deleted ${deleted} messages. Workspace files preserved.`,
       );
+    }
+
+    case 'compact': {
+      try {
+        const result = await memoryService.compactSession(session.id);
+        const compressionRatio =
+          result.tokensBefore > 0
+            ? 1 - result.tokensAfter / result.tokensBefore
+            : 0;
+        return infoCommand(
+          'Session Compacted',
+          [
+            `Tokens: ${formatCompactNumber(result.tokensBefore)} -> ${formatCompactNumber(result.tokensAfter)} (${formatPercent(compressionRatio)} smaller)`,
+            `Messages: compacted ${result.messagesCompacted}, preserved ${result.messagesPreserved}`,
+            `Archive: ${formatArchiveReference(result.archivePath)}`,
+          ].join('\n'),
+        );
+      } catch (err) {
+        if (err instanceof NoCompactableMessagesError) {
+          return plainCommand(
+            'Nothing to compact. The session is already within the preserved recent window.',
+          );
+        }
+        return badCommand(
+          'Compaction Failed',
+          err instanceof Error ? err.message : String(err),
+        );
+      }
     }
 
     case 'status': {

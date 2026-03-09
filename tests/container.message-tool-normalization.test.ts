@@ -4,8 +4,8 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 import {
   executeTool,
   getMessageToolDescription,
-  setSessionContext,
   setGatewayContext,
+  setSessionContext,
 } from '../container/src/tools.js';
 
 const CHANNEL_ID = '1475079601968648386';

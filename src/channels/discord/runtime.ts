@@ -13,6 +13,7 @@ import {
 
 import {
   CONFIGURED_MODELS,
+  DATA_DIR,
   DISCORD_ACK_REACTION,
   DISCORD_ACK_REACTION_SCOPE,
   DISCORD_COMMAND_ALLOWED_USER_IDS,
@@ -37,7 +38,6 @@ import {
   DISCORD_SUPPRESS_PATTERNS,
   DISCORD_TOKEN,
   DISCORD_TYPING_MODE,
-  DATA_DIR,
   HYBRIDAI_CHATBOT_ID,
   HYBRIDAI_MODEL,
 } from '../../config/config.js';
@@ -91,6 +91,7 @@ import {
   type LifecyclePhase,
   LifecycleReactionController,
 } from './reactions.js';
+import { resolveDiscordLocalFileForSend } from './send-files.js';
 import { resolveSendAllowed } from './send-permissions.js';
 import { DiscordStreamManager } from './stream.js';
 import {
@@ -98,7 +99,6 @@ import {
   createDiscordToolActionRunner,
   type DiscordToolActionRequest,
 } from './tool-actions.js';
-import { resolveDiscordLocalFileForSend } from './send-files.js';
 import { createTypingController } from './typing.js';
 
 export type ReplyFn = (
@@ -546,7 +546,8 @@ function resolveDiscordToolSessionWorkspaceRoot(
   const session = getSessionById(normalizedSessionId);
   if (!session) return null;
 
-  const model = String(session.model || HYBRIDAI_MODEL).trim() || HYBRIDAI_MODEL;
+  const model =
+    String(session.model || HYBRIDAI_MODEL).trim() || HYBRIDAI_MODEL;
   const chatbotId =
     String(session.chatbot_id || HYBRIDAI_CHATBOT_ID).trim() ||
     HYBRIDAI_CHATBOT_ID;
@@ -590,7 +591,9 @@ async function resolveDiscordToolSendAttachments(
   }
 
   const content = fs.readFileSync(resolvedPath);
-  return [new AttachmentBuilder(content, { name: path.basename(resolvedPath) })];
+  return [
+    new AttachmentBuilder(content, { name: path.basename(resolvedPath) }),
+  ];
 }
 
 const runDiscordToolActionInternal = createDiscordToolActionRunner({

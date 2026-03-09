@@ -45,7 +45,11 @@ test('resolves relative file paths inside the session workspace', async () => {
 test('maps display-root file paths to host workspace and media cache paths', async () => {
   const workspaceRoot = await makeTempDir('hybridclaw-discord-workspace-');
   const mediaCacheRoot = await makeTempDir('hybridclaw-discord-media-');
-  const workspaceFile = path.join(workspaceRoot, '.browser-artifacts', 'shot.png');
+  const workspaceFile = path.join(
+    workspaceRoot,
+    '.browser-artifacts',
+    'shot.png',
+  );
   const mediaFile = path.join(mediaCacheRoot, '2026-03-10', 'sample.png');
   await fs.mkdir(path.dirname(workspaceFile), { recursive: true });
   await fs.mkdir(path.dirname(mediaFile), { recursive: true });

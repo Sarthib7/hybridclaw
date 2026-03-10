@@ -1,3 +1,7 @@
+import {
+  ApplicationIntegrationType,
+  InteractionContextType,
+} from 'discord.js';
 import { expect, test } from 'vitest';
 
 import {
@@ -49,6 +53,25 @@ test('buildSlashCommandDefinitions includes the expanded Discord command set', (
       'schedule',
     ]),
   );
+  expect(
+    definitions.every(
+      (definition) =>
+        definition.integrationTypes?.length === 1 &&
+        definition.integrationTypes[0] ===
+          ApplicationIntegrationType.GuildInstall,
+    ),
+  ).toBe(true);
+  expect(
+    definitions.every(
+      (definition) =>
+        JSON.stringify(definition.contexts) ===
+        JSON.stringify([
+          InteractionContextType.Guild,
+          InteractionContextType.BotDM,
+          InteractionContextType.PrivateChannel,
+        ]),
+    ),
+  ).toBe(true);
 });
 
 test('parseSlashInteractionArgs maps bot set interactions to command args', () => {
@@ -121,22 +144,23 @@ test('parseSlashInteractionArgs maps approval and mcp add interactions to comman
   ]);
 });
 
-test('guild-only slash commands are rejected in DMs while global ones still parse', () => {
+test('slash commands parse in DMs and guilds the same way', () => {
   const helpArgs = parseSlashInteractionArgs(
     makeInteraction({
       commandName: 'help',
       guildId: null,
     }) as never,
   );
-  const statusArgs = parseSlashInteractionArgs(
+  const mcpArgs = parseSlashInteractionArgs(
     makeInteraction({
-      commandName: 'status',
+      commandName: 'mcp',
       guildId: null,
+      subcommand: 'list',
     }) as never,
   );
 
-  expect(helpArgs).toBeNull();
-  expect(statusArgs).toEqual(['status']);
+  expect(helpArgs).toEqual(['help']);
+  expect(mcpArgs).toEqual(['mcp', 'list']);
   expect(isGlobalSlashCommand('status')).toBe(true);
-  expect(isGlobalSlashCommand('help')).toBe(false);
+  expect(isGlobalSlashCommand('help')).toBe(true);
 });

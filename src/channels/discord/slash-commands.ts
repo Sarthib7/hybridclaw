@@ -1,12 +1,16 @@
 import {
+  ApplicationIntegrationType,
   ApplicationCommandOptionType,
   type ChatInputCommandInteraction,
+  InteractionContextType,
 } from 'discord.js';
 
 export interface SlashCommandDefinition {
   name: string;
   description: string;
   dmPermission?: boolean;
+  integrationTypes?: readonly ApplicationIntegrationType[];
+  contexts?: readonly InteractionContextType[];
   options?: SlashCommandOptionDefinition[];
 }
 
@@ -61,8 +65,6 @@ const USAGE_VIEW_CHOICES = [
   { name: 'model', value: 'model' },
 ] satisfies Array<{ name: string; value: string }>;
 
-const GLOBAL_SLASH_COMMANDS = new Set(['status', 'approve']);
-
 function tokenizeFreeformText(value: string): string[] {
   return value.match(/"[^"]*"|\S+/g) ?? [];
 }
@@ -84,22 +86,21 @@ function normalizeSubcommand(
 }
 
 export function isGlobalSlashCommand(name: string): boolean {
-  return GLOBAL_SLASH_COMMANDS.has(name);
+  void name;
+  return true;
 }
 
 export function buildSlashCommandDefinitions(
   modelChoices: Array<{ name: string; value: string }>,
 ): SlashCommandDefinition[] {
-  return [
+  const definitions: SlashCommandDefinition[] = [
     {
       name: 'status',
       description: 'Show HybridClaw runtime status (only visible to you)',
-      dmPermission: true,
     },
     {
       name: 'approve',
       description: 'View/respond to pending tool approval requests (private)',
-      dmPermission: true,
       options: [
         {
           type: ApplicationCommandOptionType.String,
@@ -417,6 +418,15 @@ export function buildSlashCommandDefinitions(
       ],
     },
   ];
+  return definitions.map((definition) => ({
+    ...definition,
+    integrationTypes: [ApplicationIntegrationType.GuildInstall],
+    contexts: [
+      InteractionContextType.Guild,
+      InteractionContextType.BotDM,
+      InteractionContextType.PrivateChannel,
+    ],
+  }));
 }
 
 export function parseSlashInteractionArgs(

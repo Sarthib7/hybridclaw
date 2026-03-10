@@ -40,6 +40,7 @@ import {
   PROACTIVE_DELEGATION_MAX_DEPTH,
   PROACTIVE_DELEGATION_MAX_PER_TURN,
   PROACTIVE_RALPH_MAX_ITERATIONS,
+  MissingRequiredEnvVarError,
 } from '../config/config.js';
 import {
   getRuntimeConfig,
@@ -487,6 +488,19 @@ function summarizeAuditPayload(payloadRaw: string): string {
   } catch {
     return payloadRaw.slice(0, 140);
   }
+}
+
+function formatHybridAIBotFetchError(error: unknown): string {
+  if (error instanceof MissingRequiredEnvVarError) {
+    return 'HybridAI bot commands require HybridAI API credentials. Run `hybridclaw hybridai login` and try again.';
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  if (/401\b|unauthorized/i.test(message)) {
+    return 'HybridAI bot commands require valid HybridAI API credentials. Run `hybridclaw hybridai login` and try again.';
+  }
+
+  return `Failed to fetch bots: ${message}`;
 }
 
 function formatCompactNumber(value: number | null): string {
@@ -2423,10 +2437,7 @@ export async function handleGatewayCommand(
             .join('\n');
           return infoCommand('Available Bots', list);
         } catch (err) {
-          return badCommand(
-            'Error',
-            `Failed to fetch bots: ${err instanceof Error ? err.message : String(err)}`,
-          );
+          return badCommand('Error', formatHybridAIBotFetchError(err));
         }
       }
 

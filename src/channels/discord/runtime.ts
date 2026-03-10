@@ -100,7 +100,6 @@ import { resolveDiscordLocalFileForSend } from './send-files.js';
 import { resolveSendAllowed } from './send-permissions.js';
 import {
   buildSlashCommandDefinitions,
-  isGlobalSlashCommand,
   parseSlashInteractionArgs,
 } from './slash-commands.js';
 import { DiscordStreamManager } from './stream.js';
@@ -1053,79 +1052,57 @@ async function ensureSlashCommands(): Promise<void> {
     value: model,
   }));
   const definitions = buildSlashCommandDefinitions(modelChoices);
+  const definitionNames = new Set(
+    definitions.map((definition) => definition.name),
+  );
 
   if (!client.application) return;
-  const globalDefinitions = definitions.filter((definition) =>
-    isGlobalSlashCommand(definition.name),
-  );
-  const globalCommandNames = new Set(
-    globalDefinitions.map((definition) => definition.name),
-  );
-  let globalRegistrationSucceeded = true;
+  let globalRegisteredCount = 0;
   try {
-    for (const definition of globalDefinitions) {
+    for (const definition of definitions) {
       // POST is an upsert by name for global commands. Keep command IDs stable
       // to avoid stale-client command references in DMs.
       await client.application.commands.create(
         definition as unknown as ApplicationCommandDataResolvable,
       );
-      logger.info(
+      globalRegisteredCount += 1;
+      logger.debug(
         { scope: 'global', command: definition.name },
         'Upserted slash command',
       );
     }
+    logger.info(
+      { scope: 'global', count: globalRegisteredCount },
+      'Successfully registered slash commands',
+    );
   } catch (error) {
-    globalRegistrationSucceeded = false;
     logger.warn({ error }, 'Failed to register global slash commands');
   }
-  const guildDefinitions = globalRegistrationSucceeded
-    ? definitions.filter(
-        (definition) => !globalCommandNames.has(definition.name),
-      )
-    : definitions;
 
   await Promise.allSettled(
     [...client.guilds.cache.values()].map(async (guild) => {
       try {
-        const existing = await guild.commands.fetch();
-        if (globalRegistrationSucceeded) {
-          for (const command of existing.values()) {
-            if (!globalCommandNames.has(command.name)) continue;
-            await guild.commands.delete(command.id);
-            logger.info(
-              { guildId: guild.id, command: command.name },
-              'Removed guild slash command because command is global-only',
-            );
-          }
-        }
         const refreshed = await guild.commands.fetch();
-        for (const definition of guildDefinitions) {
-          const current = refreshed.find(
-            (command) => command.name === definition.name,
-          );
-          if (!current) {
-            await guild.commands.create(
-              definition as unknown as ApplicationCommandDataResolvable,
-            );
-            logger.info(
-              { guildId: guild.id, command: definition.name },
-              'Registered slash command',
-            );
+        let removedCount = 0;
+        for (const command of refreshed.values()) {
+          if (!definitionNames.has(command.name)) {
             continue;
           }
-          await guild.commands.edit(
-            current.id,
-            definition as unknown as ApplicationCommandDataResolvable,
-          );
-          logger.info(
-            { guildId: guild.id, command: definition.name },
-            'Updated slash command',
+          await guild.commands.delete(command.id);
+          removedCount += 1;
+          logger.debug(
+            { guildId: guild.id, command: command.name },
+            'Removed guild slash command',
           );
         }
+        logger.info(
+          { guildId: guild.id, count: removedCount },
+          'Successfully cleaned up guild slash commands',
+        );
       } catch (error) {
         logger.warn(
           { error, guildId: guild.id },
-          'Failed to register Discord slash commands',
+          'Failed to clean up Discord guild slash commands',
         );
       }
     }),
@@ -1590,11 +1567,14 @@ export function initDiscord(
 
   client.on('interactionCreate', async (interaction) => {
     if (interaction.isButton() && interaction.customId.startsWith('approve:')) {
+      const interactionVisibility = interaction.guildId
+        ? { flags: 'Ephemeral' as const }
+        : {};
       const parsed = parseApprovalCustomId(interaction.customId);
       if (!parsed) {
         await interaction.reply({
           content: 'Invalid button.',
-          ephemeral: true,
+          ...interactionVisibility,
         });
         return;
       }
@@ -1602,20 +1582,20 @@ export function initDiscord(
       if (!pending) {
         await interaction.reply({
           content: 'This approval has expired or was already handled.',
-          ephemeral: true,
+          ...interactionVisibility,
         });
         return;
       }
       if (interaction.user.id !== pending.entry.userId) {
         await interaction.reply({
           content: 'Only the requesting user can respond.',
-          ephemeral: true,
+          ...interactionVisibility,
         });
         return;
       }
       const guildId = interaction.guildId ?? null;
       const channelId = interaction.channelId;
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply(interactionVisibility);
       try {
         await commandHandler(
           pending.sessionId,
@@ -1625,7 +1605,10 @@ export function initDiscord(
           interaction.user.username,
           ['approve', parsed.action, parsed.approvalId],
           async (text) => {
-            await interaction.followUp({ content: text, ephemeral: true });
+            await interaction.followUp({
+              content: text,
+              ...interactionVisibility,
+            });
           },
         );
         await pending.entry.disableButtons?.().catch(() => {});
@@ -1637,7 +1620,7 @@ export function initDiscord(
         );
         await interaction.followUp({
           content: formatError('Gateway Error', detail),
-          ephemeral: true,
+          ...interactionVisibility,
         });
       }
       return;

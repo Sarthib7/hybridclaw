@@ -5,10 +5,19 @@ import { Readable } from 'node:stream';
 
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
+const tempDirs: string[] = [];
+
 function makeTempDocsDir(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-health-'));
+  tempDirs.push(dir);
   fs.writeFileSync(path.join(dir, 'index.html'), '<h1>Docs</h1>', 'utf8');
   fs.writeFileSync(path.join(dir, 'chat.html'), '<h1>Chat</h1>', 'utf8');
+  return dir;
+}
+
+function makeTempDataDir(): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-health-data-'));
+  tempDirs.push(dir);
   return dir;
 }
 
@@ -74,12 +83,14 @@ async function settle(): Promise<void> {
 
 async function importFreshHealth(options?: {
   docsDir?: string;
+  dataDir?: string;
   webApiToken?: string;
   gatewayApiToken?: string;
 }) {
   vi.resetModules();
 
   const docsDir = options?.docsDir || makeTempDocsDir();
+  const dataDir = options?.dataDir || makeTempDataDir();
   let handler:
     | ((
         req: Parameters<Parameters<typeof createServer>[0]>[0],
@@ -134,6 +145,7 @@ async function importFreshHealth(options?: {
     createServer,
   }));
   vi.doMock('../src/config/config.ts', () => ({
+    DATA_DIR: dataDir,
     GATEWAY_API_TOKEN: options?.gatewayApiToken || '',
     HEALTH_HOST: '127.0.0.1',
     HEALTH_PORT: 9090,
@@ -174,6 +186,7 @@ async function importFreshHealth(options?: {
   }
 
   return {
+    dataDir,
     handler,
     listenArgs,
     getGatewayStatus,
@@ -197,6 +210,11 @@ afterEach(() => {
   vi.doUnmock('../src/channels/discord/runtime.js');
   vi.doUnmock('../src/channels/discord/tool-actions.js');
   vi.resetModules();
+  while (tempDirs.length > 0) {
+    const dir = tempDirs.pop();
+    if (!dir) continue;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 describe('gateway health server', () => {
@@ -313,5 +331,39 @@ describe('gateway health server', () => {
     );
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({ ok: true });
+  });
+
+  test('serves office artifacts from the agent data root with query-token auth', async () => {
+    const dataDir = makeTempDataDir();
+    const artifactPath = path.join(
+      dataDir,
+      'agents',
+      'agent-1',
+      'workspace',
+      'quarterly-update.docx',
+    );
+    fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
+    fs.writeFileSync(artifactPath, 'docx payload', 'utf8');
+
+    const state = await importFreshHealth({
+      dataDir,
+      webApiToken: 'web-token',
+    });
+    const req = makeRequest({
+      url: `/api/artifact?path=${encodeURIComponent(artifactPath)}&token=web-token`,
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['Content-Type']).toBe(
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    );
+    expect(res.headers['Content-Disposition']).toContain(
+      'quarterly-update.docx',
+    );
+    expect(res.body).toBe('docx payload');
   });
 });

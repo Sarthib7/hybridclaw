@@ -9,6 +9,7 @@ import {
   normalizeDiscordToolAction,
 } from '../channels/discord/tool-actions.js';
 import {
+  DATA_DIR,
   GATEWAY_API_TOKEN,
   HEALTH_HOST,
   HEALTH_PORT,
@@ -29,15 +30,26 @@ import {
 import type { GatewayChatRequestBody } from './gateway-types.js';
 
 const SITE_DIR = resolveInstallPath('docs');
+const AGENT_ARTIFACT_ROOT = path.resolve(path.join(DATA_DIR, 'agents'));
+const DISCORD_MEDIA_CACHE_DIR = path.resolve(
+  path.join(DATA_DIR, 'discord-media-cache'),
+);
 const MAX_REQUEST_BYTES = 1_000_000; // 1MB
 
 const MIME_TYPES: Record<string, string> = {
   '.css': 'text/css; charset=utf-8',
+  '.docx':
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   '.html': 'text/html; charset=utf-8',
   '.js': 'application/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  '.pdf': 'application/pdf',
   '.png': 'image/png',
+  '.pptx':
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   '.svg': 'image/svg+xml',
+  '.xlsx':
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 };
 
 type ApiChatRequestBody = GatewayChatRequestBody & { stream?: boolean };
@@ -143,10 +155,22 @@ function isLoopbackAddress(address: string | undefined): boolean {
   return normalized === '127.0.0.1' || normalized === '::1';
 }
 
-function hasApiAuth(req: IncomingMessage): boolean {
+function hasQueryToken(url: URL): boolean {
+  const token = (url.searchParams.get('token') || '').trim();
+  if (!token) return false;
+  if (WEB_API_TOKEN && token === WEB_API_TOKEN) return true;
+  return token === GATEWAY_API_TOKEN;
+}
+
+function hasApiAuth(
+  req: IncomingMessage,
+  url?: URL,
+  opts?: { allowQueryToken?: boolean },
+): boolean {
   const authHeader = req.headers.authorization || '';
   const gatewayTokenMatch =
     Boolean(GATEWAY_API_TOKEN) && authHeader === `Bearer ${GATEWAY_API_TOKEN}`;
+  if (opts?.allowQueryToken && url && hasQueryToken(url)) return true;
 
   if (!WEB_API_TOKEN) {
     return gatewayTokenMatch || isLoopbackAddress(req.socket.remoteAddress);
@@ -169,6 +193,29 @@ function sendJson(
 function sendText(res: ServerResponse, statusCode: number, text: string): void {
   res.writeHead(statusCode, { 'Content-Type': 'text/plain; charset=utf-8' });
   res.end(text);
+}
+
+function isWithinRoot(candidate: string, root: string): boolean {
+  const resolvedCandidate = path.resolve(candidate);
+  const resolvedRoot = path.resolve(root);
+  return (
+    resolvedCandidate === resolvedRoot ||
+    resolvedCandidate.startsWith(`${resolvedRoot}${path.sep}`)
+  );
+}
+
+function resolveArtifactFile(url: URL): string | null {
+  const raw = (url.searchParams.get('path') || '').trim();
+  if (!raw) return null;
+  const resolved = path.resolve(raw);
+  if (
+    !isWithinRoot(resolved, AGENT_ARTIFACT_ROOT) &&
+    !isWithinRoot(resolved, DISCORD_MEDIA_CACHE_DIR)
+  ) {
+    return null;
+  }
+  if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) return null;
+  return resolved;
 }
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
@@ -458,6 +505,35 @@ function handleApiShutdown(res: ServerResponse): void {
   }, 50);
 }
 
+function handleApiArtifact(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): void {
+  if (!hasApiAuth(req, url, { allowQueryToken: true })) {
+    sendJson(res, 401, {
+      error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
+    });
+    return;
+  }
+
+  const filePath = resolveArtifactFile(url);
+  if (!filePath) {
+    sendJson(res, 404, { error: 'Artifact not found.' });
+    return;
+  }
+
+  const ext = path.extname(filePath).toLowerCase();
+  const mimeType = MIME_TYPES[ext] || 'application/octet-stream';
+  const filename = path.basename(filePath);
+  res.writeHead(200, {
+    'Content-Type': mimeType,
+    'Content-Disposition': `inline; filename="${filename.replace(/"/g, '')}"`,
+    'Cache-Control': 'no-store',
+  });
+  res.end(fs.readFileSync(filePath));
+}
+
 export function startHealthServer(): void {
   const server = http.createServer((req, res) => {
     const method = req.method || 'GET';
@@ -470,7 +546,12 @@ export function startHealthServer(): void {
     }
 
     if (pathname.startsWith('/api/')) {
-      if (!hasApiAuth(req)) {
+      if (pathname === '/api/artifact' && method === 'GET') {
+        handleApiArtifact(req, res, url);
+        return;
+      }
+
+      if (!hasApiAuth(req, url)) {
         sendJson(res, 401, {
           error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
         });

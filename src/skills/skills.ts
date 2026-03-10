@@ -707,6 +707,19 @@ function resolveSyncedSkillTarget(
   skill: SkillCandidate,
   workspaceDir: string,
 ): { rootDir: string; targetDir: string; targetSkillFile: string } {
+  // Keep bundled skills under /workspace/skills so bundled docs can refer to
+  // skill-local scripts with stable paths like "skills/<skill>/scripts/...".
+  if (skill.source === 'bundled') {
+    const rootDir = path.join(workspaceDir, 'skills');
+    const dirName = sanitizeSkillDirName(path.basename(skill.baseDir));
+    const targetDir = path.join(rootDir, dirName);
+    return {
+      rootDir,
+      targetDir,
+      targetSkillFile: path.join(targetDir, 'SKILL.md'),
+    };
+  }
+
   // Keep workspace skills under /workspace/skills so script paths like
   // "skills/<skill>/scripts/..." remain valid inside the agent container.
   if (skill.source === 'workspace') {

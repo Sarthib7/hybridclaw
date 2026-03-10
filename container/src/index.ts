@@ -3,6 +3,7 @@ import path from 'node:path';
 import { URL } from 'node:url';
 
 import { TrustedCoworkerApprovalRuntime } from './approval-policy.js';
+import { inferArtifactMimeType } from './artifacts.js';
 import {
   emitRuntimeEvent,
   runAfterToolHooks,
@@ -85,15 +86,6 @@ const RALPH_MAX_EXTRA_ITERATIONS = Number.isFinite(
     : Math.max(0, Math.min(64, RAW_RALPH_MAX_EXTRA_ITERATIONS))
   : 0;
 const RALPH_ENABLED = RALPH_MAX_EXTRA_ITERATIONS !== 0;
-const ARTIFACT_MIME_TYPES: Record<string, string> = {
-  '.gif': 'image/gif',
-  '.jpeg': 'image/jpeg',
-  '.jpg': 'image/jpeg',
-  '.pdf': 'application/pdf',
-  '.png': 'image/png',
-  '.svg': 'image/svg+xml',
-  '.webp': 'image/webp',
-};
 const NATIVE_VISION_MAX_IMAGES = 8;
 const NATIVE_VISION_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const DISCORD_CDN_HOST_PATTERNS: RegExp[] = [
@@ -165,8 +157,8 @@ function inferImageMimeType(
     .trim()
     .toLowerCase();
   if (normalizedFallback.startsWith('image/')) return normalizedFallback;
-  const ext = path.posix.extname(filePath).toLowerCase();
-  return ARTIFACT_MIME_TYPES[ext] || 'image/png';
+  const inferred = inferArtifactMimeType(filePath);
+  return inferred.startsWith('image/') ? inferred : 'image/png';
 }
 
 function isImageMediaItem(item: MediaContextItem): boolean {
@@ -496,8 +488,7 @@ function resolveMaxModelTurns(): number {
 }
 
 function inferMimeType(filePath: string): string {
-  const ext = path.posix.extname(filePath).toLowerCase();
-  return ARTIFACT_MIME_TYPES[ext] || 'application/octet-stream';
+  return inferArtifactMimeType(filePath);
 }
 
 function normalizeArtifactPath(rawPath: unknown): string | null {

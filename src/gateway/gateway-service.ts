@@ -925,6 +925,25 @@ function plainCommand(text: string): GatewayCommandResult {
   return { kind: 'plain', text };
 }
 
+const MCP_SERVER_NAME_RE = /^[a-z0-9][a-z0-9_-]*$/;
+
+export function parseMcpServerName(rawName: string): {
+  name?: string;
+  error?: string;
+} {
+  const name = String(rawName || '').trim();
+  if (!name) {
+    return { error: 'Usage: `mcp add <name> <json>`' };
+  }
+  if (!MCP_SERVER_NAME_RE.test(name)) {
+    return {
+      error:
+        'MCP server name must use lowercase letters, numbers, `_`, or `-`, and start with a letter or number.',
+    };
+  }
+  return { name };
+}
+
 function parseMcpServerConfig(rawJson: string): {
   config?: McpServerConfig;
   error?: string;
@@ -2694,10 +2713,16 @@ export async function handleGatewayCommand(
       }
 
       if (sub === 'add') {
-        const name = String(req.args[2] || '').trim();
-        if (!name) {
-          return badCommand('Usage', 'Usage: `mcp add <name> <json>`');
+        const parsedName = parseMcpServerName(String(req.args[2] || ''));
+        if (!parsedName.name) {
+          return badCommand(
+            parsedName.error === 'Usage: `mcp add <name> <json>`'
+              ? 'Usage'
+              : 'Invalid MCP Name',
+            parsedName.error || 'Invalid MCP server name.',
+          );
         }
+        const name = parsedName.name;
         const parsed = parseMcpServerConfig(req.args.slice(3).join(' '));
         if (!parsed.config) {
           return badCommand('Invalid MCP Config', parsed.error || 'Invalid config.');

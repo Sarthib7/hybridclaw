@@ -796,6 +796,74 @@ function syncSkillIntoWorkspace(
   return targetSkillFile;
 }
 
+function collectSyncedSkillDirs(rootDir: string): string[] {
+  if (!fs.existsSync(rootDir)) return [];
+
+  const skillDirs: string[] = [];
+  const stack = [rootDir];
+
+  while (stack.length > 0) {
+    const currentDir = stack.pop();
+    if (!currentDir) continue;
+
+    let entries: fs.Dirent[] = [];
+    try {
+      entries = fs.readdirSync(currentDir, { withFileTypes: true });
+    } catch (err) {
+      logger.debug({ rootDir, currentDir, err }, 'Failed to scan synced skill dir');
+      continue;
+    }
+
+    if (
+      entries.some(
+        (entry) => entry.isFile() && entry.name.toLowerCase() === 'skill.md',
+      )
+    ) {
+      skillDirs.push(currentDir);
+      continue;
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      stack.push(path.join(currentDir, entry.name));
+    }
+  }
+
+  return skillDirs;
+}
+
+function pruneStaleSyncedSkills(
+  skills: SkillCandidate[],
+  workspaceDir: string,
+): void {
+  const desiredByRoot = new Map<string, Set<string>>();
+
+  for (const skill of skills) {
+    const { rootDir, targetDir } = resolveSyncedSkillTarget(skill, workspaceDir);
+    const resolvedRoot = path.resolve(rootDir);
+    const resolvedTarget = path.resolve(targetDir);
+    if (!desiredByRoot.has(resolvedRoot)) {
+      desiredByRoot.set(resolvedRoot, new Set<string>());
+    }
+    desiredByRoot.get(resolvedRoot)?.add(resolvedTarget);
+  }
+
+  for (const [rootDir, desiredDirs] of desiredByRoot) {
+    for (const skillDir of collectSyncedSkillDirs(rootDir)) {
+      const resolvedSkillDir = path.resolve(skillDir);
+      if (desiredDirs.has(resolvedSkillDir)) continue;
+      if (!pathWithin(rootDir, resolvedSkillDir)) {
+        logger.warn(
+          { rootDir, skillDir: resolvedSkillDir },
+          'Refusing to prune synced skill outside sync root',
+        );
+        continue;
+      }
+      fs.rmSync(resolvedSkillDir, { recursive: true, force: true });
+    }
+  }
+}
+
 function normalizeSkillLookup(value: string): string {
   return value
     .trim()
@@ -1102,6 +1170,7 @@ export function loadSkills(agentId: string): Skill[] {
   const guarded = filterGuardedSkillCandidates(
     collectResolvedSkillCandidates(),
   ).filter((skill) => checkEligibility(skill).available);
+  pruneStaleSyncedSkills(guarded, workspaceDir);
 
   const resolved: Skill[] = [];
   for (const skill of guarded) {

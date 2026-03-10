@@ -1179,7 +1179,7 @@ async function ensureSlashCommands(): Promise<void> {
       await client.application.commands.create(
         definition as unknown as ApplicationCommandDataResolvable,
       );
-      logger.info(
+      logger.debug(
         { scope: 'global', command: definition.name },
         'Upserted slash command',
       );
@@ -1202,7 +1202,7 @@ async function ensureSlashCommands(): Promise<void> {
           for (const command of existing.values()) {
             if (!globalCommandNames.has(command.name)) continue;
             await guild.commands.delete(command.id);
-            logger.info(
+            logger.debug(
               { guildId: guild.id, command: command.name },
               'Removed guild slash command because command is global-only',
             );
@@ -1217,7 +1217,7 @@ async function ensureSlashCommands(): Promise<void> {
             await guild.commands.create(
               definition as unknown as ApplicationCommandDataResolvable,
             );
-            logger.info(
+            logger.debug(
               { guildId: guild.id, command: definition.name },
               'Registered slash command',
             );
@@ -1227,7 +1227,7 @@ async function ensureSlashCommands(): Promise<void> {
             current.id,
             definition as unknown as ApplicationCommandDataResolvable,
           );
-          logger.info(
+          logger.debug(
             { guildId: guild.id, command: definition.name },
             'Updated slash command',
           );

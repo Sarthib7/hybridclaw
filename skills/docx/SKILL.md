@@ -48,6 +48,7 @@ Edit only the relevant parts under `tmp/docx-edit/word/`:
 - Escape XML-sensitive characters (`&`, `<`, `>`) and preserve `xml:space="preserve"` when surrounding spaces matter.
 - Use DXA table widths and explicit cell widths instead of percentages when layout must survive Word and Google Docs.
 - Keep relationship ids, comment ids, and content-type overrides consistent when adding parts.
+- Never write plain text or placeholder text directly to a `.docx` file path. If generation fails, stop and report the error.
 
 ## Comments And Reviews
 

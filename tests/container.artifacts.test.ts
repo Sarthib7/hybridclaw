@@ -1,6 +1,14 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
 import { expect, test } from 'vitest';
 
-import { inferArtifactMimeType } from '../container/src/artifacts.js';
+import {
+  discoverArtifactsSince,
+  inferArtifactMimeType,
+  promptRequestsArtifactReturn,
+} from '../container/src/artifacts.js';
 
 test('infers OOXML artifact mime types', () => {
   expect(inferArtifactMimeType('report.docx')).toBe(
@@ -13,4 +21,41 @@ test('infers OOXML artifact mime types', () => {
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   );
   expect(inferArtifactMimeType('preview.png')).toBe('image/png');
+});
+
+test('detects prompts that explicitly request returned artifacts', () => {
+  expect(
+    promptRequestsArtifactReturn(
+      'Create an Excel workbook named profit-summary.xlsx and return the file.',
+    ),
+  ).toBe(true);
+  expect(promptRequestsArtifactReturn('Summarize this spreadsheet.')).toBe(
+    false,
+  );
+});
+
+test('discovers recently created artifact files under the workspace root', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-artifacts-'));
+  try {
+    const createdAtMs = Date.now();
+    const workbookPath = path.join(tempDir, 'profit-summary.xlsx');
+    const sourcePath = path.join(tempDir, 'profit-summary.cjs');
+    fs.writeFileSync(workbookPath, 'xlsx payload');
+    fs.writeFileSync(sourcePath, 'console.log("helper");');
+
+    const artifacts = discoverArtifactsSince(tempDir, {
+      modifiedAfterMs: createdAtMs - 1_000,
+    });
+
+    expect(artifacts).toEqual([
+      {
+        path: workbookPath,
+        filename: 'profit-summary.xlsx',
+        mimeType:
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      },
+    ]);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 });

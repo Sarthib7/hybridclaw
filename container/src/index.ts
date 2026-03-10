@@ -3,7 +3,11 @@ import path from 'node:path';
 import { URL } from 'node:url';
 
 import { TrustedCoworkerApprovalRuntime } from './approval-policy.js';
-import { inferArtifactMimeType } from './artifacts.js';
+import {
+  discoverArtifactsSince,
+  inferArtifactMimeType,
+  promptRequestsArtifactReturn,
+} from './artifacts.js';
 import {
   emitRuntimeEvent,
   runAfterToolHooks,
@@ -13,7 +17,7 @@ import { waitForInput, writeOutput } from './ipc.js';
 import { callHybridAI, callHybridAIStream } from './model-client.js';
 import {
   isRetryableModelError,
-  shouldFallbackFromStreamError,
+  shouldDowngradeStreamToNonStreaming,
 } from './model-retry.js';
 import {
   resolveMediaPath,
@@ -562,6 +566,38 @@ function extractToolArtifacts(
   return artifacts;
 }
 
+function normalizeArtifactKey(filePath: string): string {
+  return normalizePathSlashes(filePath).toLowerCase();
+}
+
+function collectRequestedArtifacts(params: {
+  artifacts: ArtifactMetadata[];
+  artifactPaths: Set<string>;
+  effectiveUserPrompt: string;
+  startedAtMs: number;
+}): void {
+  if (!promptRequestsArtifactReturn(params.effectiveUserPrompt)) return;
+
+  const discovered = discoverArtifactsSince(WORKSPACE_ROOT, {
+    modifiedAfterMs: Math.max(0, params.startedAtMs - 1_000),
+    modifiedBeforeMs: Date.now() + 1_000,
+    limit: 8,
+  });
+
+  for (const artifact of discovered) {
+    const normalizedPath = normalizeArtifactPath(artifact.path);
+    if (!normalizedPath) continue;
+    const key = normalizeArtifactKey(normalizedPath);
+    if (params.artifactPaths.has(key)) continue;
+    params.artifactPaths.add(key);
+    params.artifacts.push({
+      path: normalizedPath,
+      filename: artifact.filename,
+      mimeType: artifact.mimeType,
+    });
+  }
+}
+
 async function callHybridAIWithRetry(params: {
   provider?: 'hybridai' | 'openai-codex';
   baseUrl: string;
@@ -616,7 +652,10 @@ async function callHybridAIWithRetry(params: {
             maxTokens,
           );
         } catch (streamErr) {
-          const fallbackEligible = shouldFallbackFromStreamError(streamErr);
+          const fallbackEligible = shouldDowngradeStreamToNonStreaming(
+            provider,
+            streamErr,
+          );
           if (!fallbackEligible) throw streamErr;
           response = await callHybridAI(
             provider,
@@ -691,6 +730,7 @@ async function processRequest(
   maxTokens?: number,
   effectiveUserPromptOverride?: string,
 ): Promise<ContainerOutput> {
+  const processStartedAt = Date.now();
   await emitRuntimeEvent({
     event: 'before_agent_start',
     messageCount: messages.length,
@@ -792,6 +832,12 @@ async function processRequest(
       if (RALPH_ENABLED) {
         const branchChoice = parseRalphChoice(choice.message.content);
         if (branchChoice === 'STOP') {
+          collectRequestedArtifacts({
+            artifacts,
+            artifactPaths,
+            effectiveUserPrompt,
+            startedAtMs: processStartedAt,
+          });
           const completed: ContainerOutput = {
             status: 'success',
             result: stripRalphChoiceTags(choice.message.content),
@@ -828,6 +874,12 @@ async function processRequest(
         }
       }
 
+      collectRequestedArtifacts({
+        artifacts,
+        artifactPaths,
+        effectiveUserPrompt,
+        startedAtMs: processStartedAt,
+      });
       const completed: ContainerOutput = {
         status: 'success',
         result: stripRalphChoiceTags(choice.message.content),
@@ -969,8 +1021,9 @@ async function processRequest(
         approvalRequestId: approval.requestId,
       });
       for (const artifact of extractToolArtifacts(toolName, result)) {
-        if (artifactPaths.has(artifact.path)) continue;
-        artifactPaths.add(artifact.path);
+        const artifactKey = normalizeArtifactKey(artifact.path);
+        if (artifactPaths.has(artifactKey)) continue;
+        artifactPaths.add(artifactKey);
         artifacts.push(artifact);
       }
       history.push({ role: 'tool', content: result, tool_call_id: call.id });
@@ -998,6 +1051,12 @@ async function processRequest(
   }
 
   const lastAssistant = history.filter((m) => m.role === 'assistant').pop();
+  collectRequestedArtifacts({
+    artifacts,
+    artifactPaths,
+    effectiveUserPrompt,
+    startedAtMs: processStartedAt,
+  });
   const completed: ContainerOutput = {
     status: 'success',
     result:

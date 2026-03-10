@@ -103,6 +103,12 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
     'For local Discord uploads, call `message` with `action="send"` and `filePath` pointing to a file in the current workspace or `/discord-media-cache`.',
   );
   expect(prompt).toContain(
+    'When the user asks you to create or generate a file and return/upload/post it, include the file immediately in the final delivery. Do not ask a follow-up question offering to upload it later.',
+  );
+  expect(prompt).toContain(
+    'Never write plain text placeholder content to binary office files such as `.docx`, `.xlsx`, `.pptx`, or `.pdf`. If generation fails, report the error instead of creating a fake file.',
+  );
+  expect(prompt).toContain(
     'User: "Post `invoices/dashboard.html.png` here on Discord"',
   );
   expect(prompt).toContain(

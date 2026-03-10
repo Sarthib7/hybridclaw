@@ -164,4 +164,29 @@ describe('office bundled skills', () => {
     ).toBe(false);
     expect(buildSkillsPrompt(skills)).not.toContain('<name>office</name>');
   });
+
+  test('prunes stale mirrored bundled skills from agent workspaces', async () => {
+    const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
+    const { loadSkills } = await import('../src/skills/skills.ts');
+
+    const workspaceDir = agentWorkspaceDir('office-agent-prune');
+    const staleSkillDir = path.join(
+      workspaceDir,
+      'skills',
+      'repo-orientation',
+    );
+    fs.mkdirSync(staleSkillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(staleSkillDir, 'SKILL.md'),
+      'name: repo-orientation\ndescription: stale\n',
+      'utf8',
+    );
+
+    loadSkills('office-agent-prune');
+
+    expect(fs.existsSync(staleSkillDir)).toBe(false);
+    expect(
+      fs.existsSync(path.join(workspaceDir, 'skills', 'office', 'SKILL.md')),
+    ).toBe(true);
+  });
 });

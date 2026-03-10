@@ -14,6 +14,8 @@ import {
   runBeforeToolHooks,
 } from './extensions.js';
 import { waitForInput, writeOutput } from './ipc.js';
+import { McpClientManager } from './mcp/client-manager.js';
+import { McpConfigWatcher } from './mcp/config-watcher.js';
 import { callHybridAI, callHybridAIStream } from './model-client.js';
 import {
   isRetryableModelError,
@@ -46,8 +48,6 @@ import {
   setWebSearchConfig,
   TOOL_DEFINITIONS,
 } from './tools.js';
-import { McpClientManager } from './mcp/client-manager.js';
-import { McpConfigWatcher } from './mcp/config-watcher.js';
 import type {
   ArtifactMetadata,
   ChatContentPart,

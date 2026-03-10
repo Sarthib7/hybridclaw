@@ -15,8 +15,7 @@ export const ARTIFACT_MIME_TYPES: Record<string, string> = {
     'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   '.svg': 'image/svg+xml',
   '.webp': 'image/webp',
-  '.xlsx':
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 };
 
 const ARTIFACT_DISCOVERY_IGNORED_DIRS = new Set([
@@ -33,7 +32,9 @@ export function inferArtifactMimeType(filePath: string): string {
 }
 
 export function promptRequestsArtifactReturn(prompt: string): boolean {
-  const normalized = String(prompt || '').trim().toLowerCase();
+  const normalized = String(prompt || '')
+    .trim()
+    .toLowerCase();
   if (!normalized) return false;
   return (
     /\b(return|upload|attach|post|send)\b/.test(normalized) &&

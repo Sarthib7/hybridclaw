@@ -109,7 +109,13 @@ describe('office bundled skills', () => {
     );
     expect(
       fs.existsSync(
-        path.join(workspaceDir, 'skills', 'pdf', 'scripts', 'extract_pdf_text.mjs'),
+        path.join(
+          workspaceDir,
+          'skills',
+          'pdf',
+          'scripts',
+          'extract_pdf_text.mjs',
+        ),
       ),
     ).toBe(true);
     expect(
@@ -119,16 +125,22 @@ describe('office bundled skills', () => {
       fs.existsSync(path.join(workspaceDir, 'skills', 'office', 'unpack.cjs')),
     ).toBe(true);
     expect(
-      fs.existsSync(path.join(workspaceDir, 'skills', 'office', 'validate.cjs')),
-    ).toBe(true);
-    expect(
       fs.existsSync(
-        path.join(workspaceDir, 'skills', 'office', 'soffice.cjs'),
+        path.join(workspaceDir, 'skills', 'office', 'validate.cjs'),
       ),
     ).toBe(true);
     expect(
+      fs.existsSync(path.join(workspaceDir, 'skills', 'office', 'soffice.cjs')),
+    ).toBe(true);
+    expect(
       fs.existsSync(
-        path.join(workspaceDir, 'skills', 'xlsx', 'scripts', 'import_delimited.cjs'),
+        path.join(
+          workspaceDir,
+          'skills',
+          'xlsx',
+          'scripts',
+          'import_delimited.cjs',
+        ),
       ),
     ).toBe(true);
     expect(
@@ -138,7 +150,13 @@ describe('office bundled skills', () => {
     ).toBe(true);
     expect(
       fs.existsSync(
-        path.join(workspaceDir, 'skills', 'docx', 'scripts', 'accept_changes.cjs'),
+        path.join(
+          workspaceDir,
+          'skills',
+          'docx',
+          'scripts',
+          'accept_changes.cjs',
+        ),
       ),
     ).toBe(true);
     expect(
@@ -170,11 +188,7 @@ describe('office bundled skills', () => {
     const { loadSkills } = await import('../src/skills/skills.ts');
 
     const workspaceDir = agentWorkspaceDir('office-agent-prune');
-    const staleSkillDir = path.join(
-      workspaceDir,
-      'skills',
-      'repo-orientation',
-    );
+    const staleSkillDir = path.join(workspaceDir, 'skills', 'repo-orientation');
     fs.mkdirSync(staleSkillDir, { recursive: true });
     fs.writeFileSync(
       path.join(staleSkillDir, 'SKILL.md'),

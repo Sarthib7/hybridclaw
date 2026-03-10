@@ -1,8 +1,8 @@
-import pino from 'pino';
-import pretty from 'pino-pretty';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Writable } from 'node:stream';
+import pino from 'pino';
+import pretty from 'pino-pretty';
 
 import {
   getRuntimeConfig,
@@ -36,7 +36,9 @@ function resolveForcedLogLevel():
 
 const forcedLevel = resolveForcedLogLevel();
 const initialLevel = forcedLevel || getRuntimeConfig().ops.logLevel;
-const gatewayLogFile = String(process.env.HYBRIDCLAW_GATEWAY_LOG_FILE || '').trim();
+const gatewayLogFile = String(
+  process.env.HYBRIDCLAW_GATEWAY_LOG_FILE || '',
+).trim();
 
 function createPrettyDestination(
   prettyOptions: typeof LOGGER_PRETTY_OPTIONS,

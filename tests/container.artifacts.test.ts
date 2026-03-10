@@ -35,7 +35,9 @@ test('detects prompts that explicitly request returned artifacts', () => {
 });
 
 test('discovers recently created artifact files under the workspace root', () => {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-artifacts-'));
+  const tempDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-artifacts-'),
+  );
   try {
     const createdAtMs = Date.now();
     const workbookPath = path.join(tempDir, 'profit-summary.xlsx');

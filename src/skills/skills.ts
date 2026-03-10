@@ -810,7 +810,10 @@ function collectSyncedSkillDirs(rootDir: string): string[] {
     try {
       entries = fs.readdirSync(currentDir, { withFileTypes: true });
     } catch (err) {
-      logger.debug({ rootDir, currentDir, err }, 'Failed to scan synced skill dir');
+      logger.debug(
+        { rootDir, currentDir, err },
+        'Failed to scan synced skill dir',
+      );
       continue;
     }
 
@@ -839,7 +842,10 @@ function pruneStaleSyncedSkills(
   const desiredByRoot = new Map<string, Set<string>>();
 
   for (const skill of skills) {
-    const { rootDir, targetDir } = resolveSyncedSkillTarget(skill, workspaceDir);
+    const { rootDir, targetDir } = resolveSyncedSkillTarget(
+      skill,
+      workspaceDir,
+    );
     const resolvedRoot = path.resolve(rootDir);
     const resolvedTarget = path.resolve(targetDir);
     if (!desiredByRoot.has(resolvedRoot)) {

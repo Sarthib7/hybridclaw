@@ -2708,7 +2708,9 @@ export async function handleGatewayCommand(
         entries.sort(([left], [right]) => left.localeCompare(right));
         return infoCommand(
           'MCP Servers',
-          entries.map(([name, config]) => summarizeMcpServer(name, config)).join('\n'),
+          entries
+            .map(([name, config]) => summarizeMcpServer(name, config))
+            .join('\n'),
         );
       }
 
@@ -2725,7 +2727,10 @@ export async function handleGatewayCommand(
         const name = parsedName.name;
         const parsed = parseMcpServerConfig(req.args.slice(3).join(' '));
         if (!parsed.config) {
-          return badCommand('Invalid MCP Config', parsed.error || 'Invalid config.');
+          return badCommand(
+            'Invalid MCP Config',
+            parsed.error || 'Invalid config.',
+          );
         }
         updateRuntimeConfig((draft) => {
           draft.mcpServers[name] = parsed.config as McpServerConfig;
@@ -2741,7 +2746,10 @@ export async function handleGatewayCommand(
           return badCommand('Usage', 'Usage: `mcp remove <name>`');
         }
         if (!servers[name]) {
-          return badCommand('Not Found', `MCP server \`${name}\` was not found.`);
+          return badCommand(
+            'Not Found',
+            `MCP server \`${name}\` was not found.`,
+          );
         }
         updateRuntimeConfig((draft) => {
           delete draft.mcpServers[name];
@@ -2758,7 +2766,10 @@ export async function handleGatewayCommand(
         }
         const existing = servers[name];
         if (!existing) {
-          return badCommand('Not Found', `MCP server \`${name}\` was not found.`);
+          return badCommand(
+            'Not Found',
+            `MCP server \`${name}\` was not found.`,
+          );
         }
         const nextEnabled = existing.enabled === false;
         updateRuntimeConfig((draft) => {
@@ -2776,7 +2787,10 @@ export async function handleGatewayCommand(
           return badCommand('Usage', 'Usage: `mcp reconnect <name>`');
         }
         if (!servers[name]) {
-          return badCommand('Not Found', `MCP server \`${name}\` was not found.`);
+          return badCommand(
+            'Not Found',
+            `MCP server \`${name}\` was not found.`,
+          );
         }
         return plainCommand(
           `MCP server \`${name}\` scheduled for reconnect.${restartNoteForMcpChange(req.sessionId)}`,

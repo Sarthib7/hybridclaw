@@ -63,6 +63,14 @@ Core details:
 - `hybridai.maxTokens` sets the default completion budget per model call.
 - Trust-model acceptance is persisted under `security.*` and enforced before
   runtime start.
+- `mcpServers.*.env` and `mcpServers.*.headers` are persisted in
+  `~/.hybridclaw/config.json` exactly as configured today. Treat them as
+  plaintext secrets and lock the runtime directory down with
+  `chmod 700 ~/.hybridclaw && chmod 600 ~/.hybridclaw/config.json`.
+- `mcpServers.*` are forwarded into each session runtime and hot-diffed there.
+  Stdio servers resolve inside the active sandbox, so host-installed helpers
+  like `docker`, `node`, or `npx` require `container.sandboxMode=host` (or a
+  matching binary inside the container image).
 
 Common advanced areas:
 
@@ -71,8 +79,18 @@ Common advanced areas:
 - Scheduler jobs: `scheduler.jobs[]` with cron, every, or at delivery targets
 - Memory compaction and consolidation: `sessionCompaction.*`, `memory.*`
 - Proactive runtime: `proactive.*`
+- MCP server registry: `mcpServers.*`
 - Observability export: `observability.*`
 - Skills roots: `skills.extraDirs`
+
+## MCP Runtime Notes
+
+- Gateway commands `mcp list|add|remove|toggle|reconnect` update
+  `~/.hybridclaw/config.json` and hot-reload future turns.
+- The TUI forwards `/mcp ...` slash commands through the same gateway command
+  path, including JSON-preserving handling for `/mcp add <name> <json>`.
+- Container startup merges discovered MCP tools into the active tool list as
+  namespaced functions (`server__tool`) alongside built-in tools.
 
 ## Audit Trail Internals
 

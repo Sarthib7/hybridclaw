@@ -17,12 +17,6 @@
 - **Discord delivery workflow**: The Discord `message` tool now supports native local-file uploads via `filePath`, and runtime delivery/register flows better handle workspace files, `/discord-media-cache`, and DM-visible global slash commands.
 - **Documentation and examples**: README, runtime docs, and built-in web/chat surfaces now document MCP setup, bundled office skills, and artifact handling for the new workflows.
 
-### Fixed
-
-- **MCP configuration safety**: Invalid transport configs, unstable server names, malformed JSON tool arguments, and cross-server namespace collisions are now rejected before MCP tools are exposed.
-- **Office artifact reliability**: Generated `.docx`, `.xlsx`, `.pptx`, and related artifacts now stream with safer headers, allowed-root checks, and more reliable delivery across gateway and web chat flows.
-- **Discord command/runtime regressions**: Slash command registration cleanup, gateway logging polish, and local upload handling fix several reliability issues introduced by the new Discord command surface.
-
 ## [0.4.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.4.3)
 
 ### Added

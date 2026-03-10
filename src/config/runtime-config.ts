@@ -655,24 +655,27 @@ function normalizeMcpServerConfig(value: unknown): McpServerConfig | null {
     'stdio',
   );
   const command = normalizeString(value.command, '', { allowEmpty: true });
+  const args = Array.isArray(value.args)
+    ? normalizeStringArray(value.args, [])
+    : undefined;
+  const env = normalizeStringRecord(value.env);
   const cwd = normalizeString(value.cwd, '', { allowEmpty: true });
   const url = normalizeString(value.url, '', { allowEmpty: true });
+  const headers = normalizeStringRecord(value.headers);
+  const enabled = normalizeBoolean(value.enabled, true);
+
+  if (transport === 'stdio' && !command) return null;
+  if ((transport === 'http' || transport === 'sse') && !url) return null;
 
   return {
     transport,
     ...(command ? { command } : {}),
-    ...(Array.isArray(value.args)
-      ? { args: normalizeStringArray(value.args, []) }
-      : {}),
-    ...(Object.keys(normalizeStringRecord(value.env)).length > 0
-      ? { env: normalizeStringRecord(value.env) }
-      : {}),
+    ...(args ? { args } : {}),
+    ...(Object.keys(env).length > 0 ? { env } : {}),
     ...(cwd ? { cwd } : {}),
     ...(url ? { url } : {}),
-    ...(Object.keys(normalizeStringRecord(value.headers)).length > 0
-      ? { headers: normalizeStringRecord(value.headers) }
-      : {}),
-    enabled: normalizeBoolean(value.enabled, true),
+    ...(Object.keys(headers).length > 0 ? { headers } : {}),
+    enabled,
   };
 }
 

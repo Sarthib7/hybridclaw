@@ -134,6 +134,40 @@ describe('runtime config migration logging', () => {
     expect(stored.mcpServers.demo.url).toBe('https://example.com/mcp');
   });
 
+  it('drops MCP servers that are invalid for their selected transport', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      config.mcpServers = {
+        brokenStdio: {
+          transport: 'stdio',
+          enabled: true,
+        } as RuntimeConfig['mcpServers'][string],
+        brokenHttp: {
+          transport: 'http',
+          enabled: true,
+        } as RuntimeConfig['mcpServers'][string],
+        validSse: {
+          transport: 'sse',
+          url: 'https://example.com/mcp',
+          enabled: true,
+        },
+      };
+    });
+
+    await importFreshRuntimeConfig(homeDir);
+
+    const stored = JSON.parse(
+      fs.readFileSync(
+        path.join(homeDir, '.hybridclaw', 'config.json'),
+        'utf-8',
+      ),
+    ) as RuntimeConfig;
+
+    expect(Object.keys(stored.mcpServers)).toEqual(['validSse']);
+    expect(stored.mcpServers.validSse.transport).toBe('sse');
+    expect(stored.mcpServers.validSse.url).toBe('https://example.com/mcp');
+  });
+
   it('expands the legacy single-entry Codex model list on startup', async () => {
     const homeDir = makeTempHome();
     writeRuntimeConfig(homeDir, (config) => {

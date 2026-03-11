@@ -152,7 +152,7 @@ HybridClaw creates `~/.hybridclaw/config.json` on first run and hot-reloads most
 - See [TRUST_MODEL.md](./TRUST_MODEL.md) for onboarding acceptance policy and [SECURITY.md](./SECURITY.md) for technical security guidelines.
 - For contributor workflow, see [CONTRIBUTING.md](./CONTRIBUTING.md). For deeper runtime, skills, release, and maintainer reference docs, see [docs/development/README.md](./docs/development/README.md).
 
-## LM Studio Quickstart
+## Local Provider Quickstart (LM Studio Example)
 
 If LM Studio is running locally and serving `qwen/qwen3.5-9b` on
 `http://127.0.0.1:1234`, use this setup:
@@ -187,6 +187,12 @@ hybridclaw gateway status
 
 Look for `localBackends.lmstudio.reachable: true`.
 
+You can also inspect the saved local backend config directly:
+
+```bash
+hybridclaw local status
+```
+
 4. Start the TUI:
 
 ```bash
@@ -209,6 +215,16 @@ use:
 ```bash
 hybridclaw local configure lmstudio qwen/qwen3.5-9b --base-url http://127.0.0.1:1234 --no-default
 ```
+
+Other backends use the same flow:
+
+```bash
+hybridclaw local configure ollama llama3.2
+hybridclaw local configure vllm mistralai/Mistral-7B-Instruct-v0.3 --base-url http://127.0.0.1:8000 --api-key secret
+```
+
+Restart the gateway in `--sandbox=host`, then confirm reachability with
+`hybridclaw gateway status`.
 
 Notes:
 
@@ -305,6 +321,7 @@ CLI runtime commands:
 - `hybridclaw gateway status` — Show lifecycle/API status
 - `hybridclaw gateway <command...>` — Send a command to a running gateway (for example `sessions`, `bot info`)
 - `hybridclaw gateway compact` — Archive older session history into semantic memory while preserving a recent active context tail
+- `hybridclaw gateway reset [yes|no]` — Clear session history, reset per-session model/chatbot/RAG settings, and remove the current agent workspace (confirmation required)
 - `hybridclaw tui` — Start terminal client connected to gateway
 - `hybridclaw onboarding` — Run HybridAI account/API key onboarding
 - `hybridclaw local status` — Show current local backend config and default model
@@ -321,13 +338,14 @@ CLI runtime commands:
 - `hybridclaw audit ...` — Verify and inspect structured audit trail (`recent`, `search`, `approvals`, `verify`, `instructions`)
 - `hybridclaw audit instructions [--sync]` — Compare runtime instruction copies under `~/.hybridclaw/instructions/` against installed sources and restore shipped defaults when needed
 
-In Discord, use `!claw help` to see all commands. Key ones:
+In Discord, use `!claw help` or the slash commands. Key ones:
 
 - `!claw <message>` — Talk to the agent
 - `!claw bot set <id>` — Set chatbot for this channel
 - `!claw model set <name>` — Set model for this channel
 - `!claw rag on/off` — Toggle RAG
 - `!claw compact` — Archive older history into session memory and keep a recent working tail
+- `/reset` or `!claw reset` — Clear history, reset per-session model/bot settings, and remove the current agent workspace (confirmation required)
 - `!claw clear` — Clear conversation history
 - `!claw audit recent [n]` — Show recent structured audit events
 - `!claw audit verify [sessionId]` — Verify audit hash chain integrity
@@ -341,5 +359,5 @@ In Discord, use `!claw help` to see all commands. Key ones:
 - `!claw schedule add at "<ISO time>" <prompt>` — Add one-shot task
 - `!claw schedule add every <ms> <prompt>` — Add interval task
 
-In the TUI, use `/compact` for session compaction and `/mcp ...` for runtime
-MCP management.
+In the TUI, use `/compact` for session compaction, `/reset` for the confirmed
+workspace reset flow, and `/mcp ...` for runtime MCP management.

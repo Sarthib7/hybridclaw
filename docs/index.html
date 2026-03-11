@@ -694,7 +694,7 @@
       <button class="hero-copy-btn" type="button" onclick="navigator.clipboard.writeText('npm install -g @hybridaione/hybridclaw'); this.textContent='Copied'; setTimeout(() => this.textContent='Copy', 1400);">Copy</button>
     </div>
     <code>npm install -g @hybridaione/hybridclaw</code>
-    <div class="hero-install-note">Prerequisites: Node.js 22+. Docker provides full container isolation, while containerized deployments can switch the gateway to host sandbox mode to avoid nested Docker. Browser automation tooling ships with the agent runtime. HybridAI API key setup can be completed during onboarding. Latest tagged release: v0.5.0.</div>
+    <div class="hero-install-note">Prerequisites: Node.js 22+. Docker provides full container isolation, while containerized deployments can switch the gateway to host sandbox mode to avoid nested Docker. Browser automation tooling ships with the agent runtime. HybridAI API key setup can be completed during onboarding. Latest tagged release: v0.6.0.</div>
   </div>
   <div class="hero-cta">
     <a href="#quickstart" class="btn btn-primary">Get Started</a>
@@ -733,30 +733,30 @@
 
 <section id="latest">
   <div class="section-center">
-    <div class="section-label">Release v0.5.0</div>
+    <div class="section-label">Release v0.6.0</div>
     <h2 class="section-title">Latest release highlights</h2>
     <p class="section-desc">Key improvements included in the latest tagged release.</p>
   </div>
     <div class="features-grid">
       <div class="feature-card">
-      <div class="feature-icon">&#x1f517;</div>
-      <h3>Native MCP servers</h3>
-      <p>HybridClaw now loads configured MCP servers as namespaced tools and adds <code>/mcp</code> runtime management in the TUI for listing, adding, toggling, removing, and reconnecting servers.</p>
+      <div class="feature-icon">&#x1f4bb;</div>
+      <h3>Local model backends</h3>
+      <p>HybridClaw now supports local Ollama, LM Studio, and vLLM providers with <code>hybridclaw local configure|status</code>, live discovery, health monitoring, and local model selection across gateway, TUI, and Discord.</p>
       </div>
       <div class="feature-card">
-      <div class="feature-icon">&#x2699;&#xfe0f;</div>
-      <h3>Discord slash control</h3>
-      <p>Global Discord slash commands now cover approvals, status, model and bot selection, channel controls, MCP management, usage, exports, sessions, audit, and scheduling with private approval responses.</p>
+      <div class="feature-icon">&#x23f1;&#xfe0f;</div>
+      <h3>Activity-based timeouts</h3>
+      <p>The agent IPC timeout now extends when a model is still producing text or tool progress, which keeps slower local models alive as long as they continue making visible progress.</p>
       </div>
       <div class="feature-card">
-      <div class="feature-icon">&#x1f4bc;</div>
-      <h3>Office document skills</h3>
-      <p>Bundled <code>docx</code>, <code>xlsx</code>, <code>pptx</code>, and <code>office-workflows</code> skills add OOXML editing helpers, spreadsheet cleanup and recalculation, presentation thumbnail QA, and cross-format deliverables.</p>
+      <div class="feature-icon">&#x1f5d1;&#xfe0f;</div>
+      <h3>Session reset workflow</h3>
+      <p>Gateway, TUI, and Discord now share a confirmed <code>reset</code> flow that clears history, restores per-session defaults, and removes the active agent workspace without leaving stale session state behind.</p>
       </div>
       <div class="feature-card">
-      <div class="feature-icon">&#x1f4e6;</div>
-      <h3>Safer artifact delivery</h3>
-      <p>Generated office outputs now stream through authenticated artifact URLs in web chat, and Discord can send real local attachments from the workspace or <code>/discord-media-cache</code> via <code>filePath</code>.</p>
+      <div class="feature-icon">&#x1f527;</div>
+      <h3>Runtime stability fixes</h3>
+      <p>Worker pools now restart on backend/auth changes, host-mode prompts use real filesystem paths instead of container-only mounts, and compaction budgets account for large system prompts correctly.</p>
       </div>
   </div>
 </section>

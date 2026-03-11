@@ -2,12 +2,18 @@
 
 ## [Unreleased]
 
+## [0.6.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.6.0)
+
 ### Added
 
 - **Local LLM provider support**: Added Ollama, LM Studio, and vLLM as local
-  backends with auto-discovery of running instances, health monitoring, model
-  catalog management, thinking extraction, and tool-call normalization for
-  small local models.
+  backends with `hybridclaw local configure|status`, auto-discovery of running
+  instances, health monitoring, model catalog management, thinking extraction,
+  and tool-call normalization for small local models.
+- **Session reset flow**: Added `reset [yes|no]` across gateway/TUI and Discord
+  slash commands so a session can clear history, restore per-session
+  model/chatbot/RAG defaults, and remove the active agent workspace after
+  confirmation.
 - **Activity-based agent timeout**: The IPC read timeout now resets on agent
   activity (text deltas, tool progress) instead of using a fixed wall clock,
   so slow local models making steady progress are not killed prematurely.
@@ -17,6 +23,13 @@
 - **Host sandbox `/workspace` references**: System prompt skill locations and
   tool guidance now use real filesystem paths when `sandbox=host` instead of
   the container-only `/workspace` mount path that does not exist on the host.
+- **Local provider session stability**: Pooled workers now restart when backend
+  targets or auth signatures change, recreated workspaces clear stale session
+  transcript state, and missing workspace approval policies are bootstrapped
+  reliably.
+- **Session compaction budget accuracy**: Auto-compaction now counts system
+  prompt tokens instead of only message and summary tokens, so compaction
+  triggers at the configured threshold.
 - **Misleading timeout error message**: Changed "Timeout waiting for container
   output" to "Timeout waiting for agent output" since the same IPC mechanism
   is used by both host and container runners.

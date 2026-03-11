@@ -159,6 +159,9 @@ Runtime details:
   `ollama/llama3`).
 - The gateway discovers running backends at startup and exposes reachable
   models in `gateway status` and the TUI/Discord model picker.
+- Worker pools are keyed by backend/provider signature, so changing the local
+  target or auth for a session respawns the pooled worker in the matching
+  agent workspace instead of reusing stale state.
 - Each local provider gets its own agent workspace at
   `~/.hybridclaw/data/agents/<agentId>/workspace/`. Agent IDs are derived
   from the backend name (e.g. `lmstudio`, `ollama`).
@@ -191,6 +194,20 @@ activity-based deadline extension:
 This is particularly important for local models that may take 30+ seconds
 per iteration and easily exceed a fixed 5-minute wall clock over multiple
 tool-call rounds.
+
+## Session Reset Workflow
+
+Gateway `reset [yes|no]`, TUI `/reset`, and Discord `/reset` share the same
+runtime flow:
+
+- `reset` stages a pending confirmation containing the current agent workspace
+  path.
+- `reset yes` stops any in-flight execution, clears session history, resets
+  per-session model/chatbot overrides plus RAG to defaults, and removes the
+  current agent workspace.
+- If a workspace has been recreated before the next turn, HybridClaw drops
+  stale transcript history for that session so conversation state stays aligned
+  with the new workspace and tool surface.
 
 ## Agent Tool And Runtime Internals
 

@@ -401,7 +401,6 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     models: [...DEFAULT_CODEX_MODEL_LIST],
   },
   local: {
-    enabled: false,
     backends: {
       ollama: {
         enabled: true,
@@ -1688,10 +1687,6 @@ function normalizeRuntimeConfig(
       models: codexModelList,
     },
     local: {
-      enabled: normalizeBoolean(
-        rawLocal.enabled,
-        DEFAULT_RUNTIME_CONFIG.local.enabled,
-      ),
       backends: {
         ollama: {
           enabled: normalizeBoolean(
@@ -2375,7 +2370,15 @@ export function saveRuntimeConfig(next: RuntimeConfig): RuntimeConfig {
 export function updateRuntimeConfig(
   mutator: (draft: RuntimeConfig) => void,
 ): RuntimeConfig {
-  const draft = cloneConfig(currentConfig);
+  let baseConfig = currentConfig;
+  try {
+    baseConfig = loadRuntimeConfigFromSources();
+  } catch (err) {
+    console.warn(
+      `[runtime-config] update using in-memory config after reload failure: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  const draft = cloneConfig(baseConfig);
   mutator(draft);
   return saveRuntimeConfig(draft);
 }

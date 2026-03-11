@@ -34,6 +34,7 @@ export interface PromptRuntimeInfo {
   channelType?: string;
   channelId?: string;
   guildId?: string | null;
+  workspacePath?: string;
 }
 
 export interface PromptHookContext {
@@ -84,6 +85,9 @@ function buildSkillsSection(skillsPrompt: string): string {
     '- If multiple could apply: choose the most specific one, then read/follow it.',
     '- If none clearly apply: do not read any SKILL.md.',
     'Constraints: never read more than one skill up front; only read after selecting.',
+    '- Treat paths under `skills/` as bundled, read-only skill assets for normal user work.',
+    '- Use `skills/.../scripts/...` only as shipped helper entrypoints to run or read. Do not create new task files under `skills/`.',
+    '- For normal user work, put generated scripts in workspace `scripts/` or the workspace root. Only write under `skills/` when the user explicitly asked to create or edit a skill.',
     '',
     trimmed,
   ].join('\n');
@@ -145,6 +149,7 @@ function buildSafetyHook(context: PromptHookContext): string {
     CONTAINER_SANDBOX_MODE === 'host'
       ? 'For `bash`, the working directory is the workspace root. Use relative paths from the workspace, and prefer `/tmp` for temporary artifacts. There is no `/workspace` directory; use the real workspace path from Runtime Metadata.'
       : 'For `bash`, the working directory is the workspace root. Use relative workspace paths instead of literal `/workspace/...` paths, and prefer `/tmp` for temporary artifacts.',
+    'Treat `skills/` as bundled tooling, not as a scratch/output directory. Use it to read or run shipped helpers, but write new task files to workspace `scripts/` or the workspace root.',
     'After file changes, run commands only when asked; otherwise explicitly offer to run them immediately.',
     'Only skip file creation when the user explicitly asks for snippet-only or explanation-only output.',
     'Never write plain text placeholder content to binary office files such as `.docx`, `.xlsx`, `.pptx`, or `.pdf`. If generation fails, report the error instead of creating a fake file.',
@@ -340,6 +345,8 @@ function buildRuntimeHook(context: PromptHookContext): string {
   const runtimeInfo = context.runtimeInfo || {};
   const model = runtimeInfo.model?.trim() || HYBRIDAI_MODEL;
   const defaultModel = runtimeInfo.defaultModel?.trim() || HYBRIDAI_MODEL;
+  const workspaceLabel =
+    runtimeInfo.workspacePath?.trim() || 'current agent workspace';
   const guildLabel =
     runtimeInfo.guildId === null
       ? 'dm'
@@ -358,7 +365,7 @@ function buildRuntimeHook(context: PromptHookContext): string {
     `Node: ${process.version}`,
     `OS: ${process.platform} (${process.arch})`,
     `Host: ${os.hostname()}`,
-    `Workspace: ${process.cwd()}`,
+    `Workspace: ${workspaceLabel}`,
     `When asked for your version, answer briefly as: "HybridClaw v${APP_VERSION}".`,
     'Only provide more runtime details when the user explicitly asks for them.',
     'Default response style: concise and direct.',

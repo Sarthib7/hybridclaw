@@ -82,7 +82,6 @@
     ]
   },
   "local": {
-    "enabled": false,
     "backends": {
       "ollama": {
         "enabled": true,

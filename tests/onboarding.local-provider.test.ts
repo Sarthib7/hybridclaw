@@ -58,7 +58,6 @@ afterEach(() => {
 test('trusted local lmstudio default does not require HybridAI credentials', async () => {
   const homeDir = makeTempHome();
   writeRuntimeConfig(homeDir, (config) => {
-    config.local.enabled = true;
     config.local.backends.ollama.enabled = false;
     config.local.backends.lmstudio.enabled = true;
     config.local.backends.lmstudio.baseUrl = 'http://127.0.0.1:1234/v1';

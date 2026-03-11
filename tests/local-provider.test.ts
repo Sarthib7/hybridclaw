@@ -30,7 +30,6 @@ function writeRuntimeConfig(
     'data',
     'hybridclaw.db',
   );
-  config.local.enabled = true;
   config.local.backends.ollama.enabled = true;
   config.local.backends.ollama.baseUrl = 'http://127.0.0.1:11434/v1/';
   config.local.backends.lmstudio.enabled = false;
@@ -149,6 +148,52 @@ describe('local providers', () => {
       isLocal: true,
       contextWindow: 32_768,
     });
+  });
+
+  test('ollamaProvider.resolveRuntimeCredentials returns isLocal: true', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir);
+    const { factory } = await importFreshModules(homeDir);
+
+    const credentials = await factory.resolveModelRuntimeCredentials({
+      model: 'ollama/some-model',
+    });
+    expect(credentials.isLocal).toBe(true);
+  });
+
+  test('ollamaProvider.resolveRuntimeCredentials returns empty apiKey', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir);
+    const { factory } = await importFreshModules(homeDir);
+
+    const credentials = await factory.resolveModelRuntimeCredentials({
+      model: 'ollama/some-model',
+    });
+    expect(credentials.apiKey).toBe('');
+  });
+
+  test('factory provider order: local providers appear after anthropic, before hybridai fallback', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      config.local.backends.ollama.enabled = true;
+      config.local.backends.lmstudio.enabled = true;
+      config.local.backends.vllm.enabled = true;
+    });
+    const { factory } = await importFreshModules(homeDir);
+
+    const providerIds = factory.getAIProviders().map((p) => p.id);
+    const anthropicIndex = providerIds.indexOf('anthropic');
+    const ollamaIndex = providerIds.indexOf('ollama');
+    const lmstudioIndex = providerIds.indexOf('lmstudio');
+    const vllmIndex = providerIds.indexOf('vllm');
+    const hybridaiIndex = providerIds.indexOf('hybridai');
+
+    expect(anthropicIndex).toBeLessThan(ollamaIndex);
+    expect(ollamaIndex).toBeLessThan(hybridaiIndex);
+    expect(lmstudioIndex).toBeLessThan(hybridaiIndex);
+    expect(vllmIndex).toBeLessThan(hybridaiIndex);
+    // hybridai is always last
+    expect(hybridaiIndex).toBe(providerIds.length - 1);
   });
 
   test('unknown models still fall back to HybridAI', async () => {

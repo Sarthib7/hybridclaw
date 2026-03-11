@@ -300,6 +300,93 @@ describe('local container providers', () => {
     expect(result.choices[0]?.message.content).toBe('ok');
   });
 
+  test('Mistral-compatible local provider sanitizes tool call ids in history', async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      const messages = body.messages as Array<Record<string, unknown>>;
+      expect(messages).toEqual([
+        { role: 'user', content: 'hello' },
+        {
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            {
+              id: 'turn123to',
+              type: 'function',
+              function: {
+                name: 'read',
+                arguments: '{"path":"skills/xlsx/SKILL.md"}',
+              },
+            },
+          ],
+        },
+        {
+          role: 'tool',
+          content: 'skill body',
+          tool_call_id: 'turn123to',
+        },
+      ]);
+      return new Response(
+        JSON.stringify({
+          id: 'resp_1',
+          model: 'mistralai/Mistral-Small-3.2-24B-Instruct-2506',
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'ok',
+              },
+              finish_reason: 'stop',
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await callLocalOpenAICompatProvider({
+      provider: 'vllm',
+      baseUrl: 'http://127.0.0.1:8000/v1',
+      apiKey: '',
+      model: 'vllm/mistralai/Mistral-Small-3.2-24B-Instruct-2506',
+      chatbotId: '',
+      enableRag: false,
+      requestHeaders: undefined,
+      messages: [
+        { role: 'user', content: 'hello' },
+        {
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            {
+              id: 'turn_123:tool:1',
+              type: 'function',
+              function: {
+                name: 'read',
+                arguments: '{"path":"skills/xlsx/SKILL.md"}',
+              },
+            },
+          ],
+        },
+        {
+          role: 'tool',
+          content: 'skill body',
+          tool_call_id: 'turn_123:tool:1',
+        },
+      ],
+      tools,
+      maxTokens: 128,
+      isLocal: true,
+      contextWindow: 32_768,
+    });
+
+    expect(result.choices[0]?.message.content).toBe('ok');
+  });
+
   test('Qwen-compatible local provider collapses multiple system messages into one', async () => {
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body || '{}')) as Record<
@@ -448,6 +535,72 @@ describe('local container providers', () => {
       },
     ]);
     expect(result.choices[0]?.finish_reason).toBe('tool_calls');
+  });
+
+  test('OpenAI-compatible provider recovers blank tool names from Mistral content', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              id: 'resp_1',
+              model: 'mistralai/Mistral-Small-3.2-24B-Instruct-2506',
+              choices: [
+                {
+                  message: {
+                    role: 'assistant',
+                    content: 'write',
+                    tool_calls: [
+                      {
+                        id: 'chatcmpl-tool-921c9d30caf9ecf9',
+                        type: 'function',
+                        function: {
+                          name: '',
+                          arguments:
+                            '{"path":"scripts/create_excel.cjs","contents":"hi"}',
+                        },
+                      },
+                    ],
+                  },
+                  finish_reason: 'tool_calls',
+                },
+              ],
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          ),
+      ),
+    );
+
+    const result = await callLocalOpenAICompatProvider({
+      provider: 'vllm',
+      baseUrl: 'http://127.0.0.1:8000/v1',
+      apiKey: '',
+      model: 'vllm/mistralai/Mistral-Small-3.2-24B-Instruct-2506',
+      chatbotId: '',
+      enableRag: false,
+      requestHeaders: undefined,
+      messages: baseMessages,
+      tools,
+      maxTokens: 128,
+      isLocal: true,
+      contextWindow: 32_768,
+    });
+
+    expect(result.choices[0]?.message.content).toBeNull();
+    expect(result.choices[0]?.message.tool_calls).toEqual([
+      {
+        id: 'chatcmpl-tool-921c9d30caf9ecf9',
+        type: 'function',
+        function: {
+          name: 'write',
+          arguments: '{"path":"scripts/create_excel.cjs","contents":"hi"}',
+        },
+      },
+    ]);
   });
 
   test('OpenAI-compatible provider surfaces structured qwen reasoning content', async () => {

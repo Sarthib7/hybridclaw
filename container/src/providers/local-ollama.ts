@@ -13,7 +13,10 @@ import {
   createThinkingDeltaFilter,
   extractThinkingBlocks,
 } from './thinking-extractor.js';
-import { normalizeToolCalls } from './tool-call-normalizer.js';
+import {
+  normalizeToolCalls,
+  resolveToolCallTextParser,
+} from './tool-call-normalizer.js';
 
 interface OllamaChatMessage {
   role: string;
@@ -169,8 +172,13 @@ function finalizeContent(
 function finalizeToolCalls(
   rawToolCalls: unknown[] | undefined,
   content: string | null,
+  model: string | undefined,
 ): { content: string | null; toolCalls: ToolCall[] } {
-  return normalizeToolCalls(rawToolCalls as ToolCall[] | undefined, content);
+  const parser = resolveToolCallTextParser(model);
+  return normalizeToolCalls(rawToolCalls as ToolCall[] | undefined, content, {
+    parser,
+    recoverBlankStructuredNameFromContent: parser === 'mistral',
+  });
 }
 
 function adaptOllamaPayload(
@@ -180,7 +188,7 @@ function adaptOllamaPayload(
   rawToolCalls: unknown[] | undefined,
 ): ChatCompletionResponse {
   const content = finalizeContent(rawContent, thinkingText);
-  const normalized = finalizeToolCalls(rawToolCalls, content);
+  const normalized = finalizeToolCalls(rawToolCalls, content, payload.model);
   const usage = buildUsage(payload);
   return {
     id: 'ollama',

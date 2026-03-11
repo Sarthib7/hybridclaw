@@ -295,6 +295,7 @@ Commands:
   hybridclaw gateway status
   hybridclaw gateway sessions
   hybridclaw gateway bot info
+  hybridclaw gateway reset [yes|no]
   hybridclaw gateway <discord-style command ...>`);
 }
 
@@ -309,7 +310,7 @@ Interactive slash commands inside TUI:
   /model default [name]
   /rag [on|off]   /mcp list        /mcp add <name> <json>
   /mcp toggle <name> /mcp remove <name> /mcp reconnect <name>
-  /info            /compact   /clear
+  /info            /compact   /clear   /reset [yes|no]
   /stop           /exit`);
 }
 
@@ -1149,9 +1150,6 @@ function printLocalStatus(): void {
   ensureRuntimeConfigFile();
   const config = getRuntimeConfig();
   console.log(`Config: ${runtimeConfigPath()}`);
-  console.log(
-    `Local providers enabled: ${config.local.enabled ? 'yes' : 'no'}`,
-  );
   console.log(`Default model: ${config.hybridai.defaultModel}`);
   for (const backend of ['ollama', 'lmstudio', 'vllm'] as const) {
     const settings = config.local.backends[backend];
@@ -1177,7 +1175,6 @@ function configureLocalBackend(args: string[]): void {
   );
   const fullModelName = `${parsed.backend}/${parsed.modelId}`;
   const nextConfig = updateRuntimeConfig((draft) => {
-    draft.local.enabled = true;
     draft.local.backends[parsed.backend].enabled = true;
     draft.local.backends[parsed.backend].baseUrl = normalizedBaseUrl;
     if (parsed.backend === 'vllm' && parsed.apiKey !== undefined) {

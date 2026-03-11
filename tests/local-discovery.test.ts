@@ -29,7 +29,6 @@ function writeRuntimeConfig(
     'data',
     'hybridclaw.db',
   );
-  config.local.enabled = true;
   mutator?.(config);
   fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf-8');
 }
@@ -212,6 +211,153 @@ describe('local discovery', () => {
       },
     );
     expect((fetchMock.mock.calls[1]?.[1] as RequestInit).headers).toEqual({});
+  });
+
+  test('resolveOllamaApiBase with trailing slash strips it', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir);
+    const discovery = await importFreshDiscovery(homeDir);
+
+    expect(discovery.resolveOllamaApiBase('http://host:11434/')).toBe(
+      'http://host:11434',
+    );
+  });
+
+  test('resolveOllamaApiBase with no argument returns default', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir);
+    const discovery = await importFreshDiscovery(homeDir);
+
+    const result = discovery.resolveOllamaApiBase();
+    expect(result).toBe('http://127.0.0.1:11434');
+  });
+
+  test('resolveOllamaApiBase with /v1 suffix strips it', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir);
+    const discovery = await importFreshDiscovery(homeDir);
+
+    expect(discovery.resolveOllamaApiBase('http://host:11434/v1')).toBe(
+      'http://host:11434',
+    );
+  });
+
+  test('resolveOllamaApiBase with /V1 suffix (case-insensitive) strips it', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir);
+    const discovery = await importFreshDiscovery(homeDir);
+
+    expect(discovery.resolveOllamaApiBase('http://host:11434/V1')).toBe(
+      'http://host:11434',
+    );
+  });
+
+  test('discoverOllamaModels caps results at maxModels limit', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir);
+    const discovery = await importFreshDiscovery(homeDir);
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string) => {
+        if (input.endsWith('/api/tags')) {
+          return new Response(
+            JSON.stringify({
+              models: [
+                { name: 'model-a', details: {}, size: 1 },
+                { name: 'model-b', details: {}, size: 2 },
+                { name: 'model-c', details: {}, size: 3 },
+              ],
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        if (input.endsWith('/api/show')) {
+          return new Response(
+            JSON.stringify({ model_info: { 'llama.context_length': 4096 } }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        throw new Error(`Unexpected URL: ${input}`);
+      }),
+    );
+
+    const models = await discovery.discoverOllamaModels(
+      'http://127.0.0.1:11434',
+      { maxModels: 2 },
+    );
+
+    expect(models).toHaveLength(2);
+    expect(models.map((m) => m.id)).toEqual(['model-a', 'model-b']);
+  });
+
+  test('discoverOllamaModels detects reasoning models by id pattern', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir);
+    const discovery = await importFreshDiscovery(homeDir);
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string) => {
+        if (input.endsWith('/api/tags')) {
+          return new Response(
+            JSON.stringify({
+              models: [
+                { name: 'deepseek-r1', details: {}, size: 1 },
+                { name: 'reasoning-model', details: {}, size: 2 },
+                { name: 'qwen-think', details: {}, size: 3 },
+                { name: 'llama3.2', details: {}, size: 4 },
+              ],
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        if (input.endsWith('/api/show')) {
+          return new Response(
+            JSON.stringify({ model_info: { 'llama.context_length': 4096 } }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        throw new Error(`Unexpected URL: ${input}`);
+      }),
+    );
+
+    const models = await discovery.discoverOllamaModels(
+      'http://127.0.0.1:11434',
+      { maxModels: 10 },
+    );
+
+    expect(models.find((m) => m.id === 'deepseek-r1')?.isReasoning).toBe(true);
+    expect(models.find((m) => m.id === 'reasoning-model')?.isReasoning).toBe(
+      true,
+    );
+    expect(models.find((m) => m.id === 'qwen-think')?.isReasoning).toBe(true);
+    expect(models.find((m) => m.id === 'llama3.2')?.isReasoning).toBe(false);
+  });
+
+  test('discoverVllmModels omits Authorization header when apiKey is empty', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir);
+    const discovery = await importFreshDiscovery(homeDir);
+
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ data: [{ id: 'mistral-7b' }] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await discovery.discoverVllmModels('http://127.0.0.1:8000/v1', undefined);
+    expect(
+      (fetchMock.mock.calls[0]?.[1] as RequestInit).headers,
+    ).toEqual({});
+
+    await discovery.discoverVllmModels('http://127.0.0.1:8000/v1', '');
+    expect(
+      (fetchMock.mock.calls[1]?.[1] as RequestInit).headers,
+    ).toEqual({});
   });
 
   test('discoverAllLocalModels caches discovered names for prefixed selection', async () => {

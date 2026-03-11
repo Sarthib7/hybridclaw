@@ -5,7 +5,6 @@ import {
   LOCAL_DISCOVERY_ENABLED,
   LOCAL_DISCOVERY_INTERVAL_MS,
   LOCAL_DISCOVERY_MAX_MODELS,
-  LOCAL_ENABLED,
   LOCAL_LMSTUDIO_BASE_URL,
   LOCAL_LMSTUDIO_ENABLED,
   LOCAL_OLLAMA_BASE_URL,
@@ -35,6 +34,10 @@ const discoveredByBackend = new Map<
   Map<string, LocalModelInfo>
 >();
 const discoveredById = new Map<string, LocalModelInfo>();
+
+function hasEnabledLocalBackend(): boolean {
+  return LOCAL_OLLAMA_ENABLED || LOCAL_LMSTUDIO_ENABLED || LOCAL_VLLM_ENABLED;
+}
 
 function normalizeModelId(modelId: string): string {
   return String(modelId || '').trim();
@@ -304,7 +307,7 @@ function replaceDiscoveryCache(models: LocalModelInfo[]): void {
 }
 
 export async function discoverAllLocalModels(): Promise<LocalModelInfo[]> {
-  if (!LOCAL_ENABLED || !LOCAL_DISCOVERY_ENABLED) {
+  if (!hasEnabledLocalBackend() || !LOCAL_DISCOVERY_ENABLED) {
     replaceDiscoveryCache([]);
     return [];
   }
@@ -408,7 +411,7 @@ export function resolveLocalModelThinkingFormat(
 
 export function startDiscoveryLoop(): void {
   stopDiscoveryLoop();
-  if (!LOCAL_ENABLED || !LOCAL_DISCOVERY_ENABLED) {
+  if (!hasEnabledLocalBackend() || !LOCAL_DISCOVERY_ENABLED) {
     replaceDiscoveryCache([]);
     return;
   }

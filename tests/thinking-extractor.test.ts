@@ -55,6 +55,14 @@ describe('thinking extractor', () => {
     });
   });
 
+  test('null input returns thinking: null, content: null, thinkingOnly: false', () => {
+    expect(extractThinkingBlocks(null)).toEqual({
+      thinking: null,
+      content: null,
+      thinkingOnly: false,
+    });
+  });
+
   test('suppresses think deltas during streaming', () => {
     const deltas: string[] = [];
     const filter = createThinkingDeltaFilter((delta) => deltas.push(delta));

@@ -1,7 +1,6 @@
 import {
   HYBRIDAI_ENABLE_RAG,
   HYBRIDAI_MODEL,
-  LOCAL_ENABLED,
   LOCAL_LMSTUDIO_ENABLED,
   LOCAL_OLLAMA_ENABLED,
   LOCAL_VLLM_ENABLED,
@@ -22,9 +21,9 @@ function getActiveProviders(): AIProvider[] {
   return [
     openAIProvider,
     anthropicProvider,
-    ...(LOCAL_ENABLED && LOCAL_OLLAMA_ENABLED ? [ollamaProvider] : []),
-    ...(LOCAL_ENABLED && LOCAL_LMSTUDIO_ENABLED ? [lmstudioProvider] : []),
-    ...(LOCAL_ENABLED && LOCAL_VLLM_ENABLED ? [vllmProvider] : []),
+    ...(LOCAL_OLLAMA_ENABLED ? [ollamaProvider] : []),
+    ...(LOCAL_LMSTUDIO_ENABLED ? [lmstudioProvider] : []),
+    ...(LOCAL_VLLM_ENABLED ? [vllmProvider] : []),
     hybridAIProvider,
   ];
 }

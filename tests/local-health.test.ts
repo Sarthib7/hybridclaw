@@ -29,7 +29,6 @@ function writeRuntimeConfig(
     'data',
     'hybridclaw.db',
   );
-  config.local.enabled = true;
   config.local.backends.ollama.enabled = true;
   config.local.backends.lmstudio.enabled = true;
   config.local.backends.vllm.enabled = false;
@@ -178,6 +177,57 @@ describe('local health checks', () => {
       max_tokens: 1,
       stream: false,
     });
+  });
+
+  test('checkConnection returns latencyMs > 0 on successful check', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir);
+    const health = await importFreshHealth(homeDir);
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        // Add a small artificial delay so latency is measurably > 0
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        return new Response(JSON.stringify({ models: [{}] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }),
+    );
+
+    const result = await health.checkConnection(
+      'ollama',
+      'http://127.0.0.1:11434',
+      5_000,
+    );
+
+    expect(result.reachable).toBe(true);
+    expect(result.latencyMs).toBeGreaterThanOrEqual(0);
+    expect(typeof result.latencyMs).toBe('number');
+  });
+
+  test('checkModelConnection returns usable=false with error when model not found', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir);
+    const health = await importFreshHealth(homeDir);
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('Not Found', { status: 404 })),
+    );
+
+    const result = await health.checkModelConnection(
+      'ollama',
+      'http://127.0.0.1:11434',
+      'nonexistent-model',
+      5_000,
+    );
+
+    expect(result.usable).toBe(false);
+    expect(result.error).toContain('404');
+    expect(result.modelId).toBe('nonexistent-model');
+    expect(result.backend).toBe('ollama');
   });
 
   test('checkAllBackends updates cached health results', async () => {

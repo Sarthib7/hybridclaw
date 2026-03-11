@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { collapseSystemMessages } from '../system-messages.js';
 import type {
   ChatCompletionResponse,
@@ -13,7 +14,10 @@ import {
   createThinkingDeltaFilter,
   extractThinkingBlocks,
 } from './thinking-extractor.js';
-import { normalizeToolCalls } from './tool-call-normalizer.js';
+import {
+  normalizeToolCalls,
+  resolveToolCallTextParser,
+} from './tool-call-normalizer.js';
 
 interface StreamToolCallDelta {
   index?: number;
@@ -86,6 +90,21 @@ function normalizeLocalModelName(
   return trimmed.slice(prefix.length) || trimmed;
 }
 
+function isMistralCompatModel(
+  provider: string | undefined,
+  model: string,
+): boolean {
+  if (provider !== 'vllm' && provider !== 'lmstudio') return false;
+  const normalizedModel = normalizeLocalModelName(provider, model)
+    .trim()
+    .toLowerCase();
+  return (
+    normalizedModel.includes('mistral') ||
+    normalizedModel.includes('ministral') ||
+    normalizedModel.includes('devstral')
+  );
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
@@ -123,16 +142,92 @@ function buildQwenRequestMessages(
   }));
 }
 
+function shortHash(text: string, length: number): string {
+  return createHash('sha256').update(text).digest('hex').slice(0, length);
+}
+
+function sanitizeStrict9ToolCallId(
+  value: string,
+  used: Set<string>,
+): string {
+  const alphanumeric = String(value || '').replace(/[^a-zA-Z0-9]/g, '');
+  if (alphanumeric.length >= 9) {
+    const candidate = alphanumeric.slice(0, 9);
+    if (!used.has(candidate)) {
+      used.add(candidate);
+      return candidate;
+    }
+  }
+
+  for (let index = 0; index < 1000; index += 1) {
+    const candidate = shortHash(`${value}:${index}`, 9);
+    if (!used.has(candidate)) {
+      used.add(candidate);
+      return candidate;
+    }
+  }
+
+  const fallback = shortHash(`${value}:${Date.now()}`, 9);
+  used.add(fallback);
+  return fallback;
+}
+
+function sanitizeMistralToolCallIds(
+  messages: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  const idMap = new Map<string, string>();
+  const used = new Set<string>();
+  const resolveId = (value: string): string => {
+    const existing = idMap.get(value);
+    if (existing) return existing;
+    const next = sanitizeStrict9ToolCallId(value, used);
+    idMap.set(value, next);
+    return next;
+  };
+
+  return messages.map((message) => {
+    let changed = false;
+    let nextMessage: Record<string, unknown> = message;
+
+    if (Array.isArray(message.tool_calls)) {
+      const nextToolCalls = message.tool_calls.map((toolCall) => {
+        if (!isRecord(toolCall) || typeof toolCall.id !== 'string' || !toolCall.id) {
+          return toolCall;
+        }
+        const nextId = resolveId(toolCall.id);
+        if (nextId === toolCall.id) return toolCall;
+        changed = true;
+        return { ...toolCall, id: nextId };
+      });
+      if (changed) {
+        nextMessage = { ...nextMessage, tool_calls: nextToolCalls };
+      }
+    }
+
+    if (typeof message.tool_call_id === 'string' && message.tool_call_id) {
+      const nextToolCallId = resolveId(message.tool_call_id);
+      if (nextToolCallId !== message.tool_call_id) {
+        changed = true;
+        nextMessage = { ...nextMessage, tool_call_id: nextToolCallId };
+      }
+    }
+
+    return nextMessage;
+  });
+}
+
 function buildRequestMessages(
   args: NormalizedCallArgs,
 ): Array<Record<string, unknown>> {
-  if (usesQwenCompat(args)) {
-    return buildQwenRequestMessages(args.messages);
-  }
-  return collapseSystemMessages(args.messages).map((message) => ({
-    ...message,
-    content: normalizeMessageContent(message.content),
-  }));
+  const messages = usesQwenCompat(args)
+    ? buildQwenRequestMessages(args.messages)
+    : collapseSystemMessages(args.messages).map((message) => ({
+        ...message,
+        content: normalizeMessageContent(message.content),
+      }));
+  return isMistralCompatModel(args.provider, args.model)
+    ? sanitizeMistralToolCallIds(messages)
+    : messages;
 }
 
 function buildRequestBody(args: NormalizedCallArgs): Record<string, unknown> {
@@ -154,6 +249,19 @@ function buildRequestBody(args: NormalizedCallArgs): Record<string, unknown> {
     request.max_tokens = Math.floor(args.maxTokens);
   }
   return request;
+}
+
+function buildToolCallNormalizationOptions(params: {
+  provider: string | undefined;
+  model: string;
+}) {
+  const parser = resolveToolCallTextParser(
+    normalizeLocalModelName(params.provider, params.model),
+  );
+  return {
+    parser,
+    recoverBlankStructuredNameFromContent: parser === 'mistral',
+  };
 }
 
 function parseStreamPayloadLine(rawLine: string): string | null {
@@ -266,6 +374,10 @@ function assertNoProviderError(payload: unknown): void {
 
 function adaptLocalOpenAICompatResponse(
   payload: ChatCompletionResponse,
+  params: {
+    provider: string | undefined;
+    model: string;
+  },
 ): ChatCompletionResponse {
   assertNoProviderError(payload);
   const choice = payload.choices[0];
@@ -275,7 +387,11 @@ function adaptLocalOpenAICompatResponse(
     extractStructuredReasoning(message),
   );
   const thinking = extractThinkingBlocks(rawContent);
-  const normalized = normalizeToolCalls(message?.tool_calls, thinking.content);
+  const normalized = normalizeToolCalls(
+    message?.tool_calls,
+    thinking.content,
+    buildToolCallNormalizationOptions(params),
+  );
   return {
     ...payload,
     choices: [
@@ -332,7 +448,10 @@ export async function callLocalOpenAICompatProvider(
 
   const payload = (await response.json()) as ChatCompletionResponse;
   assertNoProviderError(payload);
-  return adaptLocalOpenAICompatResponse(payload);
+  return adaptLocalOpenAICompatResponse(payload, {
+    provider: args.provider,
+    model: args.model,
+  });
 }
 
 export async function callLocalOpenAICompatProviderStream(
@@ -370,7 +489,10 @@ export async function callLocalOpenAICompatProviderStream(
   ) {
     const payload = (await response.json()) as ChatCompletionResponse;
     assertNoProviderError(payload);
-    const adapted = adaptLocalOpenAICompatResponse(payload);
+    const adapted = adaptLocalOpenAICompatResponse(payload, {
+      provider: args.provider,
+      model: args.model,
+    });
     emitResponseTextDeltas(adapted, args.onTextDelta);
     return adapted;
   }
@@ -378,7 +500,10 @@ export async function callLocalOpenAICompatProviderStream(
   if (!response.body) {
     const payload = (await response.json()) as ChatCompletionResponse;
     assertNoProviderError(payload);
-    const adapted = adaptLocalOpenAICompatResponse(payload);
+    const adapted = adaptLocalOpenAICompatResponse(payload, {
+      provider: args.provider,
+      model: args.model,
+    });
     emitResponseTextDeltas(adapted, args.onTextDelta);
     return adapted;
   }
@@ -520,23 +645,29 @@ export async function callLocalOpenAICompatProviderStream(
     throw new Error('Streaming response ended without payload');
   }
 
-  return adaptLocalOpenAICompatResponse({
-    id: streamId || 'stream',
-    model: streamModel,
-    choices: [
-      {
-        message: {
-          role,
-          content: combineReasoningAndContent(
-            rawTextContent || null,
-            rawReasoningContent || null,
-          ),
-          ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+  return adaptLocalOpenAICompatResponse(
+    {
+      id: streamId || 'stream',
+      model: streamModel,
+      choices: [
+        {
+          message: {
+            role,
+            content: combineReasoningAndContent(
+              rawTextContent || null,
+              rawReasoningContent || null,
+            ),
+            ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+          },
+          finish_reason:
+            finishReason || (toolCalls.length > 0 ? 'tool_calls' : 'stop'),
         },
-        finish_reason:
-          finishReason || (toolCalls.length > 0 ? 'tool_calls' : 'stop'),
-      },
-    ],
-    ...(usage ? { usage } : {}),
-  });
+      ],
+      ...(usage ? { usage } : {}),
+    },
+    {
+      provider: args.provider,
+      model: args.model,
+    },
+  );
 }

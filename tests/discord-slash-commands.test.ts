@@ -46,6 +46,7 @@ test('buildSlashCommandDefinitions includes the expanded Discord command set', (
       'ralph',
       'mcp',
       'clear',
+      'reset',
       'usage',
       'export',
       'sessions',
@@ -196,6 +197,31 @@ test('parseSlashInteractionArgs maps approval and mcp add interactions to comman
     'github',
     '{"transport":"stdio","command":"docker","args":["run","-i","--rm","ghcr.io/github/github-mcp-server"]}',
   ]);
+});
+
+test('parseSlashInteractionArgs maps reset interactions to command args', () => {
+  const promptArgs = parseSlashInteractionArgs(
+    makeInteraction({
+      commandName: 'reset',
+      strings: {},
+    }) as never,
+  );
+  const confirmArgs = parseSlashInteractionArgs(
+    makeInteraction({
+      commandName: 'reset',
+      strings: { confirm: 'yes' },
+    }) as never,
+  );
+  const cancelArgs = parseSlashInteractionArgs(
+    makeInteraction({
+      commandName: 'reset',
+      strings: { confirm: 'no' },
+    }) as never,
+  );
+
+  expect(promptArgs).toEqual(['reset']);
+  expect(confirmArgs).toEqual(['reset', 'yes']);
+  expect(cancelArgs).toEqual(['reset', 'no']);
 });
 
 test('slash commands parse in DMs and guilds the same way', () => {

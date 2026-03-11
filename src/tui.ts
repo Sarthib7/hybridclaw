@@ -284,6 +284,9 @@ function printHelp(): void {
     `  ${TEAL}/compact${RESET}          Archive and compact older session history`,
   );
   console.log(`  ${TEAL}/clear${RESET}            Clear session history`);
+  console.log(
+    `  ${TEAL}/reset [yes|no]${RESET}    Clear history, reset session settings, and remove the agent workspace`,
+  );
   console.log(`  ${TEAL}/stop${RESET}             Interrupt current request`);
   console.log(`  ${TEAL}/exit${RESET}             Quit`);
   console.log(`  ${TEAL}ESC${RESET}               Interrupt current request`);
@@ -577,6 +580,13 @@ async function handleSlashCommand(
       return true;
     case 'clear':
       await runGatewayCommand(['clear']);
+      return true;
+    case 'reset':
+      if (parts.length > 1) {
+        await runGatewayCommand(['reset', ...parts.slice(1)]);
+      } else {
+        await runGatewayCommand(['reset']);
+      }
       return true;
     case 'stop':
     case 'abort':

@@ -58,6 +58,11 @@ const RAG_MODE_CHOICES = [
   { name: 'off', value: 'off' },
 ] satisfies Array<{ name: string; value: string }>;
 
+const RESET_CONFIRM_CHOICES = [
+  { name: 'yes', value: 'yes' },
+  { name: 'no', value: 'no' },
+] satisfies Array<{ name: string; value: string }>;
+
 const USAGE_VIEW_CHOICES = [
   { name: 'summary', value: 'summary' },
   { name: 'daily', value: 'daily' },
@@ -347,6 +352,19 @@ export function buildSlashCommandDefinitions(
       description: 'Clear session history',
     },
     {
+      name: 'reset',
+      description:
+        'Clear session history, reset session settings, and remove the current agent workspace',
+      options: [
+        {
+          type: ApplicationCommandOptionType.String,
+          name: 'confirm',
+          description: 'Confirm or cancel the reset',
+          choices: RESET_CONFIRM_CHOICES,
+        },
+      ],
+    },
+    {
       name: 'usage',
       description: 'Show usage and cost aggregates',
       options: [
@@ -588,6 +606,13 @@ export function parseSlashInteractionArgs(
 
     case 'clear':
       return ['clear'];
+
+    case 'reset': {
+      const confirm = normalizeStringOption(interaction, 'confirm');
+      if (!confirm) return ['reset'];
+      if (confirm !== 'yes' && confirm !== 'no') return null;
+      return ['reset', confirm];
+    }
 
     case 'usage': {
       const view = normalizeStringOption(interaction, 'view')?.toLowerCase();

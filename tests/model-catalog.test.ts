@@ -64,7 +64,6 @@ afterEach(async () => {
 test('available model catalog merges configured and discovered local models', async () => {
   const homeDir = makeTempHome();
   writeRuntimeConfig(homeDir, (config) => {
-    config.local.enabled = true;
     config.local.backends.ollama.enabled = false;
     config.local.backends.lmstudio.enabled = true;
     config.local.backends.lmstudio.baseUrl = 'http://127.0.0.1:1234/v1';

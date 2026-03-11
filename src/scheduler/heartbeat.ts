@@ -30,6 +30,7 @@ import {
   resolveAgentIdForModel,
   resolveModelProvider,
 } from '../providers/factory.js';
+import { agentWorkspaceDir } from '../infra/ipc.js';
 import { maybeCompactSession } from '../session/session-maintenance.js';
 import { appendSessionTranscript } from '../session/session-transcripts.js';
 import {
@@ -79,7 +80,7 @@ let running = false;
 function isHeartbeatOk(text: string): boolean {
   const normalized = text
     .trim()
-    .replace(/[^a-z_]/gi, '')
+    .replace(/[^a-z]/gi, '')
     .toUpperCase();
   return normalized === 'HEARTBEATOK' || normalized.startsWith('HEARTBEATOK');
 }
@@ -132,18 +133,28 @@ export function startHeartbeat(
         session,
         query: HEARTBEAT_PROMPT,
       });
-      const { messages } = buildConversationContext({
-        agentId,
-        sessionSummary: memoryContext.promptSummary,
-        history,
-        allowedTools: HEARTBEAT_ALLOWED_TOOLS,
-      });
-      messages.push({ role: 'user', content: HEARTBEAT_PROMPT });
-
       const chatbotId = modelRequiresChatbotId(HYBRIDAI_MODEL)
         ? HYBRIDAI_CHATBOT_ID || agentId
         : '';
       const resolvedAgentId = resolveAgentIdForModel(HYBRIDAI_MODEL, chatbotId);
+      const workspacePath = agentWorkspaceDir(resolvedAgentId);
+      const { messages } = buildConversationContext({
+        agentId: resolvedAgentId,
+        sessionSummary: memoryContext.promptSummary,
+        history,
+        runtimeInfo: {
+          chatbotId,
+          model: HYBRIDAI_MODEL,
+          defaultModel: HYBRIDAI_MODEL,
+          channelType: 'heartbeat',
+          channelId,
+          guildId: null,
+          workspacePath,
+        },
+        allowedTools: HEARTBEAT_ALLOWED_TOOLS,
+      });
+      messages.push({ role: 'user', content: HEARTBEAT_PROMPT });
+
       const provider = resolveModelProvider(HYBRIDAI_MODEL);
       const heartbeatChannelId = HEARTBEAT_CHANNEL || 'heartbeat';
       recordAuditEvent({
@@ -153,7 +164,7 @@ export function startHeartbeat(
           type: 'session.start',
           userId: 'heartbeat',
           channel: heartbeatChannelId,
-          cwd: process.cwd(),
+          cwd: workspacePath,
           model: HYBRIDAI_MODEL,
           source: 'heartbeat',
         },

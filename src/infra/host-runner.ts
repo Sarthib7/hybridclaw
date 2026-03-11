@@ -56,6 +56,7 @@ import {
   flushCollapsedStreamDebugSummary,
   type StreamDebugState,
 } from './stream-debug.js';
+import { computeWorkerSignature } from './worker-signature.js';
 
 const IDLE_TIMEOUT_MS = 300_000;
 const TOOL_RESULT_RE =
@@ -68,7 +69,7 @@ interface PoolEntry {
   startedAt: number;
   stderrBuffer: string;
   streamDebug: StreamDebugState;
-  authSignature: string;
+  workerSignature: string;
   onTextDelta?: (delta: string) => void;
   onToolProgress?: (event: ToolProgressEvent) => void;
   /** Activity tracker that resets the IPC read timeout on agent progress. */
@@ -76,16 +77,6 @@ interface PoolEntry {
 }
 
 const pool = new Map<string, PoolEntry>();
-
-function computeAuthSignature(
-  apiKey: string,
-  requestHeaders: Record<string, string> | undefined,
-): string {
-  const normalizedHeaders = Object.entries(requestHeaders || {})
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, value]) => [key, value]);
-  return JSON.stringify({ apiKey, requestHeaders: normalizedHeaders });
-}
 
 function emitTextDelta(entry: PoolEntry, line: string): void {
   const callback = entry.onTextDelta;
@@ -281,7 +272,7 @@ function getOrSpawnHostProcess(sessionId: string, agentId: string): PoolEntry {
     startedAt: Date.now(),
     stderrBuffer: '',
     streamDebug: createStreamDebugState(),
-    authSignature: '',
+    workerSignature: '',
   };
 
   proc.stderr.on('data', (data) => {
@@ -444,15 +435,18 @@ export async function runHostProcess(params: {
       tavilySearchDepth: WEB_SEARCH_TAVILY_SEARCH_DEPTH,
     },
   };
-  const authSignature = computeAuthSignature(
-    input.apiKey,
-    input.requestHeaders,
-  );
+  const workerSignature = computeWorkerSignature({
+    agentId,
+    provider: input.provider,
+    baseUrl: input.baseUrl,
+    apiKey: input.apiKey,
+    requestHeaders: input.requestHeaders,
+  });
   const existingEntry = pool.get(sessionId);
-  if (existingEntry && existingEntry.authSignature !== authSignature) {
+  if (existingEntry && existingEntry.workerSignature !== workerSignature) {
     logger.info(
-      { sessionId },
-      'Model auth changed; restarting host agent process',
+      { sessionId, agentId, provider: input.provider },
+      'Worker routing changed; restarting host agent process',
     );
     stopHostProcess(existingEntry);
     pool.delete(sessionId);
@@ -474,7 +468,7 @@ export async function runHostProcess(params: {
       error: `Host agent spawn error: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
-  entry.authSignature = authSignature;
+  entry.workerSignature = workerSignature;
 
   const activity = createActivityTracker();
   entry.onTextDelta = onTextDelta;

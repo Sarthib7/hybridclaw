@@ -58,7 +58,6 @@ test('local configure lmstudio enables the backend and normalizes the URL', asyn
   ]);
 
   const config = readRuntimeConfig(homeDir);
-  expect(config.local.enabled).toBe(true);
   expect(config.local.backends.lmstudio.enabled).toBe(true);
   expect(config.local.backends.lmstudio.baseUrl).toBe(
     'http://127.0.0.1:1234/v1',
@@ -84,7 +83,6 @@ test('local configure --no-default preserves the existing default model', async 
   ]);
 
   const config = readRuntimeConfig(homeDir);
-  expect(config.local.enabled).toBe(true);
   expect(config.local.backends.lmstudio.enabled).toBe(true);
   expect(config.hybridai.defaultModel).toBe('gpt-5-nano');
 });

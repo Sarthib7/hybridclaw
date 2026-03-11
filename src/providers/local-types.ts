@@ -27,7 +27,6 @@ export interface LocalBackendConfig {
 }
 
 export interface LocalProviderConfig {
-  enabled: boolean;
   backends: {
     ollama: LocalBackendConfig;
     lmstudio: LocalBackendConfig;

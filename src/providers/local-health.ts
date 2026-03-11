@@ -1,5 +1,4 @@
 import {
-  LOCAL_ENABLED,
   LOCAL_HEALTH_CHECK_ENABLED,
   LOCAL_HEALTH_CHECK_INTERVAL_MS,
   LOCAL_HEALTH_CHECK_TIMEOUT_MS,
@@ -20,6 +19,10 @@ import type {
 
 let healthTimer: ReturnType<typeof setInterval> | null = null;
 const backendHealth = new Map<LocalBackendType, HealthCheckResult>();
+
+function hasEnabledLocalBackend(): boolean {
+  return LOCAL_OLLAMA_ENABLED || LOCAL_LMSTUDIO_ENABLED || LOCAL_VLLM_ENABLED;
+}
 
 function normalizeBaseUrl(baseUrl: string): string {
   return String(baseUrl || '')
@@ -163,7 +166,7 @@ export async function checkAllBackends(): Promise<
   Map<LocalBackendType, HealthCheckResult>
 > {
   const next = new Map<LocalBackendType, HealthCheckResult>();
-  if (!LOCAL_ENABLED || !LOCAL_HEALTH_CHECK_ENABLED) {
+  if (!hasEnabledLocalBackend() || !LOCAL_HEALTH_CHECK_ENABLED) {
     backendHealth.clear();
     return next;
   }
@@ -212,7 +215,7 @@ export function getAllBackendHealth(): Map<
 
 export function startHealthCheckLoop(): void {
   stopHealthCheckLoop();
-  if (!LOCAL_ENABLED || !LOCAL_HEALTH_CHECK_ENABLED) {
+  if (!hasEnabledLocalBackend() || !LOCAL_HEALTH_CHECK_ENABLED) {
     backendHealth.clear();
     return;
   }

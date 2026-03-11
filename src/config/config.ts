@@ -165,7 +165,6 @@ export let CONFIGURED_MODELS: string[] = dedupeStringList([
   ...HYBRIDAI_MODELS,
   ...CODEX_MODELS,
 ]);
-export let LOCAL_ENABLED = false;
 export let LOCAL_OLLAMA_ENABLED = true;
 export let LOCAL_OLLAMA_BASE_URL = 'http://127.0.0.1:11434';
 export let LOCAL_LMSTUDIO_ENABLED = false;
@@ -383,7 +382,6 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   CODEX_MODELS = [...config.codex.models];
   HYBRIDAI_MODELS = [...config.hybridai.models];
   CONFIGURED_MODELS = dedupeStringList([...HYBRIDAI_MODELS, ...CODEX_MODELS]);
-  LOCAL_ENABLED = config.local.enabled;
   LOCAL_OLLAMA_ENABLED = config.local.backends.ollama.enabled;
   LOCAL_OLLAMA_BASE_URL = config.local.backends.ollama.baseUrl;
   LOCAL_LMSTUDIO_ENABLED = config.local.backends.lmstudio.enabled;

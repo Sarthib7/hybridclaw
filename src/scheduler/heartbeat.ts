@@ -189,6 +189,9 @@ export function startHeartbeat(
         HYBRIDAI_MODEL,
         resolvedAgentId,
         heartbeatChannelId,
+        undefined,
+        undefined,
+        undefined,
         scheduledTasks,
         HEARTBEAT_ALLOWED_TOOLS,
       );

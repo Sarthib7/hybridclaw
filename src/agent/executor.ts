@@ -32,6 +32,9 @@ export interface ExecutorRequest {
   model?: string;
   agentId?: string;
   channelId?: string;
+  ralphMaxIterations?: number | null;
+  fullAutoEnabled?: boolean;
+  fullAutoNeverApproveTools?: string[];
   scheduledTasks?: ScheduledTask[];
   allowedTools?: string[];
   blockedTools?: string[];

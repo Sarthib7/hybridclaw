@@ -11,6 +11,10 @@ import {
   getSandboxDiagnostics,
   stopSessionExecution,
 } from '../agent/executor.js';
+import {
+  isWithinActiveHours,
+  proactiveWindowLabel,
+} from '../agent/proactive-policy.js';
 import { processSideEffects } from '../agent/side-effects.js';
 import { isSilentReply } from '../agent/silent-reply.js';
 import { buildToolsSummary } from '../agent/tool-summary.js';
@@ -29,6 +33,13 @@ import {
   DISCORD_GROUP_POLICY,
   DISCORD_GUILDS,
   DISCORD_RESPOND_TO_ALL_MESSAGES,
+  FULLAUTO_COOLDOWN_MS,
+  FULLAUTO_DEFAULT_PROMPT,
+  FULLAUTO_MAX_CONSECUTIVE_ERRORS,
+  FULLAUTO_MAX_CONSECUTIVE_TURNS,
+  FULLAUTO_MAX_SESSION_COST_USD,
+  FULLAUTO_MAX_SESSION_TOTAL_TOKENS,
+  FULLAUTO_NEVER_APPROVE_TOOLS,
   HYBRIDAI_CHATBOT_ID,
   HYBRIDAI_ENABLE_RAG,
   HYBRIDAI_MODEL,
@@ -51,10 +62,13 @@ import { NoCompactableMessagesError } from '../memory/compaction.js';
 import {
   createTask,
   deleteTask,
+  enqueueProactiveMessage,
   getAllSessions,
+  getFullAutoSessionCount,
   getQueuedProactiveMessageCount,
   getRecentStructuredAuditForSession,
   getSessionCount,
+  getSessionUsageTotals,
   getTasksForSession,
   getUsageTotals,
   listUsageByAgent,
@@ -64,6 +78,7 @@ import {
   recordUsageEvent,
   resumeTask,
   updateSessionChatbot,
+  updateSessionFullAuto,
   updateSessionModel,
   updateSessionRag,
 } from '../memory/db.js';
@@ -183,6 +198,9 @@ const PERMANENT_DELEGATION_ERROR_PATTERNS: RegExp[] = [
 ];
 let cachedGitCommitShort: string | null | undefined;
 const pendingSessionResets = new Map<string, PendingSessionReset>();
+const fullAutoRuntimeBySession = new Map<string, FullAutoRuntimeState>();
+const MAX_QUEUED_FULLAUTO_MESSAGES = 100;
+const FULLAUTO_OUTSIDE_HOURS_DELAY_MS = 60_000;
 
 type DelegationMode = 'single' | 'parallel' | 'chain';
 type DelegationRunStatus = 'completed' | 'failed' | 'timeout';
@@ -194,6 +212,20 @@ interface PendingSessionReset {
   workspacePath: string;
   model: string;
   chatbotId: string;
+}
+
+interface FullAutoRuntimeState {
+  timer: ReturnType<typeof setTimeout> | null;
+  running: boolean;
+  turns: number;
+  consecutiveErrors: number;
+  guildId: string | null;
+  userId: string;
+  username: string | null;
+  chatbotId: string | null;
+  model: string | null;
+  enableRag: boolean | null;
+  onProactiveMessage?: ((message: ProactiveMessagePayload) => void | Promise<void>) | null;
 }
 
 interface NormalizedDelegationTask {
@@ -253,6 +285,7 @@ export interface GatewayChatRequest {
     message: ProactiveMessagePayload,
   ) => void | Promise<void>;
   abortSignal?: AbortSignal;
+  source?: string;
 }
 
 export interface ProactiveMessagePayload {
@@ -1188,6 +1221,9 @@ export function getGatewayStatus(): GatewayStatus {
     activeContainers: sandbox.activeSessions,
     defaultModel: HYBRIDAI_MODEL,
     ragDefault: HYBRIDAI_ENABLE_RAG,
+    fullAuto: {
+      activeSessions: getFullAutoSessionCount(),
+    },
     timestamp: new Date().toISOString(),
     codex: {
       authenticated: codex.authenticated,
@@ -1322,6 +1358,477 @@ function inferDelegationStatus(errorText: string): DelegationRunStatus {
   return /timeout|timed out|deadline exceeded/i.test(errorText)
     ? 'timeout'
     : 'failed';
+}
+
+function getOrCreateFullAutoRuntimeState(sessionId: string): FullAutoRuntimeState {
+  let state = fullAutoRuntimeBySession.get(sessionId);
+  if (state) return state;
+  state = {
+    timer: null,
+    running: false,
+    turns: 0,
+    consecutiveErrors: 0,
+    guildId: null,
+    userId: 'fullauto-user',
+    username: 'fullauto',
+    chatbotId: null,
+    model: null,
+    enableRag: null,
+    onProactiveMessage: null,
+  };
+  fullAutoRuntimeBySession.set(sessionId, state);
+  return state;
+}
+
+function clearFullAutoTimer(sessionId: string): void {
+  const state = fullAutoRuntimeBySession.get(sessionId);
+  if (!state?.timer) return;
+  clearTimeout(state.timer);
+  state.timer = null;
+}
+
+function clearFullAutoRuntimeState(sessionId: string): void {
+  clearFullAutoTimer(sessionId);
+  if (!fullAutoRuntimeBySession.get(sessionId)?.running) {
+    fullAutoRuntimeBySession.delete(sessionId);
+  }
+}
+
+function isFullAutoEnabled(session: Session): boolean {
+  return session.full_auto_enabled === 1;
+}
+
+function resolveSessionRalphIterations(session: Session): number {
+  return isFullAutoEnabled(session) ? -1 : PROACTIVE_RALPH_MAX_ITERATIONS;
+}
+
+function resolveFullAutoPrompt(session: Session): string {
+  return session.full_auto_prompt?.trim() || FULLAUTO_DEFAULT_PROMPT;
+}
+
+function updateFullAutoRuntimeContext(
+  sessionId: string,
+  params: {
+    guildId?: string | null;
+    userId?: string | null;
+    username?: string | null;
+    chatbotId?: string | null;
+    model?: string | null;
+    enableRag?: boolean | null;
+    onProactiveMessage?: ((message: ProactiveMessagePayload) => void | Promise<void>) | null;
+  },
+): FullAutoRuntimeState {
+  const state = getOrCreateFullAutoRuntimeState(sessionId);
+  if (params.guildId !== undefined) state.guildId = params.guildId;
+  if (typeof params.userId === 'string' && params.userId.trim()) {
+    state.userId = params.userId.trim();
+  }
+  if (params.username !== undefined) {
+    state.username =
+      typeof params.username === 'string' && params.username.trim()
+        ? params.username.trim()
+        : null;
+  }
+  if (params.chatbotId !== undefined) state.chatbotId = params.chatbotId;
+  if (params.model !== undefined) state.model = params.model;
+  if (params.enableRag !== undefined) state.enableRag = params.enableRag;
+  if (params.onProactiveMessage !== undefined) {
+    state.onProactiveMessage = params.onProactiveMessage;
+  }
+  return state;
+}
+
+function hasPendingApproval(result: GatewayChatResult): boolean {
+  return (result.toolExecutions || []).some(
+    (execution) => execution.approvalDecision === 'required',
+  );
+}
+
+async function deliverFullAutoMessage(params: {
+  sessionId: string;
+  channelId: string;
+  text: string;
+  source: string;
+  artifacts?: ArtifactMetadata[];
+  onProactiveMessage?: ((message: ProactiveMessagePayload) => void | Promise<void>) | null;
+}): Promise<void> {
+  const trimmed = params.text.trim();
+  if (!trimmed) return;
+  if (params.onProactiveMessage) {
+    try {
+      await params.onProactiveMessage({
+        text: trimmed,
+        artifacts: params.artifacts,
+      });
+      return;
+    } catch (err) {
+      logger.warn(
+        { sessionId: params.sessionId, channelId: params.channelId, err },
+        'Full-auto proactive callback failed; falling back to queue',
+      );
+    }
+  }
+
+  const { queued, dropped } = enqueueProactiveMessage(
+    params.channelId,
+    trimmed,
+    params.source,
+    MAX_QUEUED_FULLAUTO_MESSAGES,
+  );
+  logger.info(
+    {
+      sessionId: params.sessionId,
+      channelId: params.channelId,
+      source: params.source,
+      queued,
+      dropped,
+      artifactCount: params.artifacts?.length || 0,
+    },
+    'Queued full-auto proactive message',
+  );
+}
+
+async function disableFullAutoSession(params: {
+  sessionId: string;
+  reason?: string | null;
+  notify?: boolean;
+  channelId?: string;
+  onProactiveMessage?: ((message: ProactiveMessagePayload) => void | Promise<void>) | null;
+}): Promise<void> {
+  updateSessionFullAuto(params.sessionId, {
+    enabled: false,
+    prompt: null,
+    startedAt: null,
+  });
+  const state = fullAutoRuntimeBySession.get(params.sessionId);
+  clearFullAutoTimer(params.sessionId);
+  if (!state?.running) {
+    fullAutoRuntimeBySession.delete(params.sessionId);
+  }
+  if (!params.notify) return;
+  const session = memoryService.getSessionById(params.sessionId);
+  const channelId = params.channelId || session?.channel_id;
+  if (!channelId) return;
+  const detail =
+    typeof params.reason === 'string' && params.reason.trim()
+      ? ` ${params.reason.trim()}`
+      : '';
+  await deliverFullAutoMessage({
+    sessionId: params.sessionId,
+    channelId,
+    text: `Full-auto mode disabled.${detail}`,
+    source: 'fullauto',
+    onProactiveMessage: params.onProactiveMessage ?? state?.onProactiveMessage,
+  });
+}
+
+function classifyFullAutoError(errorText: string): DelegationErrorClass {
+  return classifyDelegationError(errorText);
+}
+
+function isFullAutoCostCapExceeded(sessionId: string): {
+  exceeded: boolean;
+  reason?: string;
+} {
+  if (
+    FULLAUTO_MAX_SESSION_COST_USD <= 0 &&
+    FULLAUTO_MAX_SESSION_TOTAL_TOKENS <= 0
+  ) {
+    return { exceeded: false };
+  }
+
+  const totals = getSessionUsageTotals(sessionId);
+  if (
+    FULLAUTO_MAX_SESSION_COST_USD > 0 &&
+    totals.total_cost_usd >= FULLAUTO_MAX_SESSION_COST_USD
+  ) {
+    return {
+      exceeded: true,
+      reason: `Session cost cap reached ($${totals.total_cost_usd.toFixed(4)} >= $${FULLAUTO_MAX_SESSION_COST_USD.toFixed(4)}).`,
+    };
+  }
+  if (
+    FULLAUTO_MAX_SESSION_TOTAL_TOKENS > 0 &&
+    totals.total_tokens >= FULLAUTO_MAX_SESSION_TOTAL_TOKENS
+  ) {
+    return {
+      exceeded: true,
+      reason: `Session token cap reached (${formatCompactNumber(totals.total_tokens)} >= ${formatCompactNumber(FULLAUTO_MAX_SESSION_TOTAL_TOKENS)}).`,
+    };
+  }
+  return { exceeded: false };
+}
+
+function buildFullAutoStatusLines(session: Session): string[] {
+  const state = fullAutoRuntimeBySession.get(session.id);
+  const prompt = resolveFullAutoPrompt(session);
+  return [
+    `Enabled: ${isFullAutoEnabled(session) ? 'yes' : 'no'}`,
+    `Prompt: ${abbreviateForUser(prompt, 180)}`,
+    `Started: ${session.full_auto_started_at || 'n/a'}`,
+    `Turns: ${state?.turns ?? 0}/${FULLAUTO_MAX_CONSECUTIVE_TURNS}`,
+    `Consecutive errors: ${state?.consecutiveErrors ?? 0}/${FULLAUTO_MAX_CONSECUTIVE_ERRORS}`,
+    `Cooldown: ${FULLAUTO_COOLDOWN_MS}ms`,
+    `Ralph: ${formatRalphIterations(resolveSessionRalphIterations(session))}`,
+    `Never auto-approve: ${FULLAUTO_NEVER_APPROVE_TOOLS.join(', ') || '(none)'}`,
+  ];
+}
+
+function maybeScheduleFullAutoAfterSuccess(params: {
+  session: Session;
+  req: GatewayChatRequest;
+  result: GatewayChatResult;
+}): void {
+  const session =
+    memoryService.getSessionById(params.session.id) ?? params.session;
+  if (!isFullAutoEnabled(session)) return;
+  if (!String(params.result.result || '').trim()) return;
+  if (hasPendingApproval(params.result)) return;
+  scheduleFullAutoContinuation({
+    session,
+    req: {
+      guildId: params.req.guildId,
+      userId: params.req.userId,
+      username: params.req.username ?? null,
+      chatbotId: params.req.chatbotId ?? session.chatbot_id,
+      model: params.req.model ?? session.model,
+      enableRag: params.req.enableRag ?? (session.enable_rag === 1),
+      onProactiveMessage: params.req.onProactiveMessage,
+    },
+  });
+}
+
+function scheduleFullAutoContinuation(params: {
+  session: Session;
+  req: Pick<
+    GatewayChatRequest,
+    | 'guildId'
+    | 'userId'
+    | 'username'
+    | 'chatbotId'
+    | 'model'
+    | 'enableRag'
+    | 'onProactiveMessage'
+  >;
+  delayMs?: number;
+}): void {
+  if (!isFullAutoEnabled(params.session)) return;
+  const state = updateFullAutoRuntimeContext(params.session.id, {
+    guildId: params.req.guildId,
+    userId: params.req.userId,
+    username: params.req.username ?? null,
+    chatbotId: params.req.chatbotId ?? params.session.chatbot_id,
+    model: params.req.model ?? params.session.model,
+    enableRag:
+      params.req.enableRag ?? (params.session.enable_rag === 1),
+    onProactiveMessage: params.req.onProactiveMessage,
+  });
+  clearFullAutoTimer(params.session.id);
+  const delayMs = Math.max(0, Math.floor(params.delayMs ?? FULLAUTO_COOLDOWN_MS));
+  state.timer = setTimeout(() => {
+    state.timer = null;
+    void runFullAutoTurn(params.session.id);
+  }, delayMs);
+}
+
+async function runFullAutoTurn(sessionId: string): Promise<void> {
+  let session = memoryService.getSessionById(sessionId);
+  if (!session || !isFullAutoEnabled(session)) {
+    clearFullAutoRuntimeState(sessionId);
+    return;
+  }
+
+  const state = getOrCreateFullAutoRuntimeState(sessionId);
+  if (state.running) return;
+  if (state.turns >= FULLAUTO_MAX_CONSECUTIVE_TURNS) {
+    await disableFullAutoSession({
+      sessionId,
+      reason: `Safety cap reached after ${FULLAUTO_MAX_CONSECUTIVE_TURNS} consecutive turns.`,
+      notify: true,
+      channelId: session.channel_id,
+      onProactiveMessage: state.onProactiveMessage,
+    });
+    return;
+  }
+  const capCheck = isFullAutoCostCapExceeded(sessionId);
+  if (capCheck.exceeded) {
+    await disableFullAutoSession({
+      sessionId,
+      reason: capCheck.reason,
+      notify: true,
+      channelId: session.channel_id,
+      onProactiveMessage: state.onProactiveMessage,
+    });
+    return;
+  }
+  if (!isWithinActiveHours()) {
+    logger.info(
+      { sessionId, activeHours: proactiveWindowLabel() },
+      'Full-auto paused outside active hours',
+    );
+    scheduleFullAutoContinuation({
+      session,
+      req: {
+        guildId: state.guildId,
+        userId: state.userId,
+        username: state.username,
+        chatbotId: state.chatbotId,
+        model: state.model,
+        enableRag: state.enableRag ?? undefined,
+        onProactiveMessage: state.onProactiveMessage ?? undefined,
+      },
+      delayMs: FULLAUTO_OUTSIDE_HOURS_DELAY_MS,
+    });
+    return;
+  }
+
+  state.running = true;
+  const maxAttempts = PROACTIVE_AUTO_RETRY_ENABLED
+    ? PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS
+    : 1;
+  let attempt = 0;
+  let delayMs = PROACTIVE_AUTO_RETRY_BASE_DELAY_MS;
+  let lastError = 'Unknown full-auto error';
+  let lastClassification: DelegationErrorClass = 'unknown';
+
+  try {
+    while (attempt < maxAttempts) {
+      attempt += 1;
+      session = memoryService.getSessionById(sessionId);
+      if (!session || !isFullAutoEnabled(session)) return;
+
+      const result = await handleGatewayMessage({
+        sessionId,
+        guildId: state.guildId,
+        channelId: session.channel_id,
+        userId: state.userId,
+        username: state.username || 'fullauto',
+        content: resolveFullAutoPrompt(session),
+        chatbotId: state.chatbotId ?? session.chatbot_id,
+        model: state.model ?? session.model,
+        enableRag: state.enableRag ?? (session.enable_rag === 1),
+        onProactiveMessage: state.onProactiveMessage ?? undefined,
+        source: 'fullauto',
+      });
+
+      if (result.status === 'success') {
+        if (!isSilentReply(result.result || '')) {
+          await deliverFullAutoMessage({
+            sessionId,
+            channelId: session.channel_id,
+            text: String(result.result || '').trim(),
+            source: 'fullauto',
+            artifacts: result.artifacts,
+            onProactiveMessage: state.onProactiveMessage,
+          });
+        }
+
+        if (hasPendingApproval(result)) {
+          await disableFullAutoSession({
+            sessionId,
+            reason:
+              'A tool still requires manual approval and is not eligible for automatic approval.',
+            notify: true,
+            channelId: session.channel_id,
+            onProactiveMessage: state.onProactiveMessage,
+          });
+          return;
+        }
+
+        state.turns += 1;
+        state.consecutiveErrors = 0;
+        return;
+      }
+
+      lastError = result.error || 'Unknown full-auto error';
+      lastClassification = classifyFullAutoError(lastError);
+      if (lastClassification === 'transient' && attempt < maxAttempts) {
+        await sleep(delayMs);
+        delayMs = Math.min(delayMs * 2, PROACTIVE_AUTO_RETRY_MAX_DELAY_MS);
+        continue;
+      }
+      break;
+    }
+
+    state.consecutiveErrors += 1;
+    const shouldDisable =
+      lastClassification === 'permanent' ||
+      state.consecutiveErrors >= FULLAUTO_MAX_CONSECUTIVE_ERRORS;
+    if (shouldDisable) {
+      const activeSession = session ?? memoryService.getSessionById(sessionId);
+      if (!activeSession) return;
+      await disableFullAutoSession({
+        sessionId,
+        reason: lastError,
+        notify: true,
+        channelId: activeSession.channel_id,
+        onProactiveMessage: state.onProactiveMessage,
+      });
+      return;
+    }
+
+    logger.warn(
+      { sessionId, error: lastError, consecutiveErrors: state.consecutiveErrors },
+      'Full-auto turn failed but remains enabled',
+    );
+    const activeSession = session ?? memoryService.getSessionById(sessionId);
+    if (!activeSession) return;
+    scheduleFullAutoContinuation({
+      session: activeSession,
+      req: {
+        guildId: state.guildId,
+        userId: state.userId,
+        username: state.username,
+        chatbotId: state.chatbotId,
+        model: state.model,
+        enableRag: state.enableRag ?? undefined,
+        onProactiveMessage: state.onProactiveMessage ?? undefined,
+      },
+      delayMs: FULLAUTO_COOLDOWN_MS,
+    });
+  } catch (err) {
+    const errorText = err instanceof Error ? err.message : String(err);
+    state.consecutiveErrors += 1;
+    const shouldDisable =
+      classifyFullAutoError(errorText) === 'permanent' ||
+      state.consecutiveErrors >= FULLAUTO_MAX_CONSECUTIVE_ERRORS;
+    if (shouldDisable) {
+      const activeSession = session ?? memoryService.getSessionById(sessionId);
+      if (!activeSession) return;
+      await disableFullAutoSession({
+        sessionId,
+        reason: errorText,
+        notify: true,
+        channelId: activeSession.channel_id,
+        onProactiveMessage: state.onProactiveMessage,
+      });
+    } else {
+      logger.warn(
+        { sessionId, err, consecutiveErrors: state.consecutiveErrors },
+        'Full-auto turn crashed but remains enabled',
+      );
+      const activeSession = session ?? memoryService.getSessionById(sessionId);
+      if (!activeSession) return;
+      scheduleFullAutoContinuation({
+        session: activeSession,
+        req: {
+          guildId: state.guildId,
+          userId: state.userId,
+          username: state.username,
+          chatbotId: state.chatbotId,
+          model: state.model,
+          enableRag: state.enableRag ?? undefined,
+          onProactiveMessage: state.onProactiveMessage ?? undefined,
+        },
+        delayMs: FULLAUTO_COOLDOWN_MS,
+      });
+    }
+  } finally {
+    state.running = false;
+    if (!memoryService.getSessionById(sessionId)?.full_auto_enabled) {
+      clearFullAutoRuntimeState(sessionId);
+    }
+  }
 }
 
 function normalizeDelegationTask(
@@ -1489,6 +1996,9 @@ async function runDelegationTaskWithRetry(
         task.model,
         agentId,
         channelId,
+        undefined,
+        undefined,
+        undefined,
         undefined,
         allowedTools,
       );
@@ -1843,11 +2353,25 @@ export async function handleGatewayMessage(
 ): Promise<GatewayChatResult> {
   const startedAt = Date.now();
   const runId = makeAuditRunId('turn');
+  const source = req.source?.trim() || 'gateway.chat';
   let session = memoryService.getOrCreateSession(
     req.sessionId,
     req.guildId,
     req.channelId,
   );
+  const fullAutoState = fullAutoRuntimeBySession.get(req.sessionId);
+  if (source !== 'fullauto' && fullAutoState?.running) {
+    return {
+      status: 'error',
+      result: null,
+      toolsUsed: [],
+      error:
+        'Full-auto turn is still running for this session. Use `stop` to interrupt it or wait for it to finish.',
+    };
+  }
+  if (source !== 'fullauto') {
+    clearFullAutoTimer(req.sessionId);
+  }
   const chatbotId = req.chatbotId ?? session.chatbot_id ?? HYBRIDAI_CHATBOT_ID;
   const enableRag = req.enableRag ?? session.enable_rag === 1;
   const model = req.model ?? session.model ?? HYBRIDAI_MODEL;
@@ -1878,6 +2402,17 @@ export async function handleGatewayMessage(
       'Cleared session history after workspace reset',
     );
   }
+  if (isFullAutoEnabled(session)) {
+    updateFullAutoRuntimeContext(req.sessionId, {
+      guildId: req.guildId,
+      userId: req.userId,
+      username: req.username ?? null,
+      chatbotId,
+      model,
+      enableRag,
+      onProactiveMessage: req.onProactiveMessage ?? null,
+    });
+  }
   const turnIndex = session.message_count + 1;
   const debugMeta = {
     sessionId: req.sessionId,
@@ -1903,7 +2438,7 @@ export async function handleGatewayMessage(
       channel: req.channelId,
       cwd: workspacePath,
       model,
-      source: 'gateway.chat',
+      source,
     },
   });
   recordAuditEvent({
@@ -1915,6 +2450,7 @@ export async function handleGatewayMessage(
       userInput: req.content,
       username: req.username,
       mediaCount: media.length,
+      source,
     },
   });
 
@@ -1992,11 +2528,13 @@ export async function handleGatewayMessage(
       toolCallCount: 0,
       startedAt,
     });
-    return {
+    const result: GatewayChatResult = {
       status: 'success',
       result: resultText,
       toolsUsed: [],
     };
+    maybeScheduleFullAutoAfterSuccess({ session, req, result });
+    return result;
   }
 
   const history = memoryService
@@ -2162,6 +2700,9 @@ export async function handleGatewayMessage(
       model,
       agentId,
       req.channelId,
+      resolveSessionRalphIterations(session),
+      isFullAutoEnabled(session),
+      FULLAUTO_NEVER_APPROVE_TOOLS,
       scheduledTasks,
       undefined,
       mediaPolicy.blockedTools,
@@ -2353,7 +2894,7 @@ export async function handleGatewayMessage(
       startedAt,
     });
 
-    return {
+    const result: GatewayChatResult = {
       status: 'success',
       result: resultText,
       toolsUsed: output.toolsUsed || [],
@@ -2362,6 +2903,8 @@ export async function handleGatewayMessage(
       tokenUsage: output.tokenUsage,
       effectiveUserPrompt: output.effectiveUserPrompt,
     };
+    maybeScheduleFullAutoAfterSuccess({ session, req, result });
+    return result;
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     logAudit(
@@ -2488,6 +3031,7 @@ export async function handleGatewayCommand(
         '`channel mode [off|mention|free]` — Set or inspect this Discord channel response mode',
         '`channel policy [open|allowlist|disabled]` — Set or inspect guild channel policy',
         '`ralph [on|off|set <n>|info]` — Configure Ralph loop (0 off, -1 unlimited)',
+        '`fullauto [status|off|<prompt>]` — Enable/inspect/disable session full-auto mode',
         '`mcp list` — List configured MCP servers',
         '`mcp add <name> <json>` — Add or update an MCP server config',
         '`mcp remove <name>` — Remove an MCP server config',
@@ -2498,6 +3042,7 @@ export async function handleGatewayCommand(
         '`/compact` — Archive older history, summarize it, and retain recent context',
         '`/status` — Show runtime status (Discord slash command, private to caller)',
         '`/approve [view|yes|session|agent|no] [approval_id]` — View/respond to pending approvals privately',
+        '`stop` — Abort the current session run and disable full-auto mode',
         '`/channel-mode <off|mention|free>` — Set this Discord channel response mode',
         '`/channel-policy <open|allowlist|disabled>` — Set Discord guild channel policy',
         '`/model list` — List available runtime models',
@@ -2813,6 +3358,145 @@ export async function handleGatewayCommand(
       );
     }
 
+    case 'fullauto': {
+      const sub = (req.args[1] || '').trim().toLowerCase();
+      if (!sub || sub === 'on') {
+        const promptText = req.args.slice(2).join(' ').trim();
+        const prompt = promptText || null;
+        updateSessionFullAuto(session.id, {
+          enabled: true,
+          prompt,
+          startedAt: new Date().toISOString(),
+        });
+        const refreshed =
+          memoryService.getSessionById(session.id) ?? session;
+        const state = getOrCreateFullAutoRuntimeState(session.id);
+        state.turns = 0;
+        state.consecutiveErrors = 0;
+        updateFullAutoRuntimeContext(session.id, {
+          guildId: req.guildId,
+          userId: req.userId ?? 'fullauto-user',
+          username: req.username ?? 'fullauto',
+          chatbotId: refreshed.chatbot_id,
+          model: refreshed.model,
+          enableRag: refreshed.enable_rag === 1,
+          onProactiveMessage: null,
+        });
+        scheduleFullAutoContinuation({
+          session: refreshed,
+          req: {
+            guildId: req.guildId,
+            userId: req.userId ?? 'fullauto-user',
+            username: req.username ?? 'fullauto',
+            chatbotId: refreshed.chatbot_id,
+            model: refreshed.model,
+            enableRag: refreshed.enable_rag === 1,
+            onProactiveMessage: undefined,
+          },
+          delayMs: FULLAUTO_COOLDOWN_MS,
+        });
+        return infoCommand(
+          'Full-Auto Enabled',
+          [
+            'Full-auto mode enabled. Agent will run indefinitely. Use `stop` or `fullauto off` to halt.',
+            `Prompt: ${resolveFullAutoPrompt(refreshed)}`,
+            `Ralph: ${formatRalphIterations(resolveSessionRalphIterations(refreshed))}`,
+          ].join('\n'),
+        );
+      }
+
+      if (sub === 'off' || sub === 'disable') {
+        updateSessionFullAuto(session.id, {
+          enabled: false,
+          prompt: null,
+          startedAt: null,
+        });
+        clearFullAutoTimer(session.id);
+        if (!fullAutoRuntimeBySession.get(session.id)?.running) {
+          fullAutoRuntimeBySession.delete(session.id);
+        }
+        return plainCommand(
+          'Full-auto mode disabled. Current turns may finish, but no further auto-turns will be queued.',
+        );
+      }
+
+      if (sub === 'status' || sub === 'info') {
+        const refreshed =
+          memoryService.getSessionById(session.id) ?? session;
+        return infoCommand(
+          'Full-Auto Status',
+          buildFullAutoStatusLines(refreshed).join('\n'),
+        );
+      }
+
+      const prompt = req.args.slice(1).join(' ').trim();
+      if (!prompt) {
+        return badCommand(
+          'Usage',
+          'Usage: `fullauto [status|off|<prompt>]`',
+        );
+      }
+      updateSessionFullAuto(session.id, {
+        enabled: true,
+        prompt,
+        startedAt: new Date().toISOString(),
+      });
+      const refreshed =
+        memoryService.getSessionById(session.id) ?? session;
+      const state = getOrCreateFullAutoRuntimeState(session.id);
+      state.turns = 0;
+      state.consecutiveErrors = 0;
+      updateFullAutoRuntimeContext(session.id, {
+        guildId: req.guildId,
+        userId: req.userId ?? 'fullauto-user',
+        username: req.username ?? 'fullauto',
+        chatbotId: refreshed.chatbot_id,
+        model: refreshed.model,
+        enableRag: refreshed.enable_rag === 1,
+        onProactiveMessage: null,
+      });
+      scheduleFullAutoContinuation({
+        session: refreshed,
+        req: {
+          guildId: req.guildId,
+          userId: req.userId ?? 'fullauto-user',
+          username: req.username ?? 'fullauto',
+          chatbotId: refreshed.chatbot_id,
+          model: refreshed.model,
+          enableRag: refreshed.enable_rag === 1,
+          onProactiveMessage: undefined,
+        },
+        delayMs: FULLAUTO_COOLDOWN_MS,
+      });
+      return infoCommand(
+        'Full-Auto Enabled',
+        [
+          'Full-auto mode enabled. Agent will run indefinitely. Use `stop` or `fullauto off` to halt.',
+          `Prompt: ${resolveFullAutoPrompt(refreshed)}`,
+          `Ralph: ${formatRalphIterations(resolveSessionRalphIterations(refreshed))}`,
+        ].join('\n'),
+      );
+    }
+
+    case 'stop':
+    case 'abort': {
+      updateSessionFullAuto(session.id, {
+        enabled: false,
+        prompt: null,
+        startedAt: null,
+      });
+      clearFullAutoTimer(session.id);
+      const stopped = stopSessionExecution(req.sessionId);
+      if (!fullAutoRuntimeBySession.get(session.id)?.running) {
+        fullAutoRuntimeBySession.delete(session.id);
+      }
+      return plainCommand(
+        stopped
+          ? 'Stopped the current session run and disabled full-auto mode.'
+          : 'No active session run. Full-auto mode disabled.',
+      );
+    }
+
     case 'mcp': {
       const sub = (req.args[1] || 'list').toLowerCase();
       const runtimeConfig = getRuntimeConfig();
@@ -2954,6 +3638,12 @@ export async function handleGatewayCommand(
         }
 
         pendingSessionResets.delete(req.sessionId);
+        updateSessionFullAuto(session.id, {
+          enabled: false,
+          prompt: null,
+          startedAt: null,
+        });
+        clearFullAutoTimer(session.id);
         stopSessionExecution(req.sessionId);
         const deleted = memoryService.clearSessionHistory(session.id);
         updateSessionChatbot(session.id, null);
@@ -3052,6 +3742,10 @@ export async function handleGatewayCommand(
             ? `${formatCompactNumber(metrics.contextUsedTokens)}/? (window unknown)`
             : 'n/a';
       const sandboxLabel = `${status.sandbox?.mode || 'container'} (${status.sandbox?.activeSessions ?? status.activeContainers} active)`;
+      const fullAutoState = fullAutoRuntimeBySession.get(session.id);
+      const fullAutoLabel = isFullAutoEnabled(session)
+        ? `on (${fullAutoState?.turns ?? 0} turns, ${fullAutoState?.consecutiveErrors ?? 0} errors)`
+        : 'off';
       const lines = [
         `🦞 HybridClaw v${status.version}${commitShort ? ` (${commitShort})` : ''}`,
         `🧠 Model: ${sessionModel}`,
@@ -3062,7 +3756,8 @@ export async function handleGatewayCommand(
         `📚 Context: ${contextLabel} · 🧹 Compactions: ${session.compaction_count}`,
         `📊 Usage: uptime ${formatUptime(status.uptime)} · sessions ${status.sessions} · sandbox ${sandboxLabel}`,
         `🧵 Session: ${session.id} • updated ${formatRelativeTime(session.last_active)}`,
-        `⚙️ Runtime: ${status.sandbox?.mode || 'container'} · RAG: ${session.enable_rag ? 'on' : 'off'} · Ralph: ${formatRalphIterations(normalizeRalphIterations(PROACTIVE_RALPH_MAX_ITERATIONS))}`,
+        `⚙️ Runtime: ${status.sandbox?.mode || 'container'} · RAG: ${session.enable_rag ? 'on' : 'off'} · Ralph: ${formatRalphIterations(resolveSessionRalphIterations(session))}`,
+        `🤖 Full-auto: ${fullAutoLabel}`,
         `👥 Activation: ${resolveActivationModeLabel()} · 🪢 Queue: ${queueLabel} · 📬 Proactive queued: ${proactiveQueued}`,
       ];
       return infoCommand('Status', lines.join('\n'));

@@ -351,6 +351,9 @@ export async function runHostProcess(params: {
   model?: string;
   agentId?: string;
   channelId?: string;
+  ralphMaxIterations?: number | null;
+  fullAutoEnabled?: boolean;
+  fullAutoNeverApproveTools?: string[];
   scheduledTasks?: ScheduledTask[];
   allowedTools?: string[];
   blockedTools?: string[];
@@ -367,6 +370,9 @@ export async function runHostProcess(params: {
     model = HYBRIDAI_MODEL,
     agentId = chatbotId,
     channelId = '',
+    ralphMaxIterations,
+    fullAutoEnabled,
+    fullAutoNeverApproveTools,
     scheduledTasks,
     allowedTools,
     blockedTools,
@@ -410,6 +416,9 @@ export async function runHostProcess(params: {
     gatewayBaseUrl: GATEWAY_BASE_URL,
     gatewayApiToken: GATEWAY_API_TOKEN || undefined,
     model,
+    ralphMaxIterations,
+    fullAutoEnabled,
+    fullAutoNeverApproveTools,
     maxTokens: HYBRIDAI_MAX_TOKENS,
     channelId,
     configuredDiscordChannels: collectConfiguredDiscordChannelIds(channelId),
@@ -533,6 +542,9 @@ export class HostExecutor {
     model?: string;
     agentId?: string;
     channelId?: string;
+    ralphMaxIterations?: number | null;
+    fullAutoEnabled?: boolean;
+    fullAutoNeverApproveTools?: string[];
     scheduledTasks?: ScheduledTask[];
     allowedTools?: string[];
     blockedTools?: string[];

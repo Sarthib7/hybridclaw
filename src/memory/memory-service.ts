@@ -691,6 +691,9 @@ export class MemoryService {
       agentId,
       params.session.channel_id,
       undefined,
+      undefined,
+      undefined,
+      undefined,
       [],
     );
 

@@ -37,6 +37,7 @@ export interface GatewayChatResult {
       | 'approved_once'
       | 'approved_session'
       | 'approved_agent'
+      | 'approved_fullauto'
       | 'promoted'
       | 'required'
       | 'denied';
@@ -99,6 +100,7 @@ export interface GatewayCommandRequest {
   channelId: string;
   args: string[];
   userId?: string | null;
+  username?: string | null;
 }
 
 export interface GatewayProactiveMessage {
@@ -135,6 +137,9 @@ export interface GatewayStatus {
   activeContainers: number;
   defaultModel: string;
   ragDefault: boolean;
+  fullAuto?: {
+    activeSessions: number;
+  };
   timestamp: string;
   codex?: {
     authenticated: boolean;

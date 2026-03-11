@@ -666,6 +666,7 @@ async function startDiscordIntegration(): Promise<void> {
           channelId,
           args,
           userId,
+          username,
         });
         if (result.kind === 'error') {
           await reply(formatError(result.title || 'Error', result.text));

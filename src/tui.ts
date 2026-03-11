@@ -266,6 +266,9 @@ function printHelp(): void {
   );
   console.log(`  ${TEAL}/rag [on|off]${RESET}     Toggle or set RAG`);
   console.log(`  ${TEAL}/ralph [on|off|set n]${RESET} Configure Ralph loop`);
+  console.log(
+    `  ${TEAL}/fullauto [status|off|prompt]${RESET} Enable or inspect session full-auto mode`,
+  );
   console.log(`  ${TEAL}/mcp list${RESET}         List configured MCP servers`);
   console.log(
     `  ${TEAL}/mcp add <name> <json>${RESET} Add or update an MCP server`,
@@ -287,7 +290,9 @@ function printHelp(): void {
   console.log(
     `  ${TEAL}/reset [yes|no]${RESET}    Clear history, reset session settings, and remove the agent workspace`,
   );
-  console.log(`  ${TEAL}/stop${RESET}             Interrupt current request`);
+  console.log(
+    `  ${TEAL}/stop${RESET}             Interrupt current request and disable full-auto`,
+  );
   console.log(`  ${TEAL}/exit${RESET}             Quit`);
   console.log(`  ${TEAL}ESC${RESET}               Interrupt current request`);
   console.log();
@@ -379,6 +384,8 @@ async function runGatewayCommand(args: string[]): Promise<void> {
       guildId: null,
       channelId: CHANNEL_ID,
       args,
+      userId: 'tui-user',
+      username: 'user',
     });
     printGatewayCommandResult(result);
   } catch (err) {
@@ -570,6 +577,13 @@ async function handleSlashCommand(
         await runGatewayCommand(['mcp', 'list']);
       }
       return true;
+    case 'fullauto':
+      if (parts.length > 1) {
+        await runGatewayCommand(['fullauto', ...parts.slice(1)]);
+      } else {
+        await runGatewayCommand(['fullauto']);
+      }
+      return true;
     case 'info':
       await runGatewayCommand(['bot', 'info']);
       await runGatewayCommand(['model', 'info']);
@@ -595,10 +609,11 @@ async function handleSlashCommand(
         !activeRunAbortController.signal.aborted
       ) {
         activeRunAbortController.abort();
-        printInfo('Stopping current request...');
+        printInfo('Stopping current request and disabling full-auto...');
       } else {
-        printInfo('No active request.');
+        printInfo('No active foreground request. Disabling full-auto...');
       }
+      await runGatewayCommand(['stop']);
       return true;
     default:
       return false;

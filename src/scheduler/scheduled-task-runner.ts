@@ -82,6 +82,9 @@ export async function runIsolatedScheduledTask(params: {
       channelId,
       undefined,
       undefined,
+      undefined,
+      undefined,
+      undefined,
       ['cron'],
     );
     emitToolExecutionAuditEvents({

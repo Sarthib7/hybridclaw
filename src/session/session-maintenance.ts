@@ -168,6 +168,9 @@ async function runPreCompactionMemoryFlush(params: {
       params.agentId,
       params.channelId,
       undefined,
+      undefined,
+      undefined,
+      undefined,
       ['memory'],
     );
     if (output.status === 'error') {
@@ -233,6 +236,9 @@ async function generateCompactionSummary(params: {
     params.model,
     params.agentId,
     params.channelId,
+    undefined,
+    undefined,
+    undefined,
     undefined,
     [],
   );

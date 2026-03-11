@@ -499,6 +499,9 @@ export async function runContainer(
   model: string = HYBRIDAI_MODEL,
   agentId: string = chatbotId,
   channelId: string = '',
+  ralphMaxIterations?: number | null,
+  fullAutoEnabled?: boolean,
+  fullAutoNeverApproveTools?: string[],
   scheduledTasks?: ScheduledTask[],
   allowedTools?: string[],
   blockedTools?: string[],
@@ -544,6 +547,9 @@ export async function runContainer(
     gatewayBaseUrl: remapHostBaseUrlForContainer(GATEWAY_BASE_URL),
     gatewayApiToken: GATEWAY_API_TOKEN || undefined,
     model,
+    ralphMaxIterations,
+    fullAutoEnabled,
+    fullAutoNeverApproveTools,
     maxTokens: HYBRIDAI_MAX_TOKENS,
     channelId,
     configuredDiscordChannels: collectConfiguredDiscordChannelIds(channelId),
@@ -699,6 +705,9 @@ export class ContainerExecutor {
     model?: string;
     agentId?: string;
     channelId?: string;
+    ralphMaxIterations?: number | null;
+    fullAutoEnabled?: boolean;
+    fullAutoNeverApproveTools?: string[];
     scheduledTasks?: ScheduledTask[];
     allowedTools?: string[];
     blockedTools?: string[];
@@ -715,6 +724,9 @@ export class ContainerExecutor {
       params.model,
       params.agentId,
       params.channelId,
+      params.ralphMaxIterations,
+      params.fullAutoEnabled,
+      params.fullAutoNeverApproveTools,
       params.scheduledTasks,
       params.allowedTools,
       params.blockedTools,

@@ -145,8 +145,7 @@ export async function readOutput(
     timeoutMs,
     Math.floor(
       opts?.maxWallClockMs ??
-        timeoutMs *
-          (activity ? ACTIVITY_HARD_TIMEOUT_MULTIPLIER : 1),
+        timeoutMs * (activity ? ACTIVITY_HARD_TIMEOUT_MULTIPLIER : 1),
     ),
   );
   const hardDeadline = start + hardTimeoutMs;
@@ -156,7 +155,8 @@ export async function readOutput(
 
   while (true) {
     const now = Date.now();
-    const idleDeadline = (activity ? activity.lastActivityMs : start) + timeoutMs;
+    const idleDeadline =
+      (activity ? activity.lastActivityMs : start) + timeoutMs;
     if (now >= hardDeadline) {
       return {
         status: 'error',

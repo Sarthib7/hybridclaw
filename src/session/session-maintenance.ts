@@ -11,11 +11,11 @@ import {
   SESSION_COMPACTION_THRESHOLD,
   SESSION_COMPACTION_TOKEN_BUDGET,
 } from '../config/config.js';
+import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { memoryService } from '../memory/memory-service.js';
 import { loadSkills } from '../skills/skills.js';
 import type { ChatMessage, StoredMessage } from '../types.js';
-import { agentWorkspaceDir } from '../infra/ipc.js';
 import { exportCompactedSessionJsonl } from './session-export.js';
 import {
   estimateTokenCountFromMessages,

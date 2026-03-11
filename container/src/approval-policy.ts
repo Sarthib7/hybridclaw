@@ -929,7 +929,9 @@ export class TrustedCoworkerApprovalRuntime {
     this.fullAutoEnabled = params?.enabled === true;
     this.fullAutoNeverApprove.clear();
     for (const raw of params?.neverApproveTools || []) {
-      const value = String(raw || '').trim().toLowerCase();
+      const value = String(raw || '')
+        .trim()
+        .toLowerCase();
       if (!value) continue;
       this.fullAutoNeverApprove.add(value);
     }

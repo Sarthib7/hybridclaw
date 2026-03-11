@@ -271,14 +271,13 @@ export let PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS = 3;
 export let PROACTIVE_AUTO_RETRY_BASE_DELAY_MS = 2_000;
 export let PROACTIVE_AUTO_RETRY_MAX_DELAY_MS = 8_000;
 export let PROACTIVE_RALPH_MAX_ITERATIONS = 0;
-export let FULLAUTO_COOLDOWN_MS = 3_000;
-export let FULLAUTO_MAX_CONSECUTIVE_TURNS = 1_000;
-export let FULLAUTO_MAX_CONSECUTIVE_ERRORS = 3;
-export let FULLAUTO_DEFAULT_PROMPT =
-  'Continue working on your current task.';
-export let FULLAUTO_NEVER_APPROVE_TOOLS: string[] = ['admin:shutdown'];
-export let FULLAUTO_MAX_SESSION_COST_USD = 0;
-export let FULLAUTO_MAX_SESSION_TOTAL_TOKENS = 0;
+export const FULLAUTO_COOLDOWN_MS = 3_000;
+export const FULLAUTO_MAX_CONSECUTIVE_TURNS = 1_000;
+export const FULLAUTO_MAX_CONSECUTIVE_ERRORS = 3;
+export const FULLAUTO_DEFAULT_PROMPT = 'Continue working on your current task.';
+export const FULLAUTO_NEVER_APPROVE_TOOLS: string[] = ['admin:shutdown'];
+export const FULLAUTO_MAX_SESSION_COST_USD = 0;
+export const FULLAUTO_MAX_SESSION_TOTAL_TOKENS = 0;
 
 const DOCKER_ENV_PATH = '/.dockerenv';
 let sandboxAutoDetectLogged = '';

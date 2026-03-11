@@ -225,7 +225,9 @@ interface FullAutoRuntimeState {
   chatbotId: string | null;
   model: string | null;
   enableRag: boolean | null;
-  onProactiveMessage?: ((message: ProactiveMessagePayload) => void | Promise<void>) | null;
+  onProactiveMessage?:
+    | ((message: ProactiveMessagePayload) => void | Promise<void>)
+    | null;
 }
 
 interface NormalizedDelegationTask {
@@ -1360,7 +1362,9 @@ function inferDelegationStatus(errorText: string): DelegationRunStatus {
     : 'failed';
 }
 
-function getOrCreateFullAutoRuntimeState(sessionId: string): FullAutoRuntimeState {
+function getOrCreateFullAutoRuntimeState(
+  sessionId: string,
+): FullAutoRuntimeState {
   let state = fullAutoRuntimeBySession.get(sessionId);
   if (state) return state;
   state = {
@@ -1415,7 +1419,9 @@ function updateFullAutoRuntimeContext(
     chatbotId?: string | null;
     model?: string | null;
     enableRag?: boolean | null;
-    onProactiveMessage?: ((message: ProactiveMessagePayload) => void | Promise<void>) | null;
+    onProactiveMessage?:
+      | ((message: ProactiveMessagePayload) => void | Promise<void>)
+      | null;
   },
 ): FullAutoRuntimeState {
   const state = getOrCreateFullAutoRuntimeState(sessionId);
@@ -1450,7 +1456,9 @@ async function deliverFullAutoMessage(params: {
   text: string;
   source: string;
   artifacts?: ArtifactMetadata[];
-  onProactiveMessage?: ((message: ProactiveMessagePayload) => void | Promise<void>) | null;
+  onProactiveMessage?:
+    | ((message: ProactiveMessagePayload) => void | Promise<void>)
+    | null;
 }): Promise<void> {
   const trimmed = params.text.trim();
   if (!trimmed) return;
@@ -1493,7 +1501,9 @@ async function disableFullAutoSession(params: {
   reason?: string | null;
   notify?: boolean;
   channelId?: string;
-  onProactiveMessage?: ((message: ProactiveMessagePayload) => void | Promise<void>) | null;
+  onProactiveMessage?:
+    | ((message: ProactiveMessagePayload) => void | Promise<void>)
+    | null;
 }): Promise<void> {
   updateSessionFullAuto(params.sessionId, {
     enabled: false,
@@ -1592,7 +1602,7 @@ function maybeScheduleFullAutoAfterSuccess(params: {
       username: params.req.username ?? null,
       chatbotId: params.req.chatbotId ?? session.chatbot_id,
       model: params.req.model ?? session.model,
-      enableRag: params.req.enableRag ?? (session.enable_rag === 1),
+      enableRag: params.req.enableRag ?? session.enable_rag === 1,
       onProactiveMessage: params.req.onProactiveMessage,
     },
   });
@@ -1619,12 +1629,14 @@ function scheduleFullAutoContinuation(params: {
     username: params.req.username ?? null,
     chatbotId: params.req.chatbotId ?? params.session.chatbot_id,
     model: params.req.model ?? params.session.model,
-    enableRag:
-      params.req.enableRag ?? (params.session.enable_rag === 1),
+    enableRag: params.req.enableRag ?? params.session.enable_rag === 1,
     onProactiveMessage: params.req.onProactiveMessage,
   });
   clearFullAutoTimer(params.session.id);
-  const delayMs = Math.max(0, Math.floor(params.delayMs ?? FULLAUTO_COOLDOWN_MS));
+  const delayMs = Math.max(
+    0,
+    Math.floor(params.delayMs ?? FULLAUTO_COOLDOWN_MS),
+  );
   state.timer = setTimeout(() => {
     state.timer = null;
     void runFullAutoTurn(params.session.id);
@@ -1706,7 +1718,7 @@ async function runFullAutoTurn(sessionId: string): Promise<void> {
         content: resolveFullAutoPrompt(session),
         chatbotId: state.chatbotId ?? session.chatbot_id,
         model: state.model ?? session.model,
-        enableRag: state.enableRag ?? (session.enable_rag === 1),
+        enableRag: state.enableRag ?? session.enable_rag === 1,
         onProactiveMessage: state.onProactiveMessage ?? undefined,
         source: 'fullauto',
       });
@@ -1768,7 +1780,11 @@ async function runFullAutoTurn(sessionId: string): Promise<void> {
     }
 
     logger.warn(
-      { sessionId, error: lastError, consecutiveErrors: state.consecutiveErrors },
+      {
+        sessionId,
+        error: lastError,
+        consecutiveErrors: state.consecutiveErrors,
+      },
       'Full-auto turn failed but remains enabled',
     );
     const activeSession = session ?? memoryService.getSessionById(sessionId);
@@ -3368,8 +3384,7 @@ export async function handleGatewayCommand(
           prompt,
           startedAt: new Date().toISOString(),
         });
-        const refreshed =
-          memoryService.getSessionById(session.id) ?? session;
+        const refreshed = memoryService.getSessionById(session.id) ?? session;
         const state = getOrCreateFullAutoRuntimeState(session.id);
         state.turns = 0;
         state.consecutiveErrors = 0;
@@ -3421,8 +3436,7 @@ export async function handleGatewayCommand(
       }
 
       if (sub === 'status' || sub === 'info') {
-        const refreshed =
-          memoryService.getSessionById(session.id) ?? session;
+        const refreshed = memoryService.getSessionById(session.id) ?? session;
         return infoCommand(
           'Full-Auto Status',
           buildFullAutoStatusLines(refreshed).join('\n'),
@@ -3431,18 +3445,14 @@ export async function handleGatewayCommand(
 
       const prompt = req.args.slice(1).join(' ').trim();
       if (!prompt) {
-        return badCommand(
-          'Usage',
-          'Usage: `fullauto [status|off|<prompt>]`',
-        );
+        return badCommand('Usage', 'Usage: `fullauto [status|off|<prompt>]`');
       }
       updateSessionFullAuto(session.id, {
         enabled: true,
         prompt,
         startedAt: new Date().toISOString(),
       });
-      const refreshed =
-        memoryService.getSessionById(session.id) ?? session;
+      const refreshed = memoryService.getSessionById(session.id) ?? session;
       const state = getOrCreateFullAutoRuntimeState(session.id);
       state.turns = 0;
       state.consecutiveErrors = 0;

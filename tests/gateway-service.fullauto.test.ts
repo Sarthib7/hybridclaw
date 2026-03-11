@@ -63,11 +63,8 @@ test('fullauto command enables auto-turns, queues follow-up results, and can be 
       toolExecutions: [],
     });
 
-  const {
-    initDatabase,
-    listQueuedProactiveMessages,
-    updateSessionChatbot,
-  } = await import('../src/memory/db.ts');
+  const { initDatabase, listQueuedProactiveMessages, updateSessionChatbot } =
+    await import('../src/memory/db.ts');
   const { memoryService } = await import('../src/memory/memory-service.ts');
   const { handleGatewayCommand } = await import(
     '../src/gateway/gateway-service.ts'

@@ -495,11 +495,7 @@ function migrateV5(
     quiet,
   });
 
-  recordMigration(
-    database,
-    5,
-    'Add per-session full-auto state columns',
-  );
+  recordMigration(database, 5, 'Add per-session full-auto state columns');
 }
 
 function runMigrations(
@@ -1728,7 +1724,9 @@ export function getAllSessions(): Session[] {
 
 export function getFullAutoSessionCount(): number {
   const row = db
-    .prepare('SELECT COUNT(*) as count FROM sessions WHERE full_auto_enabled = 1')
+    .prepare(
+      'SELECT COUNT(*) as count FROM sessions WHERE full_auto_enabled = 1',
+    )
     .get() as { count: number };
   return row.count;
 }

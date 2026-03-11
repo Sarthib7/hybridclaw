@@ -1611,9 +1611,9 @@ export function initDiscord(
             });
           },
         );
-        await disableApprovalButtons(interaction.message as DiscordMessage).catch(
-          () => {},
-        );
+        await disableApprovalButtons(
+          interaction.message as DiscordMessage,
+        ).catch(() => {});
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
         logger.error(

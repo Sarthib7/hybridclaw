@@ -25,6 +25,10 @@ import {
   WORKSPACE_ROOT_DISPLAY,
 } from './runtime-paths.js';
 import {
+  advanceStalledTurnCount,
+  MAX_STALLED_MODEL_TURNS,
+} from './stalled-turns.js';
+import {
   collapseSystemMessages,
   mergeSystemMessage,
 } from './system-messages.js';
@@ -35,15 +39,11 @@ import {
   estimateTextTokens,
   finalizeTokenUsage,
 } from './token-usage.js';
-import {
-  advanceStalledTurnCount,
-  MAX_STALLED_MODEL_TURNS,
-} from './stalled-turns.js';
+import type { ToolCallHistoryEntry } from './tool-loop-detection.js';
 import {
   detectToolCallLoop,
   recordToolCallOutcome,
 } from './tool-loop-detection.js';
-import type { ToolCallHistoryEntry } from './tool-loop-detection.js';
 import {
   executeToolWithMetadata,
   getMessageToolDescription,
@@ -1019,7 +1019,11 @@ async function processRequest(
       );
       const loopGuard = blockedReason
         ? { stuck: false as const }
-        : detectToolCallLoop(toolCallHistory, toolName, call.function.arguments);
+        : detectToolCallLoop(
+            toolCallHistory,
+            toolName,
+            call.function.arguments,
+          );
       const runtimeResult = blockedReason
         ? {
             output: `Tool blocked by security hook: ${blockedReason}`,
@@ -1034,7 +1038,8 @@ async function processRequest(
       const toolDuration = Date.now() - toolStart;
       const result = runtimeResult.output;
       const isError = runtimeResult.isError;
-      const executionBlockedReason = blockedReason || (loopGuard.stuck ? loopGuard.message : null);
+      const executionBlockedReason =
+        blockedReason || (loopGuard.stuck ? loopGuard.message : null);
       const succeeded = !isError;
       if (succeeded) {
         successfulToolCallsThisTurn += 1;

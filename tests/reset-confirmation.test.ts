@@ -13,9 +13,7 @@ test('buildResetConfirmationCustomId encodes session ids and parse reverses it',
     sessionId: 'dm:439508376087560193',
   });
 
-  expect(customId).toBe(
-    'reset:yes:345678901234567890:dm%3A439508376087560193',
-  );
+  expect(customId).toBe('reset:yes:345678901234567890:dm%3A439508376087560193');
   expect(parseResetConfirmationCustomId(customId)).toEqual({
     action: 'yes',
     userId: '345678901234567890',

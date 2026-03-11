@@ -60,6 +60,7 @@ import {
   stopScheduler,
 } from '../scheduler/scheduler.js';
 import type { ArtifactMetadata } from '../types.js';
+import { buildApprovalConfirmationComponents } from './approval-confirmation.js';
 import {
   type GatewayChatResult,
   getGatewayStatus,
@@ -68,7 +69,6 @@ import {
   renderGatewayCommand,
   runGatewayScheduledTask,
 } from './gateway-service.js';
-import { buildApprovalConfirmationComponents } from './approval-confirmation.js';
 import { startHealthServer } from './health.js';
 import {
   claimPendingApprovalByApprovalId,
@@ -326,7 +326,11 @@ async function handleApprovalCommand(params: {
       userId,
       expiresAt: pendingApproval.expiresAt,
     });
-    await reply(formatInfo('Pending Approval', resultText), undefined, components);
+    await reply(
+      formatInfo('Pending Approval', resultText),
+      undefined,
+      components,
+    );
     return true;
   }
 

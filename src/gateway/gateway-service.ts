@@ -88,8 +88,6 @@ import {
   estimateTokenCountFromText,
 } from '../session/token-efficiency.js';
 import { expandSkillInvocation } from '../skills/skills.js';
-import { isDiscordChannelId } from './proactive-delivery.js';
-import { buildResetConfirmationComponents } from './reset-confirmation.js';
 import type {
   ArtifactMetadata,
   CanonicalSessionContext,
@@ -114,6 +112,8 @@ import {
   type GatewayStatus,
   renderGatewayCommand,
 } from './gateway-types.js';
+import { isDiscordChannelId } from './proactive-delivery.js';
+import { buildResetConfirmationComponents } from './reset-confirmation.js';
 
 const BOT_CACHE_TTL = 300_000; // 5 minutes
 const MAX_HISTORY_MESSAGES = 40;

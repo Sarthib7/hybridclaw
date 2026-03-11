@@ -30,7 +30,9 @@ describe.sequential('container tool runtime guards', () => {
     );
     vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspaceRoot);
 
-    const { executeToolWithMetadata } = await import('../container/src/tools.js');
+    const { executeToolWithMetadata } = await import(
+      '../container/src/tools.js'
+    );
     const result = await executeToolWithMetadata(
       'read',
       JSON.stringify({ path: 'notes.md' }),
@@ -46,7 +48,9 @@ describe.sequential('container tool runtime guards', () => {
     );
     vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspaceRoot);
 
-    const { executeToolWithMetadata } = await import('../container/src/tools.js');
+    const { executeToolWithMetadata } = await import(
+      '../container/src/tools.js'
+    );
     const result = await executeToolWithMetadata(
       'read',
       JSON.stringify({ path: 'missing.md' }),

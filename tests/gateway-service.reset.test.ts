@@ -171,15 +171,13 @@ test('reset includes Discord button components for Discord command requests', as
           type: 2,
           style: 4,
           label: 'Reset Session',
-          custom_id:
-            'reset:yes:345678901234567890:session-reset',
+          custom_id: 'reset:yes:345678901234567890:session-reset',
         },
         {
           type: 2,
           style: 2,
           label: 'Cancel',
-          custom_id:
-            'reset:no:345678901234567890:session-reset',
+          custom_id: 'reset:no:345678901234567890:session-reset',
         },
       ],
     },

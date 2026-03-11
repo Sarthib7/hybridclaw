@@ -109,8 +109,13 @@ describe('office bundled skills', () => {
     );
     expect(
       fs
-        .readFileSync(path.join(workspaceDir, 'skills', 'xlsx', 'SKILL.md'), 'utf8')
-        .includes('Put new helper scripts in workspace `scripts/` or the workspace root'),
+        .readFileSync(
+          path.join(workspaceDir, 'skills', 'xlsx', 'SKILL.md'),
+          'utf8',
+        )
+        .includes(
+          'Put new helper scripts in workspace `scripts/` or the workspace root',
+        ),
     ).toBe(true);
     expect(
       fs.existsSync(

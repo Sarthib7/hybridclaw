@@ -549,7 +549,9 @@ function extractDeepSeekV3ToolCalls(content: string): {
 
   return toolCalls.length > 0
     ? {
-        content: content.slice(0, content.indexOf(DEEPSEEK_TOOL_CALLS_BEGIN)).trim() || null,
+        content:
+          content.slice(0, content.indexOf(DEEPSEEK_TOOL_CALLS_BEGIN)).trim() ||
+          null,
         toolCalls,
       }
     : { content, toolCalls: [] };
@@ -580,7 +582,9 @@ function extractDeepSeekV31ToolCalls(content: string): {
 
   return toolCalls.length > 0
     ? {
-        content: content.slice(0, content.indexOf(DEEPSEEK_TOOL_CALLS_BEGIN)).trim() || null,
+        content:
+          content.slice(0, content.indexOf(DEEPSEEK_TOOL_CALLS_BEGIN)).trim() ||
+          null,
         toolCalls,
       }
     : { content, toolCalls: [] };
@@ -666,9 +670,7 @@ function recoverBlankStructuredToolNameFromContent(
     function: {
       ...functionRecord,
       name: bareToolName,
-      arguments:
-        functionRecord?.arguments ??
-        rawCallRecord.arguments,
+      arguments: functionRecord?.arguments ?? rawCallRecord.arguments,
     },
   });
   return recoveredToolCall
@@ -679,7 +681,9 @@ function recoverBlankStructuredToolNameFromContent(
 export function resolveToolCallTextParser(
   model: string | undefined,
 ): ToolCallTextParser | null {
-  const normalizedModel = String(model || '').trim().toLowerCase();
+  const normalizedModel = String(model || '')
+    .trim()
+    .toLowerCase();
   if (!normalizedModel) return null;
 
   if (normalizedModel.includes('qwen3') && normalizedModel.includes('coder')) {

@@ -97,9 +97,9 @@ import type {
   McpServerConfig,
   MediaContextItem,
   ScheduledTask,
+  Session,
   StoredMessage,
   StructuredAuditEntry,
-  Session,
   TokenUsageStats,
   ToolProgressEvent,
 } from '../types.js';
@@ -1079,9 +1079,7 @@ function prunePendingSessionResets(now = Date.now()): void {
   }
 }
 
-function getPendingSessionReset(
-  sessionId: string,
-): PendingSessionReset | null {
+function getPendingSessionReset(sessionId: string): PendingSessionReset | null {
   prunePendingSessionResets();
   return pendingSessionResets.get(sessionId) ?? null;
 }
@@ -1854,7 +1852,11 @@ export async function handleGatewayMessage(
     const clearedMessages = memoryService.clearSessionHistory(req.sessionId);
     session =
       memoryService.getSessionById(req.sessionId) ??
-      memoryService.getOrCreateSession(req.sessionId, req.guildId, req.channelId);
+      memoryService.getOrCreateSession(
+        req.sessionId,
+        req.guildId,
+        req.channelId,
+      );
     logger.info(
       {
         sessionId: req.sessionId,
@@ -2926,7 +2928,9 @@ export async function handleGatewayCommand(
 
       if (sub === 'no') {
         pendingSessionResets.delete(req.sessionId);
-        return plainCommand('Reset cancelled. Session history and workspace were left unchanged.');
+        return plainCommand(
+          'Reset cancelled. Session history and workspace were left unchanged.',
+        );
       }
 
       if (sub === 'yes') {

@@ -110,40 +110,42 @@ afterEach(async () => {
   vi.resetModules();
 });
 
-test.each(['HEARTBEAT_OK', 'HEARTBEAT_OK.', 'heartbeat ok'])(
-  'suppresses delivery for %s heartbeat acknowledgements',
-  async (resultText) => {
-    vi.useFakeTimers();
-    mocks.runAgent.mockResolvedValue({
-      status: 'success',
-      result: resultText,
-      toolExecutions: [],
-    });
+test.each([
+  'HEARTBEAT_OK',
+  'HEARTBEAT_OK.',
+  'heartbeat ok',
+])('suppresses delivery for %s heartbeat acknowledgements', async (resultText) => {
+  vi.useFakeTimers();
+  mocks.runAgent.mockResolvedValue({
+    status: 'success',
+    result: resultText,
+    toolExecutions: [],
+  });
 
-    const { startHeartbeat, stopHeartbeat } = await import(
-      '../src/scheduler/heartbeat.ts'
-    );
-    const onMessage = vi.fn();
+  const { startHeartbeat, stopHeartbeat } = await import(
+    '../src/scheduler/heartbeat.ts'
+  );
+  const onMessage = vi.fn();
 
-    startHeartbeat('vllm', 1_000, onMessage);
-    await vi.advanceTimersByTimeAsync(1_000);
-    stopHeartbeat();
+  startHeartbeat('vllm', 1_000, onMessage);
+  await vi.advanceTimersByTimeAsync(1_000);
+  stopHeartbeat();
 
-    expect(onMessage).not.toHaveBeenCalled();
-    expect(mocks.memoryService.storeTurn).not.toHaveBeenCalled();
-    expect(mocks.appendSessionTranscript).not.toHaveBeenCalled();
-    expect(mocks.maybeCompactSession).not.toHaveBeenCalled();
-    expect(
-      mocks.recordAuditEvent.mock.calls.some(([entry]) => {
-        const event = (entry as { event?: { type?: string; finishReason?: string } })
-          .event;
-        return (
-          event?.type === 'turn.end' && event.finishReason === 'heartbeat_ok'
-        );
-      }),
-    ).toBe(true);
-  },
-);
+  expect(onMessage).not.toHaveBeenCalled();
+  expect(mocks.memoryService.storeTurn).not.toHaveBeenCalled();
+  expect(mocks.appendSessionTranscript).not.toHaveBeenCalled();
+  expect(mocks.maybeCompactSession).not.toHaveBeenCalled();
+  expect(
+    mocks.recordAuditEvent.mock.calls.some(([entry]) => {
+      const event = (
+        entry as { event?: { type?: string; finishReason?: string } }
+      ).event;
+      return (
+        event?.type === 'turn.end' && event.finishReason === 'heartbeat_ok'
+      );
+    }),
+  ).toBe(true);
+});
 
 test('delivers substantive heartbeat messages', async () => {
   vi.useFakeTimers();

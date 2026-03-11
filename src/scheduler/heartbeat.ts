@@ -22,6 +22,7 @@ import {
   HYBRIDAI_ENABLE_RAG,
   HYBRIDAI_MODEL,
 } from '../config/config.js';
+import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { getTasksForSession } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
@@ -30,7 +31,6 @@ import {
   resolveAgentIdForModel,
   resolveModelProvider,
 } from '../providers/factory.js';
-import { agentWorkspaceDir } from '../infra/ipc.js';
 import { maybeCompactSession } from '../session/session-maintenance.js';
 import { appendSessionTranscript } from '../session/session-transcripts.js';
 import {

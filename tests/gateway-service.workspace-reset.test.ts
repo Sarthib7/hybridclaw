@@ -99,9 +99,9 @@ test('handleGatewayMessage clears session history when the agent workspace is re
 
   const history = memoryService.getConversationHistory(sessionId, 10);
   expect(history).toHaveLength(2);
-  expect(history.some((message) => message.content === 'old user message')).toBe(
-    false,
-  );
+  expect(
+    history.some((message) => message.content === 'old user message'),
+  ).toBe(false);
   expect(
     history.some((message) => message.content === 'old assistant message'),
   ).toBe(false);

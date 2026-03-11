@@ -6,9 +6,7 @@ export interface WorkerSignatureInput {
   requestHeaders: Record<string, string> | undefined;
 }
 
-export function computeWorkerSignature(
-  input: WorkerSignatureInput,
-): string {
+export function computeWorkerSignature(input: WorkerSignatureInput): string {
   const normalizedHeaders = Object.entries(input.requestHeaders || {})
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([key, value]) => [key, value]);

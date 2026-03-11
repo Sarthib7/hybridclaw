@@ -8,7 +8,9 @@ const ORIGINAL_HOME = process.env.HOME;
 const tempDirs: string[] = [];
 
 function makeTempHome(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-gateway-reset-'));
+  const dir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-gateway-reset-'),
+  );
   tempDirs.push(dir);
   return dir;
 }
@@ -45,7 +47,9 @@ async function seedSessionFixture() {
   } = await import('../src/memory/db.ts');
   const { memoryService } = await import('../src/memory/memory-service.ts');
   const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
-  const { resolveAgentIdForModel } = await import('../src/providers/factory.ts');
+  const { resolveAgentIdForModel } = await import(
+    '../src/providers/factory.ts'
+  );
   const { handleGatewayCommand } = await import(
     '../src/gateway/gateway-service.ts'
   );
@@ -72,7 +76,10 @@ async function seedSessionFixture() {
     content: 'old assistant message',
   });
 
-  const agentId = resolveAgentIdForModel('openai-codex/gpt-5-codex', 'bot-reset');
+  const agentId = resolveAgentIdForModel(
+    'openai-codex/gpt-5-codex',
+    'bot-reset',
+  );
   const workspacePath = agentWorkspaceDir(agentId);
   fs.mkdirSync(path.join(workspacePath, 'scripts'), { recursive: true });
   fs.writeFileSync(
@@ -107,12 +114,12 @@ test('reset requires confirmation and reset no leaves session state intact', asy
   expect(prompt.title).toBe('Confirm Reset');
   expect(prompt.text).toContain('reset yes');
   expect(prompt.text).toContain(fixture.workspacePath);
-  expect(fs.existsSync(path.join(fixture.workspacePath, 'scripts', 'stale.txt'))).toBe(
-    true,
-  );
-  expect(fixture.memoryService.getConversationHistory(fixture.sessionId, 10)).toHaveLength(
-    2,
-  );
+  expect(
+    fs.existsSync(path.join(fixture.workspacePath, 'scripts', 'stale.txt')),
+  ).toBe(true);
+  expect(
+    fixture.memoryService.getConversationHistory(fixture.sessionId, 10),
+  ).toHaveLength(2);
 
   const cancelled = await fixture.handleGatewayCommand({
     sessionId: fixture.sessionId,
@@ -123,12 +130,12 @@ test('reset requires confirmation and reset no leaves session state intact', asy
 
   expect(cancelled.kind).toBe('plain');
   expect(cancelled.text).toContain('Reset cancelled');
-  expect(fs.existsSync(path.join(fixture.workspacePath, 'scripts', 'stale.txt'))).toBe(
-    true,
-  );
-  expect(fixture.memoryService.getConversationHistory(fixture.sessionId, 10)).toHaveLength(
-    2,
-  );
+  expect(
+    fs.existsSync(path.join(fixture.workspacePath, 'scripts', 'stale.txt')),
+  ).toBe(true);
+  expect(
+    fixture.memoryService.getConversationHistory(fixture.sessionId, 10),
+  ).toHaveLength(2);
 
   const missingPrompt = await fixture.handleGatewayCommand({
     sessionId: fixture.sessionId,
@@ -166,9 +173,9 @@ test('reset yes clears history, resets session defaults, and removes the workspa
   expect(result.text).toContain('Deleted 2 messages');
   expect(result.text).toContain('Removed workspace');
 
-  expect(fixture.memoryService.getConversationHistory(fixture.sessionId, 10)).toHaveLength(
-    0,
-  );
+  expect(
+    fixture.memoryService.getConversationHistory(fixture.sessionId, 10),
+  ).toHaveLength(0);
   expect(fs.existsSync(fixture.workspacePath)).toBe(false);
 
   const session = fixture.memoryService.getSessionById(fixture.sessionId);

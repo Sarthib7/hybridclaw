@@ -350,14 +350,10 @@ describe('local discovery', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await discovery.discoverVllmModels('http://127.0.0.1:8000/v1', undefined);
-    expect(
-      (fetchMock.mock.calls[0]?.[1] as RequestInit).headers,
-    ).toEqual({});
+    expect((fetchMock.mock.calls[0]?.[1] as RequestInit).headers).toEqual({});
 
     await discovery.discoverVllmModels('http://127.0.0.1:8000/v1', '');
-    expect(
-      (fetchMock.mock.calls[1]?.[1] as RequestInit).headers,
-    ).toEqual({});
+    expect((fetchMock.mock.calls[1]?.[1] as RequestInit).headers).toEqual({});
   });
 
   test('discoverAllLocalModels caches discovered names for prefixed selection', async () => {

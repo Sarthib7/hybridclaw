@@ -213,8 +213,7 @@ describe('tool call normalizer', () => {
     expect(result.content).toBeNull();
     expect(result.toolCalls[0]?.function).toEqual({
       name: 'write',
-      arguments:
-        '{"path":"scripts/create_sales_workbook.cjs","contents":"hi"}',
+      arguments: '{"path":"scripts/create_sales_workbook.cjs","contents":"hi"}',
     });
   });
 

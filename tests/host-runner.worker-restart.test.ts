@@ -110,7 +110,7 @@ test('HostExecutor respawns the pooled worker when the provider changes for a se
   });
   vi.doMock('../src/infra/ipc.js', async () => {
     const actual = await vi.importActual<typeof import('../src/infra/ipc.js')>(
-      '../src/infra/ipc.js'
+      '../src/infra/ipc.js',
     );
     return {
       ...actual,
@@ -118,10 +118,9 @@ test('HostExecutor respawns the pooled worker when the provider changes for a se
     };
   });
   vi.doMock('../src/providers/factory.js', async () => {
-    const actual =
-      await vi.importActual<typeof import('../src/providers/factory.js')>(
-        '../src/providers/factory.js',
-      );
+    const actual = await vi.importActual<
+      typeof import('../src/providers/factory.js')
+    >('../src/providers/factory.js');
     return {
       ...actual,
       resolveModelRuntimeCredentials,
@@ -211,7 +210,7 @@ test('HostExecutor respawns the pooled worker when the agentId changes without a
   });
   vi.doMock('../src/infra/ipc.js', async () => {
     const actual = await vi.importActual<typeof import('../src/infra/ipc.js')>(
-      '../src/infra/ipc.js'
+      '../src/infra/ipc.js',
     );
     return {
       ...actual,
@@ -219,10 +218,9 @@ test('HostExecutor respawns the pooled worker when the agentId changes without a
     };
   });
   vi.doMock('../src/providers/factory.js', async () => {
-    const actual =
-      await vi.importActual<typeof import('../src/providers/factory.js')>(
-        '../src/providers/factory.js',
-      );
+    const actual = await vi.importActual<
+      typeof import('../src/providers/factory.js')
+    >('../src/providers/factory.js');
     return {
       ...actual,
       resolveModelRuntimeCredentials,

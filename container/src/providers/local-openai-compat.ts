@@ -146,10 +146,7 @@ function shortHash(text: string, length: number): string {
   return createHash('sha256').update(text).digest('hex').slice(0, length);
 }
 
-function sanitizeStrict9ToolCallId(
-  value: string,
-  used: Set<string>,
-): string {
+function sanitizeStrict9ToolCallId(value: string, used: Set<string>): string {
   const alphanumeric = String(value || '').replace(/[^a-zA-Z0-9]/g, '');
   if (alphanumeric.length >= 9) {
     const candidate = alphanumeric.slice(0, 9);
@@ -191,7 +188,11 @@ function sanitizeMistralToolCallIds(
 
     if (Array.isArray(message.tool_calls)) {
       const nextToolCalls = message.tool_calls.map((toolCall) => {
-        if (!isRecord(toolCall) || typeof toolCall.id !== 'string' || !toolCall.id) {
+        if (
+          !isRecord(toolCall) ||
+          typeof toolCall.id !== 'string' ||
+          !toolCall.id
+        ) {
           return toolCall;
         }
         const nextId = resolveId(toolCall.id);

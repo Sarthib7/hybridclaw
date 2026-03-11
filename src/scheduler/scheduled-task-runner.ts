@@ -4,6 +4,7 @@ import {
   makeAuditRunId,
   recordAuditEvent,
 } from '../audit/audit-events.js';
+import { agentWorkspaceDir } from '../infra/ipc.js';
 import { recordUsageEvent } from '../memory/db.js';
 import { resolveModelProvider } from '../providers/factory.js';
 import {
@@ -11,7 +12,6 @@ import {
   estimateTokenCountFromText,
 } from '../session/token-efficiency.js';
 import type { ChatMessage } from '../types.js';
-import { agentWorkspaceDir } from '../infra/ipc.js';
 
 export async function runIsolatedScheduledTask(params: {
   taskId: number;

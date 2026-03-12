@@ -54,7 +54,7 @@ src/
   scheduler/            Scheduled task execution and cron management
   security/             Mount allowlists, approval policies, secret redaction, instruction audit
   session/              Session transcripts, token tracking, compaction, export
-  skills/               Skill resolution, installation, trust-aware guard (~44K LOC)
+  skills/               Skill resolution, installation, trust-aware guard
   utils/                Shared utilities
   media/                Media handling and context management
 

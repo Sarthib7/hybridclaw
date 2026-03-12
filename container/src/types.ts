@@ -12,7 +12,17 @@ export interface ChatContentImageUrlPart {
   };
 }
 
-export type ChatContentPart = ChatContentTextPart | ChatContentImageUrlPart;
+export interface ChatContentAudioUrlPart {
+  type: 'audio_url';
+  audio_url: {
+    url: string;
+  };
+}
+
+export type ChatContentPart =
+  | ChatContentTextPart
+  | ChatContentImageUrlPart
+  | ChatContentAudioUrlPart;
 export type ChatMessageContent = string | ChatContentPart[] | null;
 
 export interface ChatMessage {
@@ -129,6 +139,7 @@ export interface ContainerInput {
   allowedTools?: string[];
   blockedTools?: string[];
   media?: MediaContextItem[];
+  audioTranscriptsPrepended?: boolean;
   mcpServers?: Record<string, McpServerConfig>;
   webSearch?: {
     provider:

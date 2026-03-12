@@ -41,7 +41,11 @@ async function importFreshRuntimeModule(options?: { isSelfChat?: boolean }) {
     ),
     readMessages: vi.fn(async () => {}),
     sendPresenceUpdate: vi.fn(async () => {}),
-    user: { id: '491703330161:1@s.whatsapp.net' },
+    user: {
+      id: '491703330161:1@s.whatsapp.net',
+      jid: '491703330161@s.whatsapp.net',
+      lid: '1061007917075:18@lid',
+    },
   };
 
   let onSocketCreated: ((socket: typeof socket) => void) | undefined;
@@ -211,6 +215,15 @@ test('ignores reflected self-chat messages sent by HybridClaw itself', async () 
   });
 
   expect(processInboundWhatsAppMessage).toHaveBeenCalledTimes(1);
+  expect(processInboundWhatsAppMessage).toHaveBeenCalledWith(
+    expect.objectContaining({
+      selfJids: [
+        '491703330161@s.whatsapp.net',
+        '491703330161:1@s.whatsapp.net',
+        '1061007917075:18@lid',
+      ],
+    }),
+  );
   expect(messageHandler).toHaveBeenCalledTimes(1);
   expect(messageHandler).toHaveBeenCalledWith(
     'wa:491703330161@s.whatsapp.net',

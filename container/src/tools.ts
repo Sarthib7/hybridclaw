@@ -7,6 +7,7 @@ import {
   executeBrowserTool,
   setBrowserModelContext,
 } from './browser-tools.js';
+import { isSafeDiscordCdnUrl } from './discord-cdn.js';
 import type { McpClientManager } from './mcp/client-manager.js';
 import {
   DISCORD_MEDIA_CACHE_ROOT,
@@ -107,12 +108,6 @@ const VISION_LOCAL_SCRATCH_ROOTS = Array.from(
     ['/tmp', '/private/tmp', os.tmpdir()].map((entry) => path.resolve(entry)),
   ),
 );
-const DISCORD_CDN_HOST_PATTERNS: RegExp[] = [
-  /^cdn\.discordapp\.com$/i,
-  /^media\.discordapp\.net$/i,
-  /^cdn\.discordapp\.net$/i,
-  /^images-ext-\d+\.discordapp\.net$/i,
-];
 
 type DiscordMessageToolAction =
   | 'read'
@@ -159,8 +154,9 @@ function parseStructuredToolOutput(
 const MESSAGE_TOOL_ACTION_LIST =
   'read, member-info, channel-info, send, react, quote-reply, edit, delete, pin, unpin, thread-create, thread-reply';
 const MESSAGE_TOOL_DESCRIPTION_BASE =
-  'Send messages, DMs, upload local files, read channel history, and look up member info in Discord. Use this when asked to send/post/DM/notify someone, post a local file/image, read messages, or look up users.';
+  'Send messages and uploads across supported channels (Discord, WhatsApp, local TUI), plus read channel history and look up member info on Discord. Use this when asked to send/post/DM/notify someone, post a local file/image, read Discord messages, or look up Discord users.';
 let gatewayConfiguredChannels: string[] = [];
+const DISCORD_SNOWFLAKE_RE = /^\d{16,22}$/;
 
 function normalizeConfiguredChannelList(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -177,10 +173,18 @@ function normalizeConfiguredChannelList(value: unknown): string[] {
   return out;
 }
 
+function resolveGatewayDiscordChannelFallback(): string {
+  const normalized = normalizeDiscordMessageTarget(gatewayChannelId);
+  if (!normalized || !DISCORD_SNOWFLAKE_RE.test(normalized)) return '';
+  return normalized;
+}
+
 export function getMessageToolDescription(channelId?: string): string {
-  const explicitChannelId = readStringValue(channelId);
+  const explicitChannelId = normalizeDiscordMessageTarget(channelId);
   const activeChannelId =
-    explicitChannelId || readStringValue(gatewayChannelId);
+    explicitChannelId && DISCORD_SNOWFLAKE_RE.test(explicitChannelId)
+      ? explicitChannelId
+      : resolveGatewayDiscordChannelFallback();
   const configuredChannels = normalizeConfiguredChannelList(
     gatewayConfiguredChannels,
   );
@@ -192,7 +196,7 @@ export function getMessageToolDescription(channelId?: string): string {
       otherChannels.length > 0
         ? ` Other configured channels: ${otherChannels.map((id) => `${id} (${MESSAGE_TOOL_ACTION_LIST})`).join(', ')}.`
         : '';
-    return `${MESSAGE_TOOL_DESCRIPTION_BASE} Current channel (${activeChannelId}) supports: ${MESSAGE_TOOL_ACTION_LIST}. Omit channelId/to to target the current channel for read/channel-info/send.${withOthers}`;
+    return `${MESSAGE_TOOL_DESCRIPTION_BASE} Current Discord channel (${activeChannelId}) supports: ${MESSAGE_TOOL_ACTION_LIST}. Omit channelId/to to target the current Discord channel for read/channel-info/send.${withOthers}`;
   }
   const withOthers =
     configuredChannels.length > 0
@@ -382,7 +386,7 @@ function resolveDiscordMessageChannelTarget(
     normalizeDiscordMessageTarget(args.channelId) ||
     normalizeDiscordMessageTarget(args.to) ||
     normalizeDiscordMessageTarget(args.target) ||
-    normalizeDiscordMessageTarget(gatewayChannelId);
+    resolveGatewayDiscordChannelFallback();
   return resolved || '';
 }
 
@@ -429,19 +433,19 @@ function resolveDiscordGuildId(value: unknown): string {
   return resolved || '';
 }
 
-function resolveGatewayDiscordActionUrl(): string | null {
+function resolveGatewayMessageActionUrl(): string | null {
   const base = gatewayBaseUrl.replace(/\/+$/, '');
   if (!base) return null;
-  return `${base}/api/discord/action`;
+  return `${base}/api/message/action`;
 }
 
-async function callGatewayDiscordAction(
+async function callGatewayMessageAction(
   payload: Record<string, unknown>,
 ): Promise<string> {
-  const url = resolveGatewayDiscordActionUrl();
+  const url = resolveGatewayMessageActionUrl();
   if (!url) {
     return failTool(
-      'Error: Discord actions are unavailable because gatewayBaseUrl is not configured.',
+      'Error: message actions are unavailable because gatewayBaseUrl is not configured.',
     );
   }
 
@@ -469,7 +473,7 @@ async function callGatewayDiscordAction(
     });
   } catch (err) {
     return failTool(
-      `Error: Discord action request failed: ${
+      `Error: message action request failed: ${
         err instanceof Error ? err.message : String(err)
       }`,
     );
@@ -603,19 +607,6 @@ function extractVisionTextContent(content: unknown): string {
     if (text.trim()) chunks.push(text.trim());
   }
   return chunks.join('\n').trim();
-}
-
-function isSafeDiscordCdnUrl(raw: string): boolean {
-  let parsed: URL;
-  try {
-    parsed = new URL(raw);
-  } catch {
-    return false;
-  }
-  if (parsed.protocol !== 'https:') return false;
-  return DISCORD_CDN_HOST_PATTERNS.some((pattern) =>
-    pattern.test(parsed.hostname),
-  );
 }
 
 function normalizeVisionLocalPath(rawPath: string): string | null {
@@ -1966,7 +1957,7 @@ async function executeToolInternal(
           resolveDiscordMessageSendUserLookupTarget(args);
         const fallbackChannelId = userLookupTarget
           ? ''
-          : normalizeDiscordMessageTarget(gatewayChannelId);
+          : resolveGatewayDiscordChannelFallback();
         const channelId = explicitChannelId || fallbackChannelId;
         if (!channelId && !userLookupTarget) {
           return failTool(
@@ -2019,8 +2010,7 @@ async function executeToolInternal(
 
         const requestingUserId = resolveDiscordRequestingUserId(args);
         const guildId = resolveDiscordGuildId(args.guildId);
-        const contextChannelId =
-          normalizeDiscordMessageTarget(gatewayChannelId);
+        const contextChannelId = resolveGatewayDiscordChannelFallback();
         if (requestingUserId) payload.userId = requestingUserId;
         if (guildId) payload.guildId = guildId;
         if (contextChannelId) payload.contextChannelId = contextChannelId;
@@ -2150,7 +2140,7 @@ async function executeToolInternal(
         if (guildId) payload.guildId = guildId;
       }
 
-      return await callGatewayDiscordAction(payload);
+      return await callGatewayMessageAction(payload);
     }
 
     case 'session_search': {
@@ -2762,12 +2752,12 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           channelId: {
             type: 'string',
             description:
-              'Discord channel ID (snowflake). Defaults to current channel.',
+              'Send target or Discord channel selector. For `send`, accepts Discord ids/mentions/#channel, WhatsApp JIDs or phone numbers, and local channel ids like `tui`. For Discord-only actions, use a Discord channel id/mention/#channel.',
           },
           guildId: {
             type: 'string',
             description:
-              'Discord guild id (required for member-info; optional for send).',
+              'Discord guild id (required for member-info; optional for Discord channel-name sends).',
           },
           userId: {
             type: 'string',
@@ -2791,7 +2781,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           resolveAmbiguous: {
             type: 'string',
             description:
-              'Ambiguity policy for member lookups in action="member-info" and user-target sends: "error" (default) returns candidates, "best" auto-picks top score.',
+              'Ambiguity policy for Discord name lookups. For action="member-info", user-target sends, and channel-name targets: "error" (default) returns an error/candidates, "best" auto-picks the top score.',
             enum: ['error', 'best'],
           },
           limit: {
@@ -2817,7 +2807,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           filePath: {
             type: 'string',
             description:
-              'Optional local file to upload for action="send". Use a workspace-relative path or an absolute /discord-media-cache path.',
+              'Optional local file to upload for action="send". Discord and WhatsApp sends support filePath; local queued sends do not. Use a workspace-relative path or an absolute /discord-media-cache path.',
           },
           attachmentPath: {
             type: 'string',
@@ -2845,7 +2835,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
               type: 'object',
             },
             description:
-              'Optional Discord components payload for action="send" (buttons/selects/action rows).',
+              'Optional Discord components payload for action="send" (buttons/selects/action rows). Supported only for Discord sends.',
           },
           text: {
             type: 'string',
@@ -2863,7 +2853,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           contextChannelId: {
             type: 'string',
             description:
-              'Context Discord channel id used to infer guild for user-target sends.',
+              'Context Discord channel id used to infer guild for Discord user-target sends.',
           },
           messageId: {
             type: 'string',
@@ -2886,12 +2876,12 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           target: {
             type: 'string',
             description:
-              'Target user or channel. Accepts: Discord channel ID, user ID, @username, #channel-name, or display name.',
+              'Target user or channel. For `send`, accepts Discord channel IDs, user IDs, @usernames, #channel-name, WhatsApp JIDs or phone numbers, or local channel ids like `tui`.',
           },
           to: {
             type: 'string',
             description:
-              'Target user or channel. Accepts: Discord channel ID, user ID, @username, #channel-name, or display name.',
+              'Target user or channel. For `send`, accepts Discord channel IDs, user IDs, @usernames, #channel-name, WhatsApp JIDs or phone numbers, or local channel ids like `tui`.',
           },
         },
         required: ['action'],

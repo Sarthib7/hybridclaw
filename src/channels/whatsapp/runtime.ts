@@ -128,6 +128,16 @@ export function createWhatsAppRuntime(): WhatsAppRuntime {
     return connectionManager;
   };
 
+  const resolveSelfJids = (socket: {
+    user?: { id?: string; jid?: string; lid?: string };
+  }): string[] => [
+    ...new Set(
+      [socket.user?.jid, socket.user?.id, socket.user?.lid].filter(
+        (jid): jid is string => Boolean(jid),
+      ),
+    ),
+  ];
+
   const dispatchInboundBatch = async (
     batch: WhatsAppInboundBatch,
     messageHandler: WhatsAppMessageHandler,
@@ -208,7 +218,7 @@ export function createWhatsAppRuntime(): WhatsAppRuntime {
       message,
       sock: socket,
       config,
-      selfJid: socket.user?.id ?? null,
+      selfJids: resolveSelfJids(socket),
     });
     if (!inbound) return;
 

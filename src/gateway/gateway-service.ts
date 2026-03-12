@@ -69,6 +69,10 @@ import {
 } from '../config/runtime-config.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
+import {
+  isAudioMediaItem,
+  prependAudioTranscriptionsToUserContent,
+} from '../media/audio-transcription.js';
 import { NoCompactableMessagesError } from '../memory/compaction.js';
 import {
   createTask,
@@ -215,7 +219,6 @@ import {
   describeSessionShowMode,
   isSessionShowMode,
   normalizeSessionShowMode,
-  sessionShowModeShowsThinking,
   sessionShowModeShowsTools,
 } from './show-mode.js';
 
@@ -593,8 +596,13 @@ function buildMediaPromptContext(media: MediaContextItem[]): string {
   const imagePaths = media
     .filter((item) => isImageMediaItem(item) && item.path)
     .map((item) => item.path as string);
+  const audioPaths = media
+    .filter((item) => isAudioMediaItem(item) && item.path)
+    .map((item) => item.path as string);
   const documentPaths = media
-    .filter((item) => !isImageMediaItem(item) && item.path)
+    .filter(
+      (item) => !isImageMediaItem(item) && !isAudioMediaItem(item) && item.path,
+    )
     .map((item) => item.path as string);
   const mediaUrls = media.map((item) => item.url);
   const mediaTypes = media.map((item) => item.mimeType || 'unknown');
@@ -611,6 +619,7 @@ function buildMediaPromptContext(media: MediaContextItem[]): string {
     '[MediaContext]',
     `MediaPaths: ${JSON.stringify(mediaPaths)}`,
     `ImageMediaPaths: ${JSON.stringify(imagePaths)}`,
+    `AudioMediaPaths: ${JSON.stringify(audioPaths)}`,
     `DocumentMediaPaths: ${JSON.stringify(documentPaths)}`,
     `MediaUrls: ${JSON.stringify(mediaUrls)}`,
     `MediaTypes: ${JSON.stringify(mediaTypes)}`,
@@ -3028,7 +3037,6 @@ export async function handleGatewayMessage(
     );
   }
   const showMode = normalizeSessionShowMode(session.show_mode);
-  const shouldEmitThinking = sessionShowModeShowsThinking(showMode);
   const shouldEmitTools = sessionShowModeShowsTools(showMode);
   const enableRag = req.enableRag ?? session.enable_rag === 1;
   const provider = resolveModelProvider(model);
@@ -3058,6 +3066,13 @@ export async function handleGatewayMessage(
       'Cleared session history after workspace reset',
     );
   }
+  const audioPrelude = await prependAudioTranscriptionsToUserContent({
+    content: req.content,
+    media,
+    workspaceRoot: workspacePath,
+    abortSignal: activeGatewayRequest.signal,
+  });
+  const userTurnContent = audioPrelude.content;
   if (isFullAutoEnabled(session)) {
     syncFullAutoRuntimeContext(req.sessionId, {
       guildId: req.guildId,
@@ -3079,7 +3094,8 @@ export async function handleGatewayMessage(
     provider,
     turnIndex,
     mediaCount: media.length,
-    contentLength: req.content.length,
+    audioTranscriptCount: audioPrelude.transcripts.length,
+    contentLength: userTurnContent.length,
     streamingRequested: Boolean(req.onTextDelta || req.onToolProgress),
   };
 
@@ -3103,7 +3119,8 @@ export async function handleGatewayMessage(
     event: {
       type: 'turn.start',
       turnIndex,
-      userInput: req.content,
+      userInput: userTurnContent,
+      ...(userTurnContent !== req.content ? { rawUserInput: req.content } : {}),
       username: req.username,
       mediaCount: media.length,
       source,
@@ -3228,7 +3245,7 @@ export async function handleGatewayMessage(
   });
   const memoryContext = memoryService.buildPromptMemoryContext({
     session,
-    query: req.content,
+    query: userTurnContent,
   });
   const mergedSessionSummary =
     [canonicalPromptSummary, memoryContext.promptSummary]
@@ -3244,7 +3261,7 @@ export async function handleGatewayMessage(
         source === 'fullauto' ? 'background' : 'supervised',
       )
     : undefined;
-  const mediaPolicy = resolveMediaToolPolicy(req.content, media);
+  const mediaPolicy = resolveMediaToolPolicy(userTurnContent, media);
   const { messages, skills, historyStats } = buildConversationContext({
     agentId,
     sessionSummary: mergedSessionSummary,
@@ -3297,7 +3314,7 @@ export async function handleGatewayMessage(
     );
   }
   const mediaContextBlock = buildMediaPromptContext(media);
-  const expandedUserContent = expandSkillInvocation(req.content, skills);
+  const expandedUserContent = expandSkillInvocation(userTurnContent, skills);
   const agentUserContent = mediaContextBlock
     ? `${expandedUserContent}\n\n${mediaContextBlock}`
     : expandedUserContent;
@@ -3338,7 +3355,6 @@ export async function handleGatewayMessage(
           'Gateway chat emitted first text delta',
         );
       }
-      if (!shouldEmitThinking) return;
       req.onTextDelta?.(delta);
     };
     const onToolProgress = (event: ToolProgressEvent): void => {
@@ -3391,13 +3407,14 @@ export async function handleGatewayMessage(
       onToolProgress,
       abortSignal: activeGatewayRequest.signal,
       media,
+      audioTranscriptsPrepended: audioPrelude.transcripts.length > 0,
     });
     agentStage = 'processing-agent-output';
     const effectiveUserContent =
       typeof output.effectiveUserPrompt === 'string' &&
       output.effectiveUserPrompt.trim()
         ? output.effectiveUserPrompt.trim()
-        : req.content;
+        : userTurnContent;
     const toolExecutions = output.toolExecutions || [];
     emitToolExecutionAuditEvents({
       sessionId: req.sessionId,

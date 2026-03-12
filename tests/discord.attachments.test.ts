@@ -29,6 +29,69 @@ afterEach(() => {
 });
 
 describe('buildAttachmentContext', () => {
+  test('caches PDF attachments into the media context', async () => {
+    const dataDir = makeTempDataDir();
+    const fetchBody = Buffer.from('%PDF-1.7\n', 'utf8');
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      headers: {
+        get(name: string) {
+          if (name === 'content-type') {
+            return 'application/pdf';
+          }
+          if (name === 'content-length') return String(fetchBody.length);
+          return null;
+        },
+      },
+      arrayBuffer: async () => fetchBody,
+      text: async () => fetchBody.toString('utf8'),
+    }));
+
+    vi.stubGlobal('fetch', fetchMock);
+    vi.doMock('../src/config/config.ts', () => ({
+      CONTAINER_SANDBOX_MODE: 'container',
+      DATA_DIR: dataDir,
+    }));
+    vi.doMock('../src/logger.js', () => ({
+      logger: {
+        debug: vi.fn(),
+        error: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+      },
+    }));
+
+    const { buildAttachmentContext } = await import(
+      '../src/channels/discord/attachments.js'
+    );
+
+    const attachment = {
+      contentType: 'application/pdf',
+      id: 'att-pdf-1',
+      name: 'spec.pdf',
+      proxyURL: 'https://media.discordapp.net/attachments/1/2/spec.pdf',
+      size: fetchBody.length,
+      url: 'https://cdn.discordapp.com/attachments/1/2/spec.pdf',
+    };
+    const message = {
+      attachments: new Map([[attachment.id, attachment]]),
+      id: 'msg-pdf-1',
+    };
+
+    const result = await buildAttachmentContext([message as never]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.context).toContain('[Attachments]');
+    expect(result.context).toContain('spec.pdf: PDF attachment cached');
+    expect(result.media).toHaveLength(1);
+    expect(result.media[0]).toMatchObject({
+      filename: 'spec.pdf',
+      mimeType: 'application/pdf',
+      path: expect.stringMatching(/^\/discord-media-cache\//),
+      sizeBytes: fetchBody.length,
+    });
+  });
+
   test('caches office attachments into the media context', async () => {
     const dataDir = makeTempDataDir();
     const fetchBody = Buffer.from('xlsx-payload', 'utf8');
@@ -100,5 +163,68 @@ describe('buildAttachmentContext', () => {
       .readdirSync(cacheRoot, { recursive: true })
       .find((entry) => String(entry).endsWith('financials.xlsx'));
     expect(cachedFile).toBeTruthy();
+  });
+
+  test('caches audio attachments into the media context', async () => {
+    const dataDir = makeTempDataDir();
+    const fetchBody = Buffer.from('ogg-payload', 'utf8');
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      headers: {
+        get(name: string) {
+          if (name === 'content-type') {
+            return 'audio/ogg; codecs=opus';
+          }
+          if (name === 'content-length') return String(fetchBody.length);
+          return null;
+        },
+      },
+      arrayBuffer: async () => fetchBody,
+      text: async () => fetchBody.toString('utf8'),
+    }));
+
+    vi.stubGlobal('fetch', fetchMock);
+    vi.doMock('../src/config/config.ts', () => ({
+      CONTAINER_SANDBOX_MODE: 'container',
+      DATA_DIR: dataDir,
+    }));
+    vi.doMock('../src/logger.js', () => ({
+      logger: {
+        debug: vi.fn(),
+        error: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+      },
+    }));
+
+    const { buildAttachmentContext } = await import(
+      '../src/channels/discord/attachments.js'
+    );
+
+    const attachment = {
+      contentType: 'audio/ogg; codecs=opus',
+      id: 'att-voice-1',
+      name: 'voice-note.ogg',
+      proxyURL: 'https://media.discordapp.net/attachments/1/2/voice-note.ogg',
+      size: fetchBody.length,
+      url: 'https://cdn.discordapp.com/attachments/1/2/voice-note.ogg',
+    };
+    const message = {
+      attachments: new Map([[attachment.id, attachment]]),
+      id: 'msg-voice-1',
+    };
+
+    const result = await buildAttachmentContext([message as never]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.context).toContain('[Attachments]');
+    expect(result.context).toContain('voice-note.ogg: audio attachment cached');
+    expect(result.media).toHaveLength(1);
+    expect(result.media[0]).toMatchObject({
+      filename: 'voice-note.ogg',
+      mimeType: 'audio/ogg',
+      path: expect.stringMatching(/^\/discord-media-cache\//),
+      sizeBytes: fetchBody.length,
+    });
   });
 });

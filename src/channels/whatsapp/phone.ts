@@ -1,6 +1,9 @@
 const WHATSAPP_PREFIX_RE = /^whatsapp:/i;
 const WHATSAPP_USER_JID_RE =
   /^(\d+)(?::\d+)?@(s\.whatsapp\.net|lid|hosted|hosted\.lid)$/i;
+const WHATSAPP_PHONE_USER_JID_RE =
+  /^(\d+)(?::\d+)?@(s\.whatsapp\.net|hosted)$/i;
+const WHATSAPP_LID_USER_JID_RE = /^(\d+)(?::\d+)?@(lid|hosted\.lid)$/i;
 const WHATSAPP_GROUP_JID_RE = /^[0-9]+(?:-[0-9]+)*@g\.us$/i;
 const E164_DIGITS_RE = /^[1-9]\d{6,14}$/;
 
@@ -36,6 +39,36 @@ export function jidToPhone(jid: string): string | null {
   const digits = match[1];
   if (!E164_DIGITS_RE.test(digits)) return null;
   return `+${digits}`;
+}
+
+export function normalizeWhatsAppUserIdentity(jid: string): string | null {
+  const candidate = stripWhatsAppPrefix(jid);
+  const phoneMatch = candidate.match(WHATSAPP_PHONE_USER_JID_RE);
+  if (phoneMatch) {
+    return `phone:${phoneMatch[1]}`;
+  }
+
+  const lidMatch = candidate.match(WHATSAPP_LID_USER_JID_RE);
+  if (lidMatch) {
+    return `lid:${lidMatch[1]}`;
+  }
+
+  return null;
+}
+
+export function canonicalizeWhatsAppUserJid(jid: string): string | null {
+  const candidate = stripWhatsAppPrefix(jid);
+  const phoneMatch = candidate.match(WHATSAPP_PHONE_USER_JID_RE);
+  if (phoneMatch) {
+    return `${phoneMatch[1]}@s.whatsapp.net`;
+  }
+
+  const lidMatch = candidate.match(WHATSAPP_LID_USER_JID_RE);
+  if (lidMatch) {
+    return `${lidMatch[1]}@lid`;
+  }
+
+  return null;
 }
 
 export function isWhatsAppJid(channelId: string): boolean {

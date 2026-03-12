@@ -97,6 +97,115 @@ test('send action resolves #channel names from channel cache when guildId is omi
   expect(sendToChannel).toHaveBeenCalledWith(CHANNEL_ID, 'hello');
 });
 
+test('send action prefers a unique exact channel-name match over fuzzy matches', async () => {
+  const { runner, sendToChannel } = createSendRunner({
+    channelCache: new Map([
+      [
+        CHANNEL_ID,
+        {
+          id: CHANNEL_ID,
+          guildId: GUILD_ID,
+          name: 'alerts',
+          isTextBased: () => true,
+        },
+      ],
+      [
+        '223456789012345679',
+        {
+          id: '223456789012345679',
+          guildId: '123456789012345679',
+          name: 'alerts-archive',
+          isTextBased: () => true,
+        },
+      ],
+    ]),
+  });
+
+  await runner({
+    action: 'send',
+    channelId: '#alerts',
+    content: 'hello',
+  });
+
+  expect(sendToChannel).toHaveBeenCalledWith(CHANNEL_ID, 'hello');
+});
+
+test('send action rejects ambiguous #channel names from channel cache by default', async () => {
+  const { runner, sendToChannel } = createSendRunner({
+    channelCache: new Map([
+      [
+        CHANNEL_ID,
+        {
+          id: CHANNEL_ID,
+          guildId: GUILD_ID,
+          name: 'alerts',
+          isTextBased: () => true,
+        },
+      ],
+      [
+        '223456789012345679',
+        {
+          id: '223456789012345679',
+          guildId: '123456789012345679',
+          name: 'alerts',
+          isTextBased: () => true,
+        },
+      ],
+    ]),
+  });
+
+  await expect(
+    runner({
+      action: 'send',
+      channelId: '#alerts',
+      content: 'hello',
+    }),
+  ).rejects.toThrow('Ambiguous channel match');
+  expect(sendToChannel).not.toHaveBeenCalled();
+});
+
+test('send action can auto-resolve ambiguous channel names when resolveAmbiguous=best', async () => {
+  const { runner, sendToChannel } = createSendRunner({
+    channelCache: new Map([
+      [
+        CHANNEL_ID,
+        {
+          id: CHANNEL_ID,
+          guildId: GUILD_ID,
+          name: 'alerts',
+          isTextBased: () => true,
+        },
+      ],
+      [
+        '223456789012345679',
+        {
+          id: '223456789012345679',
+          guildId: '123456789012345679',
+          name: 'alerts',
+          isTextBased: () => true,
+        },
+      ],
+    ]),
+  });
+
+  const result = await runner({
+    action: 'send',
+    channelId: '#alerts',
+    content: 'hello',
+    resolveAmbiguous: 'best',
+  });
+
+  expect(sendToChannel).toHaveBeenCalledWith(CHANNEL_ID, 'hello');
+  expect(result).toMatchObject({
+    ok: true,
+    action: 'send',
+    channelId: CHANNEL_ID,
+  });
+  expect(String(result.note || '')).toContain(
+    'Resolved ambiguous channel match to: #alerts',
+  );
+});
+
 test('send action asks for guildId when #channel lookup cannot resolve from cache', async () => {
   const { runner } = createSendRunner();
   await expect(

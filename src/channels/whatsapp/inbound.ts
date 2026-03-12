@@ -15,7 +15,13 @@ import type {
 } from '../../config/runtime-config.js';
 import type { MediaContextItem } from '../../types.js';
 import { guessWhatsAppExtensionFromMimeType } from './mime-utils.js';
-import { isGroupJid, jidToPhone, normalizePhoneNumber } from './phone.js';
+import {
+  canonicalizeWhatsAppUserJid,
+  isGroupJid,
+  jidToPhone,
+  normalizePhoneNumber,
+  normalizeWhatsAppUserIdentity,
+} from './phone.js';
 
 const STATUS_BROADCAST_JID = 'status@broadcast';
 const WHATSAPP_MEDIA_TMP_PREFIX = 'hybridclaw-wa-';
@@ -124,19 +130,44 @@ function normalizeAllowList(values: string[]): string[] {
 function isSelfChat(params: {
   chatJid: string;
   senderJid: string;
-  selfJid: string | null;
+  selfJids: string[];
 }): boolean {
   if (isGroupJid(params.chatJid)) return false;
-  const selfPhone = params.selfJid ? jidToPhone(params.selfJid) : null;
-  const chatPhone = jidToPhone(params.chatJid);
-  const senderPhone = jidToPhone(params.senderJid);
-  return Boolean(
-    selfPhone &&
-      chatPhone &&
-      senderPhone &&
-      selfPhone === chatPhone &&
-      selfPhone === senderPhone,
+  const chatIdentity = normalizeWhatsAppUserIdentity(params.chatJid);
+  const senderIdentity = normalizeWhatsAppUserIdentity(params.senderJid);
+  const selfIdentities = new Set(
+    params.selfJids
+      .map((jid) => normalizeWhatsAppUserIdentity(jid))
+      .filter((identity): identity is string => Boolean(identity)),
   );
+  return Boolean(
+    chatIdentity &&
+      senderIdentity &&
+      selfIdentities.size > 0 &&
+      selfIdentities.has(chatIdentity) &&
+      selfIdentities.has(senderIdentity),
+  );
+}
+
+function resolveCanonicalSelfChatSessionJid(
+  selfJids: string[],
+  fallbackChatJid: string,
+): string {
+  for (const jid of selfJids) {
+    const canonical = canonicalizeWhatsAppUserJid(jid);
+    if (canonical?.endsWith('@s.whatsapp.net')) {
+      return canonical;
+    }
+  }
+
+  for (const jid of selfJids) {
+    const canonical = canonicalizeWhatsAppUserJid(jid);
+    if (canonical) {
+      return canonical;
+    }
+  }
+
+  return canonicalizeWhatsAppUserJid(fallbackChatJid) ?? fallbackChatJid;
 }
 
 export function evaluateWhatsAppAccessPolicy(params: {
@@ -146,7 +177,7 @@ export function evaluateWhatsAppAccessPolicy(params: {
   groupAllowFrom: string[];
   chatJid: string;
   senderJid: string;
-  selfJid: string | null;
+  selfJids: string[];
   fromMe: boolean;
 }): {
   allowed: boolean;
@@ -291,7 +322,7 @@ export async function processInboundWhatsAppMessage(params: {
   message: WAMessage;
   sock: Pick<WASocket, 'updateMediaMessage' | 'logger'>;
   config: RuntimeWhatsAppConfig;
-  selfJid: string | null;
+  selfJids: string[];
 }): Promise<ProcessedWhatsAppInbound | null> {
   const chatJid = params.message.key.remoteJid?.trim();
   if (
@@ -317,7 +348,7 @@ export async function processInboundWhatsAppMessage(params: {
     groupAllowFrom: params.config.groupAllowFrom,
     chatJid,
     senderJid,
-    selfJid: params.selfJid,
+    selfJids: params.selfJids,
     fromMe: Boolean(params.message.key.fromMe),
   });
   if (!access.allowed) return null;
@@ -331,11 +362,20 @@ export async function processInboundWhatsAppMessage(params: {
   if (!content.trim() && media.length === 0) {
     return null;
   }
-  const userId = jidToPhone(senderJid) ?? senderJid;
+  const preferredSelfPhone =
+    params.selfJids
+      .map((jid) => jidToPhone(jid))
+      .find((phone): phone is string => Boolean(phone)) ?? null;
+  const userId = access.isSelfChat
+    ? (preferredSelfPhone ?? jidToPhone(senderJid) ?? senderJid)
+    : (jidToPhone(senderJid) ?? senderJid);
   const username = String(params.message.pushName || '').trim() || userId;
+  const sessionChatJid = access.isSelfChat
+    ? resolveCanonicalSelfChatSessionJid(params.selfJids, chatJid)
+    : chatJid;
 
   return {
-    sessionId: `wa:${chatJid}`,
+    sessionId: `wa:${sessionChatJid}`,
     guildId: access.isGroup ? chatJid : null,
     channelId: chatJid,
     userId,

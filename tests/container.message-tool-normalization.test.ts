@@ -48,6 +48,9 @@ describe.sequential('container message tool normalization', () => {
 
     expect(result).toContain('"ok": true');
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toBe(
+      'http://gateway.local/api/message/action',
+    );
     const init = fetchMock.mock.calls[0][1] as RequestInit;
     const payload = JSON.parse(String(init.body || '{}')) as Record<
       string,
@@ -223,6 +226,45 @@ describe.sequential('container message tool normalization', () => {
     expect(payload.contextChannelId).toBe(CHANNEL_ID);
   });
 
+  test('send requires an explicit Discord target from WhatsApp context', async () => {
+    const fetchMock = mockGatewayFetch({
+      ok: true,
+      action: 'send',
+      channelId: 'should-not-be-called',
+    });
+    setGatewayContext(
+      'http://gateway.local',
+      'token',
+      '491234567890@s.whatsapp.net',
+    );
+
+    const result = await executeTool(
+      'message',
+      JSON.stringify({
+        action: 'send',
+        content: 'hello',
+      }),
+    );
+
+    expect(result).toContain(
+      'channelId is required for message action "send" unless user/username is provided.',
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('message tool description does not treat WhatsApp chat as a Discord channel', () => {
+    setGatewayContext(
+      'http://gateway.local',
+      'token',
+      '491234567890@s.whatsapp.net',
+    );
+
+    const description = getMessageToolDescription();
+    expect(description).not.toContain('491234567890@s.whatsapp.net');
+    expect(description).toContain('Supports actions:');
+    expect(description).toContain('WhatsApp');
+  });
+
   test('message tool description enumerates other configured channels', () => {
     const otherChannelId = '223456789012345679';
     setGatewayContext('http://gateway.local', 'token', CHANNEL_ID, [
@@ -231,7 +273,7 @@ describe.sequential('container message tool normalization', () => {
     ]);
 
     const description = getMessageToolDescription(CHANNEL_ID);
-    expect(description).toContain(`Current channel (${CHANNEL_ID})`);
+    expect(description).toContain(`Current Discord channel (${CHANNEL_ID})`);
     expect(description).toContain(
       `Other configured channels: ${otherChannelId} (`,
     );

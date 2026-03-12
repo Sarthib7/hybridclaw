@@ -4,6 +4,8 @@ import type {
   ResolveSendAllowedResult,
 } from './send-permissions.js';
 
+type Awaitable<T> = T | Promise<T>;
+
 export type DiscordToolAction =
   | 'read'
   | 'member-info'
@@ -113,7 +115,7 @@ export interface CachedDiscordPresence {
 }
 
 export interface DiscordToolActionDependencies {
-  requireDiscordClientReady: () => Client;
+  requireDiscordClientReady: () => Awaitable<Client>;
   getDiscordPresence: (userId: string) => CachedDiscordPresence | undefined;
   sendToChannel: (channelId: string, text: string) => Promise<void>;
   resolveSendAttachments?: (
@@ -164,7 +166,14 @@ function normalizeDiscordChannelLookupQuery(
 interface DiscordChannelLookupCandidate {
   id: string;
   name: string;
+  guildId?: string;
   isTextBased: boolean;
+}
+
+interface RankedDiscordChannelLookupCandidate {
+  candidate: DiscordChannelLookupCandidate;
+  exact: boolean;
+  score: number;
 }
 
 function scoreDiscordChannelForLookup(
@@ -183,28 +192,67 @@ function scoreDiscordChannelForLookup(
   return score;
 }
 
+function formatDiscordChannelLookupCandidate(
+  candidate: DiscordChannelLookupCandidate,
+): string {
+  if (candidate.guildId) {
+    return `#${candidate.name} (${candidate.id}, guild ${candidate.guildId})`;
+  }
+  return `#${candidate.name} (${candidate.id})`;
+}
+
 function pickBestDiscordChannelLookupMatch(
   candidates: DiscordChannelLookupCandidate[],
   query: string,
-): { channelId: string; note?: string } | null {
-  let best: DiscordChannelLookupCandidate | null = null;
-  let bestScore = 0;
-  let matchCount = 0;
+  resolveAmbiguous: 'error' | 'best' = 'error',
+): { channelId: string; note?: string } | { error: string } | null {
+  const matched: RankedDiscordChannelLookupCandidate[] = [];
 
   for (const candidate of candidates) {
     const score = scoreDiscordChannelForLookup(candidate, query);
     if (score <= 0) continue;
-    matchCount += 1;
-    if (!best || score > bestScore) {
-      best = candidate;
-      bestScore = score;
-    }
+    matched.push({
+      candidate,
+      exact: candidate.name.toLowerCase() === query.toLowerCase(),
+      score,
+    });
   }
 
-  if (!best) return null;
+  if (matched.length === 0) return null;
+  const exactMatches = matched.filter((match) => match.exact);
+  if (exactMatches.length === 1) {
+    return { channelId: exactMatches[0].candidate.id };
+  }
+  if (exactMatches.length === 0 && matched.length === 1) {
+    return { channelId: matched[0].candidate.id };
+  }
+
+  const ambiguousMatches = exactMatches.length > 1 ? exactMatches : matched;
+  ambiguousMatches.sort(
+    (a, b) =>
+      Number(b.exact) - Number(a.exact) ||
+      b.score - a.score ||
+      a.candidate.name.localeCompare(b.candidate.name) ||
+      a.candidate.id.localeCompare(b.candidate.id),
+  );
+
+  if (resolveAmbiguous === 'best') {
+    const best = ambiguousMatches[0];
+    const others = ambiguousMatches
+      .slice(1, 10)
+      .map((match) => formatDiscordChannelLookupCandidate(match.candidate))
+      .join(', ');
+    return {
+      channelId: best.candidate.id,
+      note: `Resolved ambiguous channel match to: ${formatDiscordChannelLookupCandidate(best.candidate)}. Other candidates: ${others || 'none'}.`,
+    };
+  }
+
   return {
-    channelId: best.id,
-    note: matchCount > 1 ? 'multiple matches; chose best' : undefined,
+    error: `Ambiguous channel match for "${query}". Provide a Discord channel ID or guildId. Candidates: ${ambiguousMatches
+      .slice(0, 10)
+      .map((match) => formatDiscordChannelLookupCandidate(match.candidate))
+      .join(', ')}.`,
   };
 }
 
@@ -216,12 +264,15 @@ function collectChannelLookupCandidates(
     if (!channel || typeof channel !== 'object') continue;
     const candidate = channel as {
       id?: string;
+      guildId?: string;
       name?: string;
       isTextBased?: () => boolean;
     };
     if (!candidate.id || !candidate.name) continue;
     candidates.push({
       id: candidate.id,
+      guildId:
+        typeof candidate.guildId === 'string' ? candidate.guildId : undefined,
       name: candidate.name,
       isTextBased:
         typeof candidate.isTextBased === 'function'
@@ -233,11 +284,12 @@ function collectChannelLookupCandidates(
 }
 
 async function resolveDiscordChannelIdFromLookup(params: {
-  requireDiscordClientReady: () => Client;
+  requireDiscordClientReady: () => Awaitable<Client>;
   guildId?: string;
   rawChannel: string;
+  resolveAmbiguous?: 'error' | 'best';
 }): Promise<{ channelId: string; note?: string }> {
-  const activeClient = params.requireDiscordClientReady();
+  const activeClient = await params.requireDiscordClientReady();
   const normalized = normalizeDiscordChannelLookupQuery(params.rawChannel);
   if (!normalized) {
     throw new Error('channelId is required.');
@@ -262,11 +314,15 @@ async function resolveDiscordChannelIdFromLookup(params: {
     const matched = pickBestDiscordChannelLookupMatch(
       guildCandidates,
       searchQuery,
+      params.resolveAmbiguous,
     );
     if (!matched) {
       throw new Error(
         `No channel matched "${searchQuery}" in guild ${guildId}.`,
       );
+    }
+    if ('error' in matched) {
+      throw new Error(matched.error);
     }
     return matched;
   }
@@ -277,8 +333,14 @@ async function resolveDiscordChannelIdFromLookup(params: {
   const cachedMatch = pickBestDiscordChannelLookupMatch(
     cachedCandidates,
     searchQuery,
+    params.resolveAmbiguous,
   );
-  if (cachedMatch) return cachedMatch;
+  if (cachedMatch) {
+    if ('error' in cachedMatch) {
+      throw new Error(cachedMatch.error);
+    }
+    return cachedMatch;
+  }
 
   throw new Error(
     `No channel matched "${searchQuery}". Provide guildId when using channel names.`,
@@ -333,12 +395,12 @@ function toDiscordMemberLookupCandidate(
 }
 
 async function resolveGuildMemberIdFromLookup(params: {
-  requireDiscordClientReady: () => Client;
+  requireDiscordClientReady: () => Awaitable<Client>;
   guildId: string;
   rawUser: string;
   resolveAmbiguous?: 'error' | 'best';
 }): Promise<GuildMemberLookupResult> {
-  const activeClient = params.requireDiscordClientReady();
+  const activeClient = await params.requireDiscordClientReady();
   const guildId = sanitizeDiscordId(params.guildId, 'guildId');
   const normalized = normalizeDiscordUserLookupQuery(params.rawUser);
   if (!normalized) {
@@ -432,11 +494,12 @@ async function resolveDiscordChannelForAction(
   request: DiscordToolActionRequest,
   deps: DiscordToolActionDependencies,
 ): Promise<{ channelId: string; channel: unknown; note?: string }> {
-  const activeClient = deps.requireDiscordClientReady();
+  const activeClient = await deps.requireDiscordClientReady();
   const resolvedChannel = await resolveDiscordChannelIdFromLookup({
     requireDiscordClientReady: deps.requireDiscordClientReady,
     guildId: request.guildId,
     rawChannel: request.channelId || '',
+    resolveAmbiguous: request.resolveAmbiguous,
   });
   const channelId = sanitizeDiscordId(resolvedChannel.channelId, 'channelId');
   const channel = await activeClient.channels.fetch(channelId);
@@ -469,7 +532,7 @@ async function resolveGuildIdFromContextChannel(params: {
   const rawContextChannelId = (params.contextChannelId || '').trim();
   if (!rawContextChannelId) return undefined;
   try {
-    const activeClient = params.deps.requireDiscordClientReady();
+    const activeClient = await params.deps.requireDiscordClientReady();
     const contextChannelId = sanitizeDiscordId(
       rawContextChannelId,
       'contextChannelId',
@@ -673,7 +736,7 @@ async function resolveDiscordSendTarget(
   request: DiscordToolActionRequest,
   deps: DiscordToolActionDependencies,
 ): Promise<DiscordSendTargetResolution> {
-  const activeClient = deps.requireDiscordClientReady();
+  const activeClient = await deps.requireDiscordClientReady();
   const explicitChannelTarget = (request.channelId || '').trim();
   const fallbackUserTarget = resolveSendUserLookupTarget(request);
   const rawTarget = explicitChannelTarget || fallbackUserTarget;
@@ -714,6 +777,7 @@ async function resolveDiscordSendTarget(
       requireDiscordClientReady: deps.requireDiscordClientReady,
       guildId: inferredGuildId,
       rawChannel: rawTarget,
+      resolveAmbiguous: request.resolveAmbiguous,
     });
     const resolvedChannelId = sanitizeDiscordId(
       resolvedChannel.channelId,
@@ -807,11 +871,12 @@ async function runDiscordReadAction(
   request: DiscordToolActionRequest,
   deps: DiscordToolActionDependencies,
 ): Promise<Record<string, unknown>> {
-  const activeClient = deps.requireDiscordClientReady();
+  const activeClient = await deps.requireDiscordClientReady();
   const resolvedChannel = await resolveDiscordChannelIdFromLookup({
     requireDiscordClientReady: deps.requireDiscordClientReady,
     guildId: request.guildId,
     rawChannel: request.channelId || '',
+    resolveAmbiguous: request.resolveAmbiguous,
   });
   const channelId = sanitizeDiscordId(resolvedChannel.channelId, 'channelId');
   const channel = await activeClient.channels.fetch(channelId);
@@ -911,7 +976,7 @@ async function runDiscordMemberInfoAction(
   request: DiscordToolActionRequest,
   deps: DiscordToolActionDependencies,
 ): Promise<Record<string, unknown>> {
-  const activeClient = deps.requireDiscordClientReady();
+  const activeClient = await deps.requireDiscordClientReady();
   const guildId = sanitizeDiscordId(request.guildId, 'guildId');
   const userLookupRaw =
     request.userId || request.memberId || request.user || request.username;
@@ -983,11 +1048,12 @@ async function runDiscordChannelInfoAction(
   request: DiscordToolActionRequest,
   deps: DiscordToolActionDependencies,
 ): Promise<Record<string, unknown>> {
-  const activeClient = deps.requireDiscordClientReady();
+  const activeClient = await deps.requireDiscordClientReady();
   const resolvedChannel = await resolveDiscordChannelIdFromLookup({
     requireDiscordClientReady: deps.requireDiscordClientReady,
     guildId: request.guildId,
     rawChannel: request.channelId || '',
+    resolveAmbiguous: request.resolveAmbiguous,
   });
   const channelId = sanitizeDiscordId(resolvedChannel.channelId, 'channelId');
   const channel = await activeClient.channels.fetch(channelId);
@@ -1051,7 +1117,7 @@ async function runDiscordSendAction(
   request: DiscordToolActionRequest,
   deps: DiscordToolActionDependencies,
 ): Promise<Record<string, unknown>> {
-  const activeClient = deps.requireDiscordClientReady();
+  const activeClient = await deps.requireDiscordClientReady();
   const resolvedTarget = await resolveDiscordSendTarget(request, deps);
   if (!resolvedTarget.ok) {
     return {
@@ -1210,7 +1276,7 @@ async function runDiscordEditAction(
     deps,
     actionLabel: 'edits',
   });
-  const activeClient = deps.requireDiscordClientReady();
+  const activeClient = await deps.requireDiscordClientReady();
   const message = resolved.message as {
     author?: { id?: string };
     edit?: (payload: string | { content: string }) => Promise<{ id: string }>;

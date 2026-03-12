@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 describe.sequential('container runtime path aliases', () => {
@@ -37,5 +40,19 @@ describe.sequential('container runtime path aliases', () => {
         '/Users/example/OneDrive - Example/Buchhaltung/**/*.pdf',
       ),
     ).toBe('/workspace/extra/buchhaltung/**/*.pdf');
+  });
+
+  test('allows managed WhatsApp temp media paths', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-wa-'));
+    const tempFile = path.join(tempDir, 'voice-note.ogg');
+    fs.writeFileSync(tempFile, 'audio');
+
+    const { resolveMediaPath } = await import(
+      '../container/src/runtime-paths.ts'
+    );
+
+    expect(resolveMediaPath(tempFile)).toBe(fs.realpathSync.native(tempFile));
+
+    fs.rmSync(tempDir, { recursive: true, force: true });
   });
 });

@@ -258,9 +258,17 @@ Skill resolution order (first match wins):
 
 ### 7.3 Adding an MCP Server
 
-1. Add the server config to `config.json` under `mcp.servers`:
+1. Add the server config to `~/.hybridclaw/config.json` under `mcpServers`:
    ```json
-   { "command": "...", "args": [...], "transport": "stdio" }
+   {
+     "mcpServers": {
+       "<server-name>": {
+         "command": "...",
+         "args": ["..."],
+         "transport": "stdio"
+       }
+     }
+   }
    ```
 2. Tools are auto-discovered at startup and merged into the tool namespace.
 3. Test with `hybridclaw` running in dev mode.

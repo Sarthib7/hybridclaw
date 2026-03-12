@@ -275,7 +275,7 @@ Skill resolution order (first match wins):
 
 ### 7.4 Modifying Approval Policy
 
-1. Edit `.hybridclaw/policy.yaml` (or `.claude/policy.yaml` for dev).
+1. Edit `.hybridclaw/policy.yaml`.
 2. Approval tiers: green (silent) → yellow (narrated) → red (explicit approval).
 3. `pinned_red` patterns are never auto-promoted.
 4. Test approval flows with integration tests that exercise the boundary.

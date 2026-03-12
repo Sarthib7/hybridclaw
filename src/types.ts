@@ -74,6 +74,9 @@ export interface ContainerInput {
   gatewayBaseUrl?: string;
   gatewayApiToken?: string;
   model: string;
+  ralphMaxIterations?: number | null;
+  fullAutoEnabled?: boolean;
+  fullAutoNeverApproveTools?: string[];
   maxTokens?: number;
   channelId: string;
   configuredDiscordChannels?: string[];
@@ -129,6 +132,7 @@ export interface ToolExecution {
     | 'approved_once'
     | 'approved_session'
     | 'approved_agent'
+    | 'approved_fullauto'
     | 'promoted'
     | 'required'
     | 'denied';
@@ -221,6 +225,9 @@ export interface Session {
   summary_updated_at: string | null;
   compaction_count: number;
   memory_flush_at: string | null;
+  full_auto_enabled: number;
+  full_auto_prompt: string | null;
+  full_auto_started_at: string | null;
   created_at: string;
   last_active: string;
 }

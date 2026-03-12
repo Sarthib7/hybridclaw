@@ -72,18 +72,16 @@ export async function runIsolatedScheduledTask(params: {
   });
 
   try {
-    const output = await runAgent(
-      cronSessionId,
+    const output = await runAgent({
+      sessionId: cronSessionId,
       messages,
       chatbotId,
-      false,
+      enableRag: false,
       model,
       agentId,
       channelId,
-      undefined,
-      undefined,
-      ['cron'],
-    );
+      blockedTools: ['cron'],
+    });
     emitToolExecutionAuditEvents({
       sessionId: cronSessionId,
       runId,

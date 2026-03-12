@@ -15,6 +15,7 @@ export type ApprovalDecision =
   | 'approved_once'
   | 'approved_session'
   | 'approved_agent'
+  | 'approved_fullauto'
   | 'promoted'
   | 'required'
   | 'denied';
@@ -911,12 +912,39 @@ export class TrustedCoworkerApprovalRuntime {
   private readonly agentTrustedActions = new Set<string>();
   private readonly agentTrustedFingerprints = new Set<string>();
   private readonly seenNetworkHosts = new Set<string>();
+  private fullAutoEnabled = false;
+  private readonly fullAutoNeverApprove = new Set<string>();
 
   constructor(policyPath = POLICY_PATH, trustStorePath = TRUST_STORE_PATH) {
     this.policyPath = policyPath;
     this.trustStorePath = trustStorePath;
     this.reloadPolicyIfNeeded(true);
     this.loadAgentTrustStore();
+  }
+
+  setFullAutoOptions(params?: {
+    enabled?: boolean;
+    neverApproveTools?: string[];
+  }): void {
+    this.fullAutoEnabled = params?.enabled === true;
+    this.fullAutoNeverApprove.clear();
+    for (const raw of params?.neverApproveTools || []) {
+      const value = String(raw || '')
+        .trim()
+        .toLowerCase();
+      if (!value) continue;
+      this.fullAutoNeverApprove.add(value);
+    }
+  }
+
+  private shouldNeverAutoApprove(toolName: string, actionKey: string): boolean {
+    if (this.fullAutoNeverApprove.size === 0) return false;
+    const normalizedTool = toolName.trim().toLowerCase();
+    const normalizedAction = actionKey.trim().toLowerCase();
+    return (
+      this.fullAutoNeverApprove.has(normalizedTool) ||
+      this.fullAutoNeverApprove.has(normalizedAction)
+    );
   }
 
   reloadPolicyIfNeeded(force = false): ApprovalPolicyConfig {
@@ -1112,6 +1140,12 @@ export class TrustedCoworkerApprovalRuntime {
       } else if (promotable) {
         tier = 'yellow';
         decision = 'promoted';
+      } else if (
+        this.fullAutoEnabled &&
+        !this.shouldNeverAutoApprove(params.toolName, classified.actionKey)
+      ) {
+        tier = 'yellow';
+        decision = 'approved_fullauto';
       } else {
         if (this.pending.size >= this.loadedPolicy.maxPendingApprovals) {
           return {

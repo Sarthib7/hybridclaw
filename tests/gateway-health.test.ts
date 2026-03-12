@@ -223,6 +223,7 @@ async function importFreshHealth(options?: {
         task: 'User prompt',
         lastQuestion: 'User prompt',
         lastAnswer: 'Assistant reply',
+        fullAutoEnabled: true,
         model: 'gpt-5',
         sessionId: 'web:default',
         channelId: 'web',
@@ -601,6 +602,7 @@ describe('gateway health server', () => {
         {
           id: 'web:default',
           status: 'active',
+          fullAutoEnabled: true,
         },
       ],
     });

@@ -109,9 +109,10 @@ test('handleGatewayMessage clears session history when the agent workspace is re
   const session = memoryService.getSessionById(sessionId);
   expect(session?.message_count).toBe(2);
 
-  const messages = runAgentMock.mock.calls[0]?.[1] as
-    | Array<{ role: string; content: string }>
+  const request = runAgentMock.mock.calls[0]?.[0] as
+    | { messages?: Array<{ role: string; content: string }> }
     | undefined;
+  const messages = request?.messages;
   expect(messages).toBeDefined();
   expect(
     messages?.some((message) => message.content.includes('old user message')),

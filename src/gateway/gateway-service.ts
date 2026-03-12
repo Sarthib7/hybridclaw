@@ -10,7 +10,6 @@ import {
 import {
   getActiveExecutorSessionIds,
   getSandboxDiagnostics,
-  stopSessionExecution,
 } from '../agent/executor.js';
 import { processSideEffects } from '../agent/side-effects.js';
 import { isSilentReply } from '../agent/silent-reply.js';
@@ -28,7 +27,6 @@ import {
 import { getObservabilityIngestState } from '../audit/observability-ingest.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
-import { getDiscordChannelDisplayName } from '../channels/discord/runtime.js';
 import {
   APP_VERSION,
   DATA_DIR,
@@ -37,6 +35,7 @@ import {
   DISCORD_GROUP_POLICY,
   DISCORD_GUILDS,
   DISCORD_RESPOND_TO_ALL_MESSAGES,
+  FULLAUTO_NEVER_APPROVE_TOOLS,
   HYBRIDAI_CHATBOT_ID,
   HYBRIDAI_ENABLE_RAG,
   HYBRIDAI_MODEL,
@@ -66,8 +65,8 @@ import {
   deleteTask,
   getAllSessions,
   getAllTasks,
+  getFullAutoSessionCount,
   getQueuedProactiveMessageCount,
-  getRecentMessages,
   getRecentStructuredAuditForSession,
   getSessionCount,
   getTasksForSession,
@@ -131,7 +130,42 @@ import type {
   TokenUsageStats,
   ToolProgressEvent,
 } from '../types.js';
+import { sleep } from '../utils/sleep.js';
 import { ensureBootstrapFiles, resetWorkspace } from '../workspace.js';
+import {
+  buildFullAutoOperatingContract,
+  buildFullAutoStatusLines,
+  clearScheduledFullAutoContinuation,
+  configureFullAutoRuntime,
+  describeFullAutoWorkspaceSummary,
+  disableFullAutoSession,
+  enableFullAutoSession,
+  getFullAutoRuntimeState,
+  isFullAutoEnabled,
+  maybeScheduleFullAutoAfterSuccess,
+  noteFullAutoSupervisedIntervention,
+  type ProactiveMessagePayload,
+  preemptRunningFullAutoTurn,
+  resolveFullAutoPrompt,
+  resolveSessionRalphIterations,
+  syncFullAutoRuntimeContext,
+} from './fullauto.js';
+import { mapAgentCard } from './gateway-agent-cards.js';
+import {
+  classifyGatewayError,
+  type GatewayErrorClass,
+} from './gateway-error-utils.js';
+import {
+  abbreviateForUser,
+  formatCompactNumber,
+  formatRalphIterations,
+} from './gateway-formatting.js';
+import {
+  interruptGatewaySessionExecution,
+  registerActiveGatewayRequest,
+} from './gateway-request-runtime.js';
+import { readSessionStatusSnapshot } from './gateway-session-status.js';
+import { formatRelativeTime, parseTimestamp } from './gateway-time.js';
 import {
   type GatewayAdminAuditResponse,
   type GatewayAdminChannelsResponse,
@@ -157,6 +191,11 @@ import {
   type GatewayStatus,
   renderGatewayCommand,
 } from './gateway-types.js';
+import {
+  firstNumber,
+  numberFromUnknown,
+  parseAuditPayload,
+} from './gateway-utils.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
 import { buildResetConfirmationComponents } from './reset-confirmation.js';
 
@@ -206,32 +245,11 @@ const IMAGE_QUESTION_RE =
   /(what(?:'s| is)? on (?:the )?(?:image|picture|photo|screenshot)|describe (?:this|the) (?:image|picture|photo)|image|picture|photo|screenshot|ocr|diagram|chart|grafik|bild|foto|was steht|was ist auf dem bild)/i;
 const BROWSER_TAB_RE =
   /(browser|tab|current tab|web page|website|seite im browser|aktuellen tab)/i;
-const TRANSIENT_DELEGATION_ERROR_PATTERNS: RegExp[] = [
-  /econnreset/i,
-  /etimedout/i,
-  /429/i,
-  /5\d\d/i,
-  /network/i,
-  /socket/i,
-  /fetch failed/i,
-  /temporar/i,
-  /rate limit/i,
-  /unavailable/i,
-];
-const PERMANENT_DELEGATION_ERROR_PATTERNS: RegExp[] = [
-  /forbidden/i,
-  /permission denied/i,
-  /unauthorized/i,
-  /not found/i,
-  /invalid api key/i,
-  /blocked by security hook/i,
-];
 let cachedGitCommitShort: string | null | undefined;
 const pendingSessionResets = new Map<string, PendingSessionReset>();
 
 type DelegationMode = 'single' | 'parallel' | 'chain';
 type DelegationRunStatus = 'completed' | 'failed' | 'timeout';
-type DelegationErrorClass = 'transient' | 'permanent' | 'unknown';
 
 interface PendingSessionReset {
   requestedAt: number;
@@ -298,11 +316,7 @@ export interface GatewayChatRequest {
     message: ProactiveMessagePayload,
   ) => void | Promise<void>;
   abortSignal?: AbortSignal;
-}
-
-export interface ProactiveMessagePayload {
-  text: string;
-  artifacts?: ArtifactMetadata[];
+  source?: string;
 }
 
 export type {
@@ -317,6 +331,15 @@ export type {
   GatewayStatus,
 };
 export { renderGatewayCommand };
+export { resumeEnabledFullAutoSessions } from './fullauto.js';
+
+let gatewayServiceInitialized = false;
+
+export function initGatewayService(): void {
+  if (gatewayServiceInitialized) return;
+  configureFullAutoRuntime({ handleGatewayMessage });
+  gatewayServiceInitialized = true;
+}
 
 function formatUptime(seconds: number): string {
   const d = Math.floor(seconds / 86400);
@@ -448,337 +471,6 @@ function mapAdminSession(session: Session): GatewayAdminSession {
     taskCount: getTasksForSession(session.id).length,
     createdAt: session.created_at,
     lastActive: session.last_active,
-  };
-}
-
-function trimPreviewText(raw: string, maxLength = 160): string {
-  const compact = String(raw || '')
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (!compact) return '';
-  return compact.length > maxLength
-    ? `${compact.slice(0, maxLength - 3).trimEnd()}...`
-    : compact;
-}
-
-function buildAgentName(session: Session): string {
-  if (session.id.startsWith('heartbeat:')) {
-    return `Heartbeat ${session.id.slice('heartbeat:'.length)}`;
-  }
-  if (session.id.startsWith('scheduler:')) {
-    return `Scheduler ${session.id.slice('scheduler:'.length)}`;
-  }
-  if (session.id.startsWith('delegate:')) {
-    return 'Delegated task';
-  }
-  if (session.id.startsWith('web:')) {
-    return `Web ${session.channel_id}`;
-  }
-  if (session.id.startsWith('tui:')) {
-    return `TUI ${session.channel_id}`;
-  }
-  return session.id;
-}
-
-function buildAgentTask(session: Session): string {
-  const recentMessages = getRecentMessages(session.id, 8);
-  for (let index = recentMessages.length - 1; index >= 0; index -= 1) {
-    const message = recentMessages[index];
-    if (String(message.role || '').toLowerCase() !== 'user') continue;
-    const preview = trimPreviewText(message.content, 180);
-    if (preview) return preview;
-  }
-  if (session.session_summary) {
-    const preview = trimPreviewText(session.session_summary, 180);
-    if (preview) return preview;
-  }
-  if (session.id.startsWith('heartbeat:')) {
-    return 'Periodic heartbeat session using the configured runtime workspace.';
-  }
-  if (session.id.startsWith('scheduler:')) {
-    return 'Config-backed scheduler job delivering an automated agent turn.';
-  }
-  if (session.id.startsWith('delegate:')) {
-    return 'Delegated sub-agent session spawned for a focused task.';
-  }
-  return 'Persisted runtime session with no recent user prompt available.';
-}
-
-function buildAgentConversationPreview(session: Session): {
-  lastQuestion: string | null;
-  lastAnswer: string | null;
-} {
-  const recentMessages = getRecentMessages(session.id, 12);
-  let pendingAnswer: string | null = null;
-
-  for (let index = recentMessages.length - 1; index >= 0; index -= 1) {
-    const message = recentMessages[index];
-    const role = String(message.role || '').toLowerCase();
-    const preview = trimPreviewText(message.content, 140);
-    if (!preview) continue;
-
-    if (role === 'assistant') {
-      if (!pendingAnswer) {
-        pendingAnswer = preview;
-      }
-      continue;
-    }
-
-    if (role === 'user') {
-      return {
-        lastQuestion: preview,
-        lastAnswer: pendingAnswer,
-      };
-    }
-  }
-
-  return {
-    lastQuestion: null,
-    lastAnswer: pendingAnswer,
-  };
-}
-
-function summarizeAgentAuditPreview(row: StructuredAuditEntry): string {
-  const payload = parseAuditPayload(row);
-  const eventType = String(row.event_type || '').trim() || 'event';
-  const payloadType =
-    typeof payload?.type === 'string' ? payload.type.trim() : eventType;
-
-  if (payloadType === 'tool.result') {
-    const toolName = String(payload?.toolName || 'tool').trim() || 'tool';
-    const status = payload?.isError === true ? 'error' : 'ok';
-    const durationMs = numberFromUnknown(payload?.durationMs);
-    return `${toolName} ${status}${durationMs == null ? '' : ` ${durationMs}ms`}`;
-  }
-
-  if (payloadType === 'tool.call') {
-    const toolName = String(payload?.toolName || 'tool').trim() || 'tool';
-    return `${toolName} called`;
-  }
-
-  if (payloadType === 'turn.end') {
-    const finishReason =
-      typeof payload?.finishReason === 'string' && payload.finishReason.trim()
-        ? payload.finishReason.trim()
-        : 'completed';
-    return finishReason === 'completed'
-      ? 'turn completed'
-      : `turn ${finishReason}`;
-  }
-
-  if (payloadType === 'turn.start') {
-    return 'turn started';
-  }
-
-  if (payloadType === 'session.start') {
-    return 'session started';
-  }
-
-  if (payloadType === 'session.end') {
-    const reason =
-      typeof payload?.reason === 'string' && payload.reason.trim()
-        ? payload.reason.trim()
-        : 'completed';
-    return reason === 'normal' ? 'session completed' : `session ${reason}`;
-  }
-
-  if (payloadType === 'model.usage') {
-    const model = String(payload?.model || '').trim();
-    const provider = String(payload?.provider || '').trim();
-    const label = [provider, model].filter(Boolean).join(' ');
-    return label ? `${label} usage` : 'model usage recorded';
-  }
-
-  if (payloadType === 'authorization.check') {
-    const action = String(payload?.action || '')
-      .replace(/^tool:/, '')
-      .trim();
-    const allowed = payload?.allowed === true;
-    if (action) {
-      return `${action} ${allowed ? 'allowed' : 'blocked'}`;
-    }
-    return allowed ? 'authorization allowed' : 'authorization blocked';
-  }
-
-  if (payloadType === 'approval.request') {
-    return 'approval requested';
-  }
-
-  if (payloadType === 'approval.response') {
-    if (payload?.approved === true) return 'approval granted';
-    return 'approval denied';
-  }
-
-  if (payloadType === 'context.optimization') {
-    return 'context optimized';
-  }
-
-  if (payloadType === 'error') {
-    const message =
-      typeof payload?.message === 'string' && payload.message.trim()
-        ? payload.message.trim()
-        : '';
-    return trimPreviewText(message ? `error · ${message}` : 'error', 120);
-  }
-
-  return trimPreviewText(eventType.replace(/\./g, ' '), 120);
-}
-
-function buildAgentPreview(session: Session): {
-  title: string;
-  meta: string | null;
-  lines: string[];
-} {
-  const auditRows = getRecentStructuredAuditForSession(session.id, 6);
-  const messageRows = getRecentMessages(session.id, 4);
-
-  const activity = [
-    ...auditRows.map((row) => ({
-      timestamp: row.timestamp,
-      kind: 'audit' as const,
-      label: row.event_type,
-      line: trimPreviewText(
-        `${formatRelativeTime(row.timestamp)} · ${summarizeAgentAuditPreview(row)}`,
-        180,
-      ),
-    })),
-    ...messageRows.map((message) => {
-      const role = String(message.role || '').toLowerCase();
-      const label = role === 'assistant' ? 'assistant' : 'user';
-      return {
-        timestamp: message.created_at,
-        kind: 'chat' as const,
-        label,
-        line: trimPreviewText(
-          `${formatRelativeTime(message.created_at)} · ${label} · ${String(message.content || '')}`,
-          180,
-        ),
-      };
-    }),
-  ]
-    .filter((entry) => entry.line)
-    .sort((left, right) => {
-      const leftMs = parseTimestamp(left.timestamp)?.getTime() ?? 0;
-      const rightMs = parseTimestamp(right.timestamp)?.getTime() ?? 0;
-      return rightMs - leftMs;
-    })
-    .slice(0, 6);
-
-  if (activity.length === 0) {
-    return {
-      title: 'No recent activity',
-      meta: 'Persisted session',
-      lines: [
-        'No recent audit or chat activity captured for this session yet.',
-      ],
-    };
-  }
-
-  const uniqueAuditTypes = Array.from(
-    new Set(
-      activity
-        .filter((entry) => entry.kind === 'audit')
-        .map((entry) => entry.label),
-    ),
-  );
-  const chatCount = activity.filter((entry) => entry.kind === 'chat').length;
-  const mostRecent = activity[0];
-
-  let title = 'Recent activity';
-  if (uniqueAuditTypes.length > 0 && chatCount > 0) {
-    title =
-      uniqueAuditTypes.length === 1
-        ? `${uniqueAuditTypes[0]} + chat`
-        : `${uniqueAuditTypes[0]} + ${uniqueAuditTypes[1] || 'chat'}`;
-  } else if (uniqueAuditTypes.length > 0) {
-    title =
-      uniqueAuditTypes.length === 1
-        ? uniqueAuditTypes[0]
-        : `${uniqueAuditTypes[0]} + ${uniqueAuditTypes[1]}`;
-  } else if (chatCount > 0) {
-    title = 'Chat transcript';
-  }
-
-  return {
-    title,
-    meta: `${activity.length} items · ${formatRelativeTime(mostRecent.timestamp)}`,
-    lines: activity.map((entry) => entry.line),
-  };
-}
-
-function getAgentStatus(
-  session: Session,
-  activeSessionIds: Set<string>,
-): GatewayAgentsResponse['agents'][number]['status'] {
-  if (activeSessionIds.has(session.id)) return 'active';
-  const lastActive = parseTimestamp(session.last_active);
-  if (lastActive && Date.now() - lastActive.getTime() <= 60 * 60 * 1000) {
-    return 'idle';
-  }
-  return 'stopped';
-}
-
-function getAgentWatcherLabel(
-  status: GatewayAgentsResponse['agents'][number]['status'],
-  sandboxMode: string,
-): string {
-  if (status === 'active') return `${sandboxMode} runtime attached`;
-  if (status === 'idle') return `runtime idle (${sandboxMode})`;
-  return 'runtime detached';
-}
-
-function mapAgentCard(params: {
-  session: Session;
-  activeSessionIds: Set<string>;
-  usageBySession: Map<string, ReturnType<typeof listUsageBySession>[number]>;
-  sandboxMode: string;
-}): GatewayAgentsResponse['agents'][number] {
-  const { session, activeSessionIds, usageBySession, sandboxMode } = params;
-  const effectiveModel = session.model || HYBRIDAI_MODEL;
-  const effectiveChatbotId = session.chatbot_id || HYBRIDAI_CHATBOT_ID || '';
-  const agentId = resolveAgentIdForModel(effectiveModel, effectiveChatbotId);
-  const status = getAgentStatus(session, activeSessionIds);
-  const usage = usageBySession.get(session.id);
-  const startedAt = session.created_at;
-  const startMs = parseTimestamp(startedAt)?.getTime() ?? Date.now();
-  const endMs =
-    status === 'stopped'
-      ? (parseTimestamp(session.last_active)?.getTime() ?? Date.now())
-      : Date.now();
-  const runtimeMinutes = Math.max(
-    0,
-    Math.floor((endMs - Math.min(startMs, endMs)) / 60_000),
-  );
-  const preview = buildAgentPreview(session);
-  const conversation = buildAgentConversationPreview(session);
-
-  return {
-    id: session.id,
-    name: buildAgentName(session),
-    task: buildAgentTask(session),
-    lastQuestion: conversation.lastQuestion,
-    lastAnswer: conversation.lastAnswer,
-    model: effectiveModel,
-    sessionId: session.id,
-    channelId: session.channel_id,
-    channelName: getDiscordChannelDisplayName(
-      session.guild_id,
-      session.channel_id,
-    ),
-    agentId,
-    startedAt,
-    lastActive: session.last_active,
-    runtimeMinutes,
-    inputTokens: usage?.total_input_tokens || 0,
-    outputTokens: usage?.total_output_tokens || 0,
-    costUsd: usage?.total_cost_usd || 0,
-    messageCount: session.message_count,
-    toolCalls: usage?.total_tool_calls || 0,
-    status,
-    watcher: getAgentWatcherLabel(status, sandboxMode),
-    previewTitle: preview.title,
-    previewMeta: preview.meta,
-    output: preview.lines,
   };
 }
 
@@ -939,61 +631,6 @@ function resolveGitCommitShort(): string | null {
   return null;
 }
 
-function parseTimestamp(raw: string | null | undefined): Date | null {
-  const value = (raw || '').trim();
-  if (!value) return null;
-  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)) {
-    const parsed = new Date(`${value.replace(' ', 'T')}Z`);
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
-  }
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
-function formatRelativeTime(raw: string | null | undefined): string {
-  const at = parseTimestamp(raw);
-  if (!at) return 'unknown';
-  const deltaMs = Date.now() - at.getTime();
-  if (deltaMs < 15_000) return 'just now';
-  if (deltaMs < 60_000)
-    return `${Math.max(1, Math.floor(deltaMs / 1_000))}s ago`;
-  if (deltaMs < 3_600_000)
-    return `${Math.max(1, Math.floor(deltaMs / 60_000))}m ago`;
-  if (deltaMs < 86_400_000)
-    return `${Math.max(1, Math.floor(deltaMs / 3_600_000))}h ago`;
-  return `${Math.max(1, Math.floor(deltaMs / 86_400_000))}d ago`;
-}
-
-function numberFromUnknown(value: unknown): number | null {
-  if (
-    typeof value !== 'number' ||
-    Number.isNaN(value) ||
-    !Number.isFinite(value)
-  )
-    return null;
-  return value;
-}
-
-function firstNumber(values: unknown[]): number | null {
-  for (const value of values) {
-    const parsed = numberFromUnknown(value);
-    if (parsed != null) return parsed;
-  }
-  return null;
-}
-
-function parseAuditPayload(
-  entry: StructuredAuditEntry,
-): Record<string, unknown> | null {
-  try {
-    const parsed = JSON.parse(entry.payload) as unknown;
-    if (!parsed || typeof parsed !== 'object') return null;
-    return parsed as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-}
-
 function summarizeAuditPayload(payloadRaw: string): string {
   try {
     const payload = JSON.parse(payloadRaw) as Record<string, unknown>;
@@ -1018,24 +655,6 @@ function formatHybridAIBotFetchError(error: unknown): string {
   }
 
   return `Failed to fetch bots: ${message}`;
-}
-
-function formatCompactNumber(value: number | null): string {
-  if (value == null) return 'n/a';
-  const abs = Math.abs(value);
-  if (abs >= 1_000_000) {
-    const scaled =
-      abs >= 10_000_000
-        ? (value / 1_000_000).toFixed(0)
-        : (value / 1_000_000).toFixed(1);
-    return `${scaled.replace(/\.0$/, '')}M`;
-  }
-  if (abs >= 1_000) {
-    const scaled =
-      abs >= 10_000 ? (value / 1_000).toFixed(0) : (value / 1_000).toFixed(1);
-    return `${scaled.replace(/\.0$/, '')}k`;
-  }
-  return String(Math.round(value));
 }
 
 function formatPercent(value: number | null): string {
@@ -1167,119 +786,6 @@ function resolveGuildChannelMode(
   }
   if (DISCORD_RESPOND_TO_ALL_MESSAGES) return 'free';
   return 'mention';
-}
-
-interface SessionStatusSnapshot {
-  promptTokens: number | null;
-  completionTokens: number | null;
-  cacheReadTokens: number | null;
-  cacheWriteTokens: number | null;
-  cacheHitPercent: number | null;
-  contextUsedTokens: number | null;
-  contextBudgetTokens: number | null;
-  contextUsagePercent: number | null;
-}
-
-function readSessionStatusSnapshot(
-  sessionId: string,
-  options?: { modelContextWindowTokens?: number | null },
-): SessionStatusSnapshot {
-  const entries = getRecentStructuredAuditForSession(sessionId, 160);
-  let usagePayload: Record<string, unknown> | null = null;
-
-  for (const entry of entries) {
-    const payload = parseAuditPayload(entry);
-    if (!payload) continue;
-    const payloadType =
-      typeof payload.type === 'string' ? payload.type : entry.event_type;
-    if (!usagePayload && payloadType === 'model.usage') {
-      usagePayload = payload;
-    }
-    if (usagePayload) break;
-  }
-
-  const promptTokens = firstNumber([
-    usagePayload?.promptTokens,
-    usagePayload?.apiPromptTokens,
-    usagePayload?.estimatedPromptTokens,
-  ]);
-  const completionTokens = firstNumber([
-    usagePayload?.completionTokens,
-    usagePayload?.apiCompletionTokens,
-    usagePayload?.estimatedCompletionTokens,
-  ]);
-
-  const cacheReadTokens = firstNumber([
-    usagePayload?.cacheReadTokens,
-    usagePayload?.cacheReadInputTokens,
-    usagePayload?.apiCacheReadTokens,
-    usagePayload?.cacheRead,
-    usagePayload?.cache_read,
-    usagePayload?.cache_read_tokens,
-    usagePayload?.cache_read_input_tokens,
-    usagePayload?.cached_tokens,
-    (usagePayload?.prompt_tokens_details as Record<string, unknown> | undefined)
-      ?.cached_tokens,
-  ]);
-  const cacheWriteTokens = firstNumber([
-    usagePayload?.cacheWriteTokens,
-    usagePayload?.cacheWriteInputTokens,
-    usagePayload?.apiCacheWriteTokens,
-    usagePayload?.cacheWrite,
-    usagePayload?.cache_write,
-    usagePayload?.cache_write_tokens,
-    usagePayload?.cache_write_input_tokens,
-    usagePayload?.cache_creation_input_tokens,
-  ]);
-  const cacheRead = Math.max(0, cacheReadTokens || 0);
-  const cacheWrite = Math.max(0, cacheWriteTokens || 0);
-  const cacheTotal = cacheRead + cacheWrite;
-  const cacheHitPercent =
-    cacheTotal > 0 ? (cacheRead / cacheTotal) * 100 : null;
-
-  const contextUsedTokens = firstNumber([
-    usagePayload?.contextTokens,
-    usagePayload?.context_tokens,
-    usagePayload?.tokensInContext,
-    usagePayload?.tokens_in_context,
-    usagePayload?.promptTokens,
-    usagePayload?.apiPromptTokens,
-    usagePayload?.estimatedPromptTokens,
-  ]);
-  const contextBudgetTokens = firstNumber([
-    usagePayload?.contextWindowTokens,
-    usagePayload?.context_window_tokens,
-    usagePayload?.modelContextWindowTokens,
-    usagePayload?.model_context_window_tokens,
-    usagePayload?.modelContextWindow,
-    usagePayload?.model_context_window,
-    usagePayload?.maxContextTokens,
-    usagePayload?.max_context_tokens,
-    usagePayload?.contextWindow,
-    usagePayload?.context_window,
-    usagePayload?.contextLength,
-    usagePayload?.context_length,
-    usagePayload?.maxContextSize,
-    usagePayload?.max_context_size,
-    options?.modelContextWindowTokens,
-  ]);
-  const contextUsagePercent =
-    contextUsedTokens != null &&
-    contextBudgetTokens != null &&
-    contextBudgetTokens > 0
-      ? (contextUsedTokens / contextBudgetTokens) * 100
-      : null;
-
-  return {
-    promptTokens,
-    completionTokens,
-    cacheReadTokens,
-    cacheWriteTokens,
-    cacheHitPercent,
-    contextUsedTokens,
-    contextBudgetTokens,
-    contextUsagePercent,
-  };
 }
 
 function normalizeVersionQuery(raw: string): string {
@@ -1451,12 +957,6 @@ function normalizeRalphIterations(value: number): number {
   return Math.min(MAX_RALPH_ITERATIONS, truncated);
 }
 
-function formatRalphIterations(value: number): string {
-  if (value === -1) return 'unlimited';
-  if (value <= 0) return 'off';
-  return `${value} extra iteration${value === 1 ? '' : 's'}`;
-}
-
 function badCommand(title: string, text: string): GatewayCommandResult {
   return { kind: 'error', title, text };
 }
@@ -1476,6 +976,23 @@ function infoCommand(
 
 function plainCommand(text: string): GatewayCommandResult {
   return { kind: 'plain', text };
+}
+
+function enableFullAutoCommand(params: {
+  session: Session;
+  req: GatewayCommandRequest;
+  prompt: string | null;
+}): GatewayCommandResult {
+  const { session: refreshed, seeded } = enableFullAutoSession(params);
+  return infoCommand(
+    'Full-Auto Enabled',
+    [
+      'Full-auto mode enabled. Agent will run indefinitely. Use `stop` or `fullauto off` to halt.',
+      `Prompt: ${resolveFullAutoPrompt(refreshed)}`,
+      describeFullAutoWorkspaceSummary(refreshed, seeded),
+      `Ralph: ${formatRalphIterations(resolveSessionRalphIterations(refreshed))}`,
+    ].join('\n'),
+  );
 }
 
 const MCP_SERVER_NAME_RE = /^[a-z0-9][a-z0-9_-]*$/;
@@ -1561,7 +1078,7 @@ function summarizeMcpServer(name: string, config: McpServerConfig): string {
 }
 
 function restartNoteForMcpChange(sessionId: string): string {
-  return stopSessionExecution(sessionId)
+  return interruptGatewaySessionExecution(sessionId)
     ? ' Current session container restarted to apply immediately.'
     : ' Changes apply on the next turn.';
 }
@@ -1696,6 +1213,9 @@ export function getGatewayStatus(): GatewayStatus {
     activeContainers: sandbox.activeSessions,
     defaultModel: HYBRIDAI_MODEL,
     ragDefault: HYBRIDAI_ENABLE_RAG,
+    fullAuto: {
+      activeSessions: getFullAutoSessionCount(),
+    },
     timestamp: new Date().toISOString(),
     codex: {
       authenticated: codex.authenticated,
@@ -1796,7 +1316,7 @@ export function getGatewayAdminSessions(): GatewayAdminSession[] {
 export function deleteGatewayAdminSession(
   sessionId: string,
 ): GatewayAdminDeleteSessionResult {
-  stopSessionExecution(sessionId);
+  interruptGatewaySessionExecution(sessionId);
   return deleteSessionData(sessionId);
 }
 
@@ -2749,31 +2269,6 @@ function formatDurationMs(ms: number): string {
   return `${(ms / 1_000).toFixed(1)}s`;
 }
 
-function abbreviateForUser(
-  text: string,
-  maxChars = MAX_DELEGATION_USER_CHARS,
-): string {
-  const normalized = text.replace(/\s+/g, ' ').trim();
-  if (normalized.length <= maxChars) return normalized;
-  return `${normalized.slice(0, Math.max(0, maxChars - 3)).trimEnd()}...`;
-}
-
-function classifyDelegationError(errorText: string): DelegationErrorClass {
-  if (
-    PERMANENT_DELEGATION_ERROR_PATTERNS.some((pattern) =>
-      pattern.test(errorText),
-    )
-  )
-    return 'permanent';
-  if (
-    TRANSIENT_DELEGATION_ERROR_PATTERNS.some((pattern) =>
-      pattern.test(errorText),
-    )
-  )
-    return 'transient';
-  return 'unknown';
-}
-
 function inferDelegationStatus(errorText: string): DelegationRunStatus {
   return /timeout|timed out|deadline exceeded/i.test(errorText)
     ? 'timeout'
@@ -2889,10 +2384,6 @@ function interpolateChainPrompt(
   return prompt.replace(/\{previous\}/g, replacement);
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 async function runDelegationTaskWithRetry(
   input: DelegationTaskRunInput,
 ): Promise<DelegationRunResult> {
@@ -2926,9 +2417,9 @@ async function runDelegationTaskWithRetry(
     lastSessionId = sessionId;
     const startedAt = Date.now();
     try {
-      const output = await runAgent(
+      const output = await runAgent({
         sessionId,
-        [
+        messages: [
           {
             role: 'system',
             content: buildSubagentSystemPrompt({
@@ -2942,12 +2433,11 @@ async function runDelegationTaskWithRetry(
         ],
         chatbotId,
         enableRag,
-        task.model,
+        model: task.model,
         agentId,
         channelId,
-        undefined,
         allowedTools,
-      );
+      });
       const durationMs = Date.now() - startedAt;
       lastDuration = durationMs;
       lastToolsUsed = output.toolsUsed || [];
@@ -2969,7 +2459,7 @@ async function runDelegationTaskWithRetry(
       const errorText = output.error || 'Delegated run returned empty output.';
       lastError = errorText;
       lastStatus = inferDelegationStatus(errorText);
-      const classification = classifyDelegationError(errorText);
+      const classification: GatewayErrorClass = classifyGatewayError(errorText);
       const shouldRetry =
         classification === 'transient' && attempt < maxAttempts;
       if (!shouldRetry) break;
@@ -2993,7 +2483,7 @@ async function runDelegationTaskWithRetry(
       const errorText = err instanceof Error ? err.message : String(err);
       lastError = errorText;
       lastStatus = inferDelegationStatus(errorText);
-      const classification = classifyDelegationError(errorText);
+      const classification: GatewayErrorClass = classifyGatewayError(errorText);
       const shouldRetry =
         classification === 'transient' && attempt < maxAttempts;
       if (!shouldRetry) break;
@@ -3052,11 +2542,11 @@ function formatDelegationCompletion(params: {
   for (const entry of entries) {
     if (entry.run.status === 'completed') {
       userLines.push(
-        `- ${entry.title}: ${abbreviateForUser(entry.run.result || '')}`,
+        `- ${entry.title}: ${abbreviateForUser(entry.run.result || '', MAX_DELEGATION_USER_CHARS)}`,
       );
     } else {
       userLines.push(
-        `- ${entry.title}: ${entry.run.status} (${abbreviateForUser(entry.run.error || 'Unknown error')})`,
+        `- ${entry.title}: ${entry.run.status} (${abbreviateForUser(entry.run.error || 'Unknown error', MAX_DELEGATION_USER_CHARS)})`,
       );
     }
   }
@@ -3100,7 +2590,7 @@ function formatDelegationCompletion(params: {
   }
 
   return {
-    forUser: abbreviateForUser(userLines.join('\n')),
+    forUser: abbreviateForUser(userLines.join('\n'), MAX_DELEGATION_USER_CHARS),
     forLLM: llmLines.join('\n').trimEnd(),
     ...(artifacts.length > 0 ? { artifacts } : {}),
   };
@@ -3299,11 +2789,27 @@ export async function handleGatewayMessage(
 ): Promise<GatewayChatResult> {
   const startedAt = Date.now();
   const runId = makeAuditRunId('turn');
+  const source = req.source?.trim() || 'gateway.chat';
   let session = memoryService.getOrCreateSession(
     req.sessionId,
     req.guildId,
     req.channelId,
   );
+  if (source !== 'fullauto') {
+    preemptRunningFullAutoTurn(req.sessionId, source);
+    clearScheduledFullAutoContinuation(req.sessionId);
+    if (isFullAutoEnabled(session)) {
+      noteFullAutoSupervisedIntervention({
+        session,
+        content: req.content,
+        source,
+      });
+    }
+  }
+  const activeGatewayRequest = registerActiveGatewayRequest({
+    sessionId: req.sessionId,
+    abortSignal: req.abortSignal,
+  });
   const chatbotId = req.chatbotId ?? session.chatbot_id ?? HYBRIDAI_CHATBOT_ID;
   const enableRag = req.enableRag ?? session.enable_rag === 1;
   const model = req.model ?? session.model ?? HYBRIDAI_MODEL;
@@ -3334,6 +2840,17 @@ export async function handleGatewayMessage(
       'Cleared session history after workspace reset',
     );
   }
+  if (isFullAutoEnabled(session)) {
+    syncFullAutoRuntimeContext(req.sessionId, {
+      guildId: req.guildId,
+      userId: req.userId,
+      username: req.username ?? null,
+      chatbotId,
+      model,
+      enableRag,
+      onProactiveMessage: req.onProactiveMessage ?? null,
+    });
+  }
   const turnIndex = session.message_count + 1;
   const debugMeta = {
     sessionId: req.sessionId,
@@ -3359,7 +2876,7 @@ export async function handleGatewayMessage(
       channel: req.channelId,
       cwd: workspacePath,
       model,
-      source: 'gateway.chat',
+      source,
     },
   });
   recordAuditEvent({
@@ -3371,6 +2888,7 @@ export async function handleGatewayMessage(
       userInput: req.content,
       username: req.username,
       mediaCount: media.length,
+      source,
     },
   });
 
@@ -3448,11 +2966,13 @@ export async function handleGatewayMessage(
       toolCallCount: 0,
       startedAt,
     });
-    return {
+    const result: GatewayChatResult = {
       status: 'success',
       result: resultText,
       toolsUsed: [],
     };
+    maybeScheduleFullAutoAfterSuccess({ session, req, result });
+    return result;
   }
 
   const history = memoryService
@@ -3500,11 +3020,18 @@ export async function handleGatewayMessage(
       )
       .join('\n\n')
       .trim() || null;
+  const fullAutoOperatingContract = isFullAutoEnabled(session)
+    ? buildFullAutoOperatingContract(
+        session,
+        source === 'fullauto' ? 'background' : 'supervised',
+      )
+    : undefined;
   const mediaPolicy = resolveMediaToolPolicy(req.content, media);
   const { messages, skills, historyStats } = buildConversationContext({
     agentId,
     sessionSummary: mergedSessionSummary,
     history,
+    extraSafetyText: fullAutoOperatingContract,
     runtimeInfo: {
       chatbotId,
       model,
@@ -3610,22 +3137,24 @@ export async function handleGatewayMessage(
       },
       'Gateway chat invoking agent',
     );
-    const output = await runAgent(
-      req.sessionId,
+    const output = await runAgent({
+      sessionId: req.sessionId,
       messages,
       chatbotId,
       enableRag,
       model,
       agentId,
-      req.channelId,
+      channelId: req.channelId,
+      ralphMaxIterations: resolveSessionRalphIterations(session),
+      fullAutoEnabled: isFullAutoEnabled(session),
+      fullAutoNeverApproveTools: FULLAUTO_NEVER_APPROVE_TOOLS,
       scheduledTasks,
-      undefined,
-      mediaPolicy.blockedTools,
+      blockedTools: mediaPolicy.blockedTools,
       onTextDelta,
       onToolProgress,
-      req.abortSignal,
+      abortSignal: activeGatewayRequest.signal,
       media,
-    );
+    });
     const effectiveUserContent =
       typeof output.effectiveUserPrompt === 'string' &&
       output.effectiveUserPrompt.trim()
@@ -3809,7 +3338,7 @@ export async function handleGatewayMessage(
       startedAt,
     });
 
-    return {
+    const result: GatewayChatResult = {
       status: 'success',
       result: resultText,
       toolsUsed: output.toolsUsed || [],
@@ -3818,6 +3347,8 @@ export async function handleGatewayMessage(
       tokenUsage: output.tokenUsage,
       effectiveUserPrompt: output.effectiveUserPrompt,
     };
+    maybeScheduleFullAutoAfterSuccess({ session, req, result });
+    return result;
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     logAudit(
@@ -3870,6 +3401,8 @@ export async function handleGatewayMessage(
       toolExecutions: undefined,
       error: errorMsg,
     };
+  } finally {
+    activeGatewayRequest.release();
   }
 }
 
@@ -3944,6 +3477,7 @@ export async function handleGatewayCommand(
         '`channel mode [off|mention|free]` — Set or inspect this Discord channel response mode',
         '`channel policy [open|allowlist|disabled]` — Set or inspect guild channel policy',
         '`ralph [on|off|set <n>|info]` — Configure Ralph loop (0 off, -1 unlimited)',
+        '`fullauto [status|off|on [prompt]|<prompt>]` — Enable/inspect/disable session full-auto mode',
         '`mcp list` — List configured MCP servers',
         '`mcp add <name> <json>` — Add or update an MCP server config',
         '`mcp remove <name>` — Remove an MCP server config',
@@ -3954,6 +3488,7 @@ export async function handleGatewayCommand(
         '`/compact` — Archive older history, summarize it, and retain recent context',
         '`/status` — Show runtime status (Discord slash command, private to caller)',
         '`/approve [view|yes|session|agent|no] [approval_id]` — View/respond to pending approvals privately',
+        '`stop` — Abort the current session run and disable full-auto mode',
         '`/channel-mode <off|mention|free>` — Set this Discord channel response mode',
         '`/channel-policy <open|allowlist|disabled>` — Set Discord guild channel policy',
         '`/model list` — List available runtime models',
@@ -4260,12 +3795,71 @@ export async function handleGatewayCommand(
       updateRuntimeConfig((draft) => {
         draft.proactive.ralph.maxIterations = normalized;
       });
-      const restarted = stopSessionExecution(req.sessionId);
+      const restarted = interruptGatewaySessionExecution(req.sessionId);
       const restartNote = restarted
         ? ' Current session container restarted to apply immediately.'
         : '';
       return plainCommand(
         `Ralph loop set to ${formatRalphIterations(normalized)}.${restartNote}`,
+      );
+    }
+
+    case 'fullauto': {
+      const sub = (req.args[1] || '').trim().toLowerCase();
+      if (!sub) {
+        const refreshed = memoryService.getSessionById(session.id) ?? session;
+        return infoCommand(
+          'Full-Auto Status',
+          buildFullAutoStatusLines(refreshed).join('\n'),
+        );
+      }
+
+      if (sub === 'on') {
+        const promptText = req.args.slice(2).join(' ').trim();
+        return enableFullAutoCommand({
+          session,
+          req,
+          prompt: promptText || null,
+        });
+      }
+
+      if (sub === 'off' || sub === 'disable' || sub === 'stop') {
+        await disableFullAutoSession({ sessionId: session.id });
+        return plainCommand(
+          'Full-auto mode disabled. Current turns may finish, but no further auto-turns will be queued.',
+        );
+      }
+
+      if (sub === 'status' || sub === 'info') {
+        const refreshed = memoryService.getSessionById(session.id) ?? session;
+        return infoCommand(
+          'Full-Auto Status',
+          buildFullAutoStatusLines(refreshed).join('\n'),
+        );
+      }
+
+      const prompt = req.args.slice(1).join(' ').trim();
+      if (!prompt) {
+        return badCommand(
+          'Usage',
+          'Usage: `fullauto [status|off|on [prompt]|<prompt>]`',
+        );
+      }
+      return enableFullAutoCommand({
+        session,
+        req,
+        prompt,
+      });
+    }
+
+    case 'stop':
+    case 'abort': {
+      await disableFullAutoSession({ sessionId: session.id });
+      const stopped = interruptGatewaySessionExecution(req.sessionId);
+      return plainCommand(
+        stopped
+          ? 'Stopped the current session run and disabled full-auto mode.'
+          : 'No active session run. Full-auto mode disabled.',
       );
     }
 
@@ -4410,7 +4004,8 @@ export async function handleGatewayCommand(
         }
 
         pendingSessionResets.delete(req.sessionId);
-        stopSessionExecution(req.sessionId);
+        await disableFullAutoSession({ sessionId: session.id });
+        interruptGatewaySessionExecution(req.sessionId);
         const deleted = memoryService.clearSessionHistory(session.id);
         updateSessionChatbot(session.id, null);
         updateSessionModel(session.id, null);
@@ -4508,6 +4103,10 @@ export async function handleGatewayCommand(
             ? `${formatCompactNumber(metrics.contextUsedTokens)}/? (window unknown)`
             : 'n/a';
       const sandboxLabel = `${status.sandbox?.mode || 'container'} (${status.sandbox?.activeSessions ?? status.activeContainers} active)`;
+      const fullAutoState = getFullAutoRuntimeState(session.id);
+      const fullAutoLabel = isFullAutoEnabled(session)
+        ? `on (${fullAutoState?.turns ?? 0} turns, ${fullAutoState?.consecutiveErrors ?? 0} errors)`
+        : 'off';
       const lines = [
         `🦞 HybridClaw v${status.version}${commitShort ? ` (${commitShort})` : ''}`,
         `🧠 Model: ${sessionModel}`,
@@ -4518,7 +4117,8 @@ export async function handleGatewayCommand(
         `📚 Context: ${contextLabel} · 🧹 Compactions: ${session.compaction_count}`,
         `📊 Usage: uptime ${formatUptime(status.uptime)} · sessions ${status.sessions} · sandbox ${sandboxLabel}`,
         `🧵 Session: ${session.id} • updated ${formatRelativeTime(session.last_active)}`,
-        `⚙️ Runtime: ${status.sandbox?.mode || 'container'} · RAG: ${session.enable_rag ? 'on' : 'off'} · Ralph: ${formatRalphIterations(normalizeRalphIterations(PROACTIVE_RALPH_MAX_ITERATIONS))}`,
+        `⚙️ Runtime: ${status.sandbox?.mode || 'container'} · RAG: ${session.enable_rag ? 'on' : 'off'} · Ralph: ${formatRalphIterations(resolveSessionRalphIterations(session))}`,
+        `🤖 Full-auto: ${fullAutoLabel}`,
         `👥 Activation: ${resolveActivationModeLabel()} · 🪢 Queue: ${queueLabel} · 📬 Proactive queued: ${proactiveQueued}`,
       ];
       return infoCommand('Status', lines.join('\n'));

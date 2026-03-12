@@ -32,7 +32,7 @@ import { KnowledgeEntityType, KnowledgeRelationType } from '../types.js';
 
 let db: Database.Database;
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 interface InitDatabaseOptions {
   quiet?: boolean;
@@ -127,6 +127,9 @@ function migrateV1(database: Database.Database): void {
       summary_updated_at TEXT,
       compaction_count INTEGER DEFAULT 0,
       memory_flush_at TEXT,
+      full_auto_enabled INTEGER NOT NULL DEFAULT 0,
+      full_auto_prompt TEXT,
+      full_auto_started_at TEXT,
       created_at TEXT DEFAULT (datetime('now')),
       last_active TEXT DEFAULT (datetime('now'))
     );
@@ -466,6 +469,36 @@ function migrateV4(database: Database.Database): void {
   );
 }
 
+function migrateV5(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  const quiet = opts?.quiet === true;
+  addColumnIfMissing({
+    database,
+    table: 'sessions',
+    column: 'full_auto_enabled',
+    ddl: 'full_auto_enabled INTEGER NOT NULL DEFAULT 0',
+    quiet,
+  });
+  addColumnIfMissing({
+    database,
+    table: 'sessions',
+    column: 'full_auto_prompt',
+    ddl: 'full_auto_prompt TEXT',
+    quiet,
+  });
+  addColumnIfMissing({
+    database,
+    table: 'sessions',
+    column: 'full_auto_started_at',
+    ddl: 'full_auto_started_at TEXT',
+    quiet,
+  });
+
+  recordMigration(database, 5, 'Add per-session full-auto state columns');
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -486,6 +519,7 @@ function runMigrations(
   if (currentVersion < 2) migrateV2(database, opts);
   if (currentVersion < 3) migrateV3(database);
   if (currentVersion < 4) migrateV4(database);
+  if (currentVersion < 5) migrateV5(database, opts);
 
   setSchemaVersion(database, SCHEMA_VERSION);
   if (!quiet && currentVersion < SCHEMA_VERSION) {
@@ -1049,6 +1083,31 @@ export function getUsageTotals(params?: {
        ${where}`,
     )
     .get(...args) as UsageTotals;
+
+  return {
+    total_input_tokens: normalizeUsageNumber(row.total_input_tokens),
+    total_output_tokens: normalizeUsageNumber(row.total_output_tokens),
+    total_tokens: normalizeUsageNumber(row.total_tokens),
+    total_cost_usd: normalizeUsageCost(row.total_cost_usd),
+    call_count: normalizeUsageNumber(row.call_count),
+    total_tool_calls: normalizeUsageNumber(row.total_tool_calls),
+  };
+}
+
+export function getSessionUsageTotals(sessionId: string): UsageTotals {
+  const row = db
+    .prepare(
+      `SELECT
+         COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
+         COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
+         COALESCE(SUM(total_tokens), 0) AS total_tokens,
+         COALESCE(SUM(cost_usd), 0.0) AS total_cost_usd,
+         COUNT(*) AS call_count,
+         COALESCE(SUM(tool_calls), 0) AS total_tool_calls
+       FROM usage_events
+       WHERE session_id = ?`,
+    )
+    .get(sessionId) as UsageTotals;
 
   return {
     total_input_tokens: normalizeUsageNumber(row.total_input_tokens),
@@ -1675,9 +1734,58 @@ export function updateSessionRag(sessionId: string, enableRag: boolean): void {
   );
 }
 
+export function updateSessionFullAuto(
+  sessionId: string,
+  params: {
+    enabled: boolean;
+    prompt?: string | null;
+    startedAt?: string | null;
+  },
+): void {
+  const normalizedPrompt =
+    typeof params.prompt === 'string' ? params.prompt.trim() || null : null;
+  const normalizedStartedAt =
+    typeof params.startedAt === 'string'
+      ? params.startedAt.trim() || null
+      : params.startedAt === null
+        ? null
+        : params.enabled
+          ? new Date().toISOString()
+          : null;
+  db.prepare(
+    `UPDATE sessions
+     SET full_auto_enabled = ?,
+         full_auto_prompt = ?,
+         full_auto_started_at = ?
+     WHERE id = ?`,
+  ).run(
+    params.enabled ? 1 : 0,
+    normalizedPrompt,
+    normalizedStartedAt,
+    sessionId,
+  );
+}
+
 export function getAllSessions(): Session[] {
   return db
     .prepare('SELECT * FROM sessions ORDER BY last_active DESC')
+    .all() as Session[];
+}
+
+export function getFullAutoSessionCount(): number {
+  const row = db
+    .prepare(
+      'SELECT COUNT(*) as count FROM sessions WHERE full_auto_enabled = 1',
+    )
+    .get() as { count: number };
+  return row.count;
+}
+
+export function getEnabledFullAutoSessions(): Session[] {
+  return db
+    .prepare(
+      'SELECT * FROM sessions WHERE full_auto_enabled = 1 ORDER BY last_active DESC',
+    )
     .all() as Session[];
 }
 

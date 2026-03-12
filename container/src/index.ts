@@ -17,6 +17,12 @@ import {
   isRetryableModelError,
   shouldDowngradeStreamToNonStreaming,
 } from './model-retry.js';
+import {
+  buildRalphPrompt,
+  normalizeMessageContentToText,
+  parseRalphChoice,
+  stripRalphChoiceTags,
+} from './ralph.js';
 import { injectRuntimeCapabilitiesMessage } from './runtime-capabilities.js';
 import {
   resolveMediaPath,
@@ -62,7 +68,6 @@ import type {
   ArtifactMetadata,
   ChatContentPart,
   ChatMessage,
-  ChatMessageContent,
   ContainerInput,
   ContainerOutput,
   MediaContextItem,
@@ -87,18 +92,17 @@ const RETRY_MAX_DELAY_MS = Math.max(
   RETRY_BASE_DELAY_MS,
   parseInt(process.env.HYBRIDCLAW_RETRY_MAX_DELAY_MS || '8000', 10),
 );
-const RAW_RALPH_MAX_EXTRA_ITERATIONS = Number.parseInt(
+const RAW_DEFAULT_RALPH_MAX_EXTRA_ITERATIONS = Number.parseInt(
   process.env.HYBRIDCLAW_RALPH_MAX_ITERATIONS || '0',
   10,
 );
-const RALPH_MAX_EXTRA_ITERATIONS = Number.isFinite(
-  RAW_RALPH_MAX_EXTRA_ITERATIONS,
+const DEFAULT_RALPH_MAX_EXTRA_ITERATIONS = Number.isFinite(
+  RAW_DEFAULT_RALPH_MAX_EXTRA_ITERATIONS,
 )
-  ? RAW_RALPH_MAX_EXTRA_ITERATIONS === -1
+  ? RAW_DEFAULT_RALPH_MAX_EXTRA_ITERATIONS === -1
     ? -1
-    : Math.max(0, Math.min(64, RAW_RALPH_MAX_EXTRA_ITERATIONS))
+    : Math.max(0, Math.min(64, RAW_DEFAULT_RALPH_MAX_EXTRA_ITERATIONS))
   : 0;
-const RALPH_ENABLED = RALPH_MAX_EXTRA_ITERATIONS !== 0;
 const NATIVE_VISION_MAX_IMAGES = 8;
 const NATIVE_VISION_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const DISCORD_CDN_HOST_PATTERNS: RegExp[] = [
@@ -137,19 +141,6 @@ async function shutdownMcp(): Promise<void> {
     await mcpClientManager.shutdown();
   }
   mcpClientManager = null;
-}
-
-function normalizeMessageContentToText(content: ChatMessageContent): string {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  const chunks: string[] = [];
-  for (const part of content) {
-    if (!part || typeof part !== 'object') continue;
-    if (part.type !== 'text') continue;
-    if (typeof part.text !== 'string') continue;
-    if (part.text.trim()) chunks.push(part.text.trim());
-  }
-  return chunks.join('\n').trim();
 }
 
 function normalizePathSlashes(raw: string): string {
@@ -430,59 +421,19 @@ function replaceLatestUserPrompt(
   return [...messages, { role: 'user', content: prompt }];
 }
 
-function parseRalphChoice(
-  content: ChatMessageContent,
-): 'CONTINUE' | 'STOP' | null {
-  const normalizedContent = normalizeMessageContentToText(content);
-  if (!normalizedContent) return null;
-  const re = /<choice>\s*([^<]*)\s*<\/choice>/gi;
-  let match: RegExpExecArray | null = null;
-  let lastChoice: string | null = null;
-  while (true) {
-    match = re.exec(normalizedContent);
-    if (!match) break;
-    lastChoice = (match[1] || '').trim().toUpperCase();
-  }
-  if (lastChoice === 'CONTINUE' || lastChoice === 'STOP') return lastChoice;
-  return null;
+function normalizeRalphMaxExtraIterations(
+  value: number | null | undefined,
+): number {
+  if (!Number.isFinite(value)) return DEFAULT_RALPH_MAX_EXTRA_ITERATIONS;
+  const parsed = Math.trunc(value as number);
+  if (parsed === -1) return -1;
+  return Math.max(0, Math.min(64, parsed));
 }
 
-function stripRalphChoiceTags(content: ChatMessageContent): string | null {
-  const normalizedContent = normalizeMessageContentToText(content);
-  if (!normalizedContent) return null;
-  const stripped = normalizedContent
-    .replace(/<choice>\s*[^<]*\s*<\/choice>/gi, '')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-  return stripped || normalizedContent;
-}
-
-function buildRalphPrompt(taskPrompt: string, missingChoice: boolean): string {
-  const punctuatedPrompt = /[.!?]$/.test(taskPrompt)
-    ? taskPrompt
-    : `${taskPrompt}.`;
-  const lines = [
-    `${punctuatedPrompt} (You are running in an automated loop where the same prompt is fed repeatedly. Only choose STOP when the task is fully complete. Including it will stop further iterations. If you are not 100% sure, choose CONTINUE.)`,
-    '',
-    'Available branches:',
-    '- CONTINUE',
-    '- STOP',
-    '',
-    'Reply with a choice using <choice>...</choice>.',
-  ];
-  if (missingChoice) {
-    lines.push('');
-    lines.push(
-      'Your last response did not include a valid choice. Include exactly one: CONTINUE or STOP.',
-    );
-  }
-  return lines.join('\n');
-}
-
-function resolveMaxStalledTurns(): number {
-  if (!RALPH_ENABLED) return MAX_STALLED_MODEL_TURNS;
-  if (RALPH_MAX_EXTRA_ITERATIONS < 0) return Number.MAX_SAFE_INTEGER;
-  return Math.max(MAX_STALLED_MODEL_TURNS, RALPH_MAX_EXTRA_ITERATIONS + 1);
+function resolveMaxStalledTurns(ralphMaxExtraIterations: number): number {
+  if (ralphMaxExtraIterations === 0) return MAX_STALLED_MODEL_TURNS;
+  if (ralphMaxExtraIterations < 0) return Number.MAX_SAFE_INTEGER;
+  return Math.max(MAX_STALLED_MODEL_TURNS, ralphMaxExtraIterations + 1);
 }
 
 function inferMimeType(filePath: string): string {
@@ -744,6 +695,7 @@ async function processRequest(
   tools: ToolDefinition[],
   maxTokens?: number,
   effectiveUserPromptOverride?: string,
+  ralphMaxIterationsOverride?: number | null,
 ): Promise<ContainerOutput> {
   const processStartedAt = Date.now();
   await emitRuntimeEvent({
@@ -761,10 +713,15 @@ async function processRequest(
   const tokenUsage = createTokenUsageStats();
   const effectiveUserPrompt =
     effectiveUserPromptOverride || latestUserPrompt(messages);
-  const ralphSeedPrompt = RALPH_ENABLED ? effectiveUserPrompt : '';
-  const maxStalledTurns = resolveMaxStalledTurns();
+  const ralphMaxExtraIterations = normalizeRalphMaxExtraIterations(
+    ralphMaxIterationsOverride,
+  );
+  const ralphEnabled = ralphMaxExtraIterations !== 0;
+  const ralphSeedPrompt = ralphEnabled ? effectiveUserPrompt : '';
+  const maxStalledTurns = resolveMaxStalledTurns(ralphMaxExtraIterations);
   let ralphExtraIterations = 0;
   let stalledTurns = 0;
+  let latestVisibleAssistantText: string | null = null;
 
   while (stalledTurns < maxStalledTurns) {
     tokenUsage.modelCalls += 1;
@@ -846,10 +803,14 @@ async function processRequest(
     }
 
     history.push(assistantMessage);
+    const visibleAssistantText = stripRalphChoiceTags(choice.message.content);
+    if (visibleAssistantText) {
+      latestVisibleAssistantText = visibleAssistantText;
+    }
 
     const toolCalls = choice.message.tool_calls || [];
     if (toolCalls.length === 0) {
-      if (RALPH_ENABLED) {
+      if (ralphEnabled) {
         const branchChoice = parseRalphChoice(choice.message.content);
         if (branchChoice === 'STOP') {
           collectRequestedArtifacts({
@@ -859,7 +820,7 @@ async function processRequest(
           });
           const completed: ContainerOutput = {
             status: 'success',
-            result: stripRalphChoiceTags(choice.message.content),
+            result: latestVisibleAssistantText,
             toolsUsed: [...new Set(toolsUsed)],
             ...(artifacts.length > 0 ? { artifacts } : {}),
             toolExecutions,
@@ -875,8 +836,8 @@ async function processRequest(
         }
 
         const canContinue =
-          RALPH_MAX_EXTRA_ITERATIONS < 0 ||
-          ralphExtraIterations < RALPH_MAX_EXTRA_ITERATIONS;
+          ralphMaxExtraIterations < 0 ||
+          ralphExtraIterations < ralphMaxExtraIterations;
         if (canContinue) {
           ralphExtraIterations += 1;
           stalledTurns = advanceStalledTurnCount({
@@ -890,9 +851,9 @@ async function processRequest(
           });
           console.error(
             `[ralph] continue ${ralphExtraIterations}` +
-              (RALPH_MAX_EXTRA_ITERATIONS < 0
+              (ralphMaxExtraIterations < 0
                 ? ''
-                : `/${RALPH_MAX_EXTRA_ITERATIONS}`),
+                : `/${ralphMaxExtraIterations}`),
           );
           continue;
         }
@@ -905,7 +866,7 @@ async function processRequest(
       });
       const completed: ContainerOutput = {
         status: 'success',
-        result: stripRalphChoiceTags(choice.message.content),
+        result: latestVisibleAssistantText,
         toolsUsed: [...new Set(toolsUsed)],
         ...(artifacts.length > 0 ? { artifacts } : {}),
         toolExecutions,
@@ -1090,7 +1051,6 @@ async function processRequest(
     });
   }
 
-  const lastAssistant = history.filter((m) => m.role === 'assistant').pop();
   collectRequestedArtifacts({
     artifacts,
     artifactPaths,
@@ -1099,7 +1059,7 @@ async function processRequest(
   const completed: ContainerOutput = {
     status: 'success',
     result:
-      stripRalphChoiceTags(lastAssistant?.content || null) ||
+      latestVisibleAssistantText ||
       `No successful tool progress for ${maxStalledTurns} consecutive model turns.`,
     toolsUsed: [...new Set(toolsUsed)],
     ...(artifacts.length > 0 ? { artifacts } : {}),
@@ -1207,6 +1167,10 @@ async function main(): Promise<void> {
     ? replaceLatestUserPrompt(firstMessages, firstPromptOverride)
     : firstMessages;
   const firstMessagesForRequest = injectSkillCacheHint(firstPreparedMessages);
+  approvalRuntime.setFullAutoOptions({
+    enabled: firstInput.fullAutoEnabled === true,
+    neverApproveTools: firstInput.fullAutoNeverApproveTools,
+  });
 
   let firstOutput: ContainerOutput;
   if (firstPrelude?.immediateMessage && !firstPromptOverride) {
@@ -1234,6 +1198,7 @@ async function main(): Promise<void> {
       resolveTools(firstInput),
       firstInput.maxTokens,
       firstPromptOverride,
+      firstInput.ralphMaxIterations,
     );
     if (
       firstMessagesForRequest !== firstInput.messages &&
@@ -1263,6 +1228,7 @@ async function main(): Promise<void> {
         resolveTools(firstInput),
         firstInput.maxTokens,
         firstPromptOverride,
+        firstInput.ralphMaxIterations,
       );
     }
   }
@@ -1323,6 +1289,10 @@ async function main(): Promise<void> {
       input.model,
       input.media,
     );
+    approvalRuntime.setFullAutoOptions({
+      enabled: input.fullAutoEnabled === true,
+      neverApproveTools: input.fullAutoNeverApproveTools,
+    });
     const prelude = approvalRuntime.handleApprovalResponse(preparedMessages);
     const promptOverride = prelude?.replayPrompt;
     const messagesForRequest = promptOverride
@@ -1360,6 +1330,7 @@ async function main(): Promise<void> {
       resolveTools(input),
       input.maxTokens,
       promptOverride,
+      input.ralphMaxIterations,
     );
     if (
       messagesForRequestWithSkillCache !== input.messages &&
@@ -1388,6 +1359,7 @@ async function main(): Promise<void> {
         resolveTools(input),
         input.maxTokens,
         promptOverride,
+        input.ralphMaxIterations,
       );
     }
 

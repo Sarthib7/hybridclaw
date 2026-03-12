@@ -2,7 +2,7 @@ import { type ChildProcess, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-
+import type { ExecutorRequest } from '../agent/executor-types.js';
 import {
   CONTAINER_TIMEOUT,
   GATEWAY_API_TOKEN,
@@ -28,11 +28,8 @@ import { logger } from '../logger.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
 import { redactSecrets } from '../security/redact.js';
 import type {
-  ChatMessage,
   ContainerInput,
   ContainerOutput,
-  MediaContextItem,
-  ScheduledTask,
   ToolProgressEvent,
 } from '../types.js';
 import {
@@ -349,22 +346,9 @@ export function stopSessionHostProcess(sessionId: string): boolean {
   return true;
 }
 
-export async function runHostProcess(params: {
-  sessionId: string;
-  messages: ChatMessage[];
-  chatbotId: string;
-  enableRag: boolean;
-  model?: string;
-  agentId?: string;
-  channelId?: string;
-  scheduledTasks?: ScheduledTask[];
-  allowedTools?: string[];
-  blockedTools?: string[];
-  onTextDelta?: (delta: string) => void;
-  onToolProgress?: (event: ToolProgressEvent) => void;
-  abortSignal?: AbortSignal;
-  media?: MediaContextItem[];
-}): Promise<ContainerOutput> {
+export async function runHostProcess(
+  params: ExecutorRequest,
+): Promise<ContainerOutput> {
   const {
     sessionId,
     messages,
@@ -373,6 +357,9 @@ export async function runHostProcess(params: {
     model = HYBRIDAI_MODEL,
     agentId = chatbotId,
     channelId = '',
+    ralphMaxIterations,
+    fullAutoEnabled,
+    fullAutoNeverApproveTools,
     scheduledTasks,
     allowedTools,
     blockedTools,
@@ -416,6 +403,9 @@ export async function runHostProcess(params: {
     gatewayBaseUrl: GATEWAY_BASE_URL,
     gatewayApiToken: GATEWAY_API_TOKEN || undefined,
     model,
+    ralphMaxIterations,
+    fullAutoEnabled,
+    fullAutoNeverApproveTools,
     maxTokens: HYBRIDAI_MAX_TOKENS,
     channelId,
     configuredDiscordChannels: collectConfiguredDiscordChannelIds(channelId),
@@ -531,22 +521,7 @@ export function stopAllHostProcesses(): void {
 }
 
 export class HostExecutor {
-  exec(params: {
-    sessionId: string;
-    messages: ChatMessage[];
-    chatbotId: string;
-    enableRag: boolean;
-    model?: string;
-    agentId?: string;
-    channelId?: string;
-    scheduledTasks?: ScheduledTask[];
-    allowedTools?: string[];
-    blockedTools?: string[];
-    onTextDelta?: (delta: string) => void;
-    onToolProgress?: (event: ToolProgressEvent) => void;
-    abortSignal?: AbortSignal;
-    media?: MediaContextItem[];
-  }): Promise<ContainerOutput> {
+  exec(params: ExecutorRequest): Promise<ContainerOutput> {
     return runHostProcess(params);
   }
 

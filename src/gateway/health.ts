@@ -518,6 +518,8 @@ async function handleApiCommand(
     guildId: body.guildId ?? null,
     channelId: body.channelId || 'web',
     args,
+    userId: body.userId ?? null,
+    username: body.username ?? null,
   };
   const result = await handleGatewayCommand(commandRequest);
   sendJson(res, result.kind === 'error' ? 400 : 200, result);

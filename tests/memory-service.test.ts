@@ -57,6 +57,9 @@ function makeSession(partial?: Partial<Session>): Session {
     summary_updated_at: null,
     compaction_count: 0,
     memory_flush_at: null,
+    full_auto_enabled: 0,
+    full_auto_prompt: null,
+    full_auto_started_at: null,
     created_at: new Date().toISOString(),
     last_active: new Date().toISOString(),
     ...(partial || {}),
@@ -305,7 +308,7 @@ describe.sequential('schema migrations', () => {
     inspect.close();
 
     expect(String(journalMode).toLowerCase()).toBe('wal');
-    expect(Number(schemaVersion)).toBe(4);
+    expect(Number(schemaVersion)).toBe(5);
   });
 
   test('migrates legacy memory_kv rows and creates knowledge graph tables', () => {
@@ -389,7 +392,7 @@ describe.sequential('schema migrations', () => {
       .get() as { name: string } | undefined;
     inspect.close();
 
-    expect(Number(schemaVersion)).toBe(4);
+    expect(Number(schemaVersion)).toBe(5);
     expect(hasEntities?.name).toBe('entities');
     expect(hasRelations?.name).toBe('relations');
     expect(hasCanonical?.name).toBe('canonical_sessions');

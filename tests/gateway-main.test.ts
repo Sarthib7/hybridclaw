@@ -52,6 +52,7 @@ async function importFreshGatewayMain() {
     })),
     initDatabase: vi.fn(),
     initDiscord: vi.fn(),
+    initGatewayService: vi.fn(),
     listQueuedProactiveMessages: vi.fn(() => []),
     memoryServiceConsolidate: vi.fn(() => ({
       memoriesDecayed: 0,
@@ -63,6 +64,7 @@ async function importFreshGatewayMain() {
     renderGatewayCommand: vi.fn(
       (result: { text: string }) => `rendered:${result.text}`,
     ),
+    resumeEnabledFullAutoSessions: vi.fn(() => 0),
     resolveAgentIdForModel: vi.fn(() => 'agent-resolved'),
     rewriteUserMentionsForMessage: vi.fn(async (text: string) => text),
     setInterval: vi.fn(() => ({ timer: true })),
@@ -188,7 +190,9 @@ async function importFreshGatewayMain() {
     getGatewayStatus: state.getGatewayStatus,
     handleGatewayCommand: state.handleGatewayCommand,
     handleGatewayMessage: state.handleGatewayMessage,
+    initGatewayService: state.initGatewayService,
     renderGatewayCommand: state.renderGatewayCommand,
+    resumeEnabledFullAutoSessions: state.resumeEnabledFullAutoSessions,
     runGatewayScheduledTask: vi.fn(async () => {}),
   }));
   vi.doMock('../src/gateway/health.js', () => ({
@@ -245,6 +249,8 @@ describe('gateway bootstrap', () => {
     const state = await importFreshGatewayMain();
 
     expect(state.initDatabase).toHaveBeenCalledTimes(1);
+    expect(state.initGatewayService).toHaveBeenCalledTimes(1);
+    expect(state.resumeEnabledFullAutoSessions).toHaveBeenCalledTimes(1);
     expect(state.startHealthServer).toHaveBeenCalledTimes(1);
     expect(state.initDiscord).toHaveBeenCalledTimes(1);
     expect(state.startHeartbeat).toHaveBeenCalledWith(

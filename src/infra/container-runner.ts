@@ -5,7 +5,7 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-
+import type { ExecutorRequest } from '../agent/executor-types.js';
 import {
   ADDITIONAL_MOUNTS,
   CONTAINER_BINDS,
@@ -46,11 +46,8 @@ import { redactSecrets } from '../security/redact.js';
 import type {
   AdditionalMount,
   ArtifactMetadata,
-  ChatMessage,
   ContainerInput,
   ContainerOutput,
-  MediaContextItem,
-  ScheduledTask,
   ToolProgressEvent,
 } from '../types.js';
 import {
@@ -498,21 +495,27 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
  * Send a request to a persistent container and wait for the response.
  */
 export async function runContainer(
-  sessionId: string,
-  messages: ChatMessage[],
-  chatbotId: string,
-  enableRag: boolean,
-  model: string = HYBRIDAI_MODEL,
-  agentId: string = chatbotId,
-  channelId: string = '',
-  scheduledTasks?: ScheduledTask[],
-  allowedTools?: string[],
-  blockedTools?: string[],
-  onTextDelta?: (delta: string) => void,
-  onToolProgress?: (event: ToolProgressEvent) => void,
-  abortSignal?: AbortSignal,
-  media?: MediaContextItem[],
+  params: ExecutorRequest,
 ): Promise<ContainerOutput> {
+  const {
+    sessionId,
+    messages,
+    chatbotId,
+    enableRag,
+    model = HYBRIDAI_MODEL,
+    agentId = chatbotId,
+    channelId = '',
+    ralphMaxIterations,
+    fullAutoEnabled,
+    fullAutoNeverApproveTools,
+    scheduledTasks,
+    allowedTools,
+    blockedTools,
+    onTextDelta,
+    onToolProgress,
+    abortSignal,
+    media,
+  } = params;
   const { workspacePath } = getSessionPaths(sessionId, agentId);
   const modelRuntime = await resolveModelRuntimeCredentials({
     model,
@@ -550,6 +553,9 @@ export async function runContainer(
     gatewayBaseUrl: remapHostBaseUrlForContainer(GATEWAY_BASE_URL),
     gatewayApiToken: GATEWAY_API_TOKEN || undefined,
     model,
+    ralphMaxIterations,
+    fullAutoEnabled,
+    fullAutoNeverApproveTools,
     maxTokens: HYBRIDAI_MAX_TOKENS,
     channelId,
     configuredDiscordChannels: collectConfiguredDiscordChannelIds(channelId),
@@ -697,38 +703,8 @@ export function stopAllContainers(): void {
 }
 
 export class ContainerExecutor {
-  exec(params: {
-    sessionId: string;
-    messages: ChatMessage[];
-    chatbotId: string;
-    enableRag: boolean;
-    model?: string;
-    agentId?: string;
-    channelId?: string;
-    scheduledTasks?: ScheduledTask[];
-    allowedTools?: string[];
-    blockedTools?: string[];
-    onTextDelta?: (delta: string) => void;
-    onToolProgress?: (event: ToolProgressEvent) => void;
-    abortSignal?: AbortSignal;
-    media?: MediaContextItem[];
-  }): Promise<ContainerOutput> {
-    return runContainer(
-      params.sessionId,
-      params.messages,
-      params.chatbotId,
-      params.enableRag,
-      params.model,
-      params.agentId,
-      params.channelId,
-      params.scheduledTasks,
-      params.allowedTools,
-      params.blockedTools,
-      params.onTextDelta,
-      params.onToolProgress,
-      params.abortSignal,
-      params.media,
-    );
+  exec(params: ExecutorRequest): Promise<ContainerOutput> {
+    return runContainer(params);
   }
 
   getWorkspacePath(agentId: string): string {

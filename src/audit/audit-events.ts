@@ -134,6 +134,7 @@ export function emitToolExecutionAuditEvents(input: {
         decision === 'approved_once' ||
         decision === 'approved_session' ||
         decision === 'approved_agent' ||
+        decision === 'approved_fullauto' ||
         decision === 'promoted';
       const pending = decision === 'required';
       if (decision && decision !== 'auto' && decision !== 'implicit') {
@@ -150,10 +151,17 @@ export function emitToolExecutionAuditEvents(input: {
             approved,
             approvedBy: pending
               ? 'pending-user-response'
-              : approved
-                ? 'local-user'
-                : 'policy-engine',
-            method: pending || approved ? 'prompt' : 'policy',
+              : decision === 'approved_fullauto'
+                ? 'fullauto'
+                : approved
+                  ? 'local-user'
+                  : 'policy-engine',
+            method:
+              decision === 'approved_fullauto'
+                ? 'automatic'
+                : pending || approved
+                  ? 'prompt'
+                  : 'policy',
             policyName: 'trusted-coworker',
           },
         });

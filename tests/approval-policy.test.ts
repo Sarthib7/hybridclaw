@@ -131,6 +131,44 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     expect(evaluation.requestId).toBeTruthy();
   });
 
+  test('full-auto mode auto-approves red actions without creating a pending prompt', () => {
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+    runtime.setFullAutoOptions({ enabled: true });
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'write',
+      argsJson: JSON.stringify({ path: '.env', contents: 'API_KEY=abc' }),
+      latestUserPrompt: 'Write env file',
+    });
+
+    expect(evaluation.baseTier).toBe('red');
+    expect(evaluation.decision).toBe('approved_fullauto');
+    expect(evaluation.tier).toBe('yellow');
+    expect(evaluation.requestId).toBeUndefined();
+  });
+
+  test('full-auto mode still requires approval for tools on the never-approve list', () => {
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+    runtime.setFullAutoOptions({
+      enabled: true,
+      neverApproveTools: ['write'],
+    });
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'write',
+      argsJson: JSON.stringify({ path: '.env', contents: 'API_KEY=abc' }),
+      latestUserPrompt: 'Write env file',
+    });
+
+    expect(evaluation.baseTier).toBe('red');
+    expect(evaluation.decision).toBe('required');
+    expect(evaluation.requestId).toBeTruthy();
+  });
+
   test('yes response approves once and replays original prompt', () => {
     const runtime = new TrustedCoworkerApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',

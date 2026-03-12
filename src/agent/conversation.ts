@@ -31,6 +31,7 @@ export function buildConversationContext(params: {
   history: HistoryMessage[];
   expandLatestHistoryUser?: boolean;
   promptMode?: PromptMode;
+  extraSafetyText?: string;
   runtimeInfo?: PromptRuntimeInfo;
   allowedTools?: string[];
   blockedTools?: string[];
@@ -41,6 +42,7 @@ export function buildConversationContext(params: {
     history,
     expandLatestHistoryUser = false,
     promptMode = 'full',
+    extraSafetyText,
     runtimeInfo,
     allowedTools,
     blockedTools,
@@ -52,6 +54,7 @@ export function buildConversationContext(params: {
     skills,
     purpose: 'conversation',
     promptMode,
+    extraSafetyText,
     runtimeInfo,
     allowedTools,
     blockedTools,

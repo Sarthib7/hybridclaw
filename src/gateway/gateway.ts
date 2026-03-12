@@ -66,7 +66,9 @@ import {
   getGatewayStatus,
   handleGatewayCommand,
   handleGatewayMessage,
+  initGatewayService,
   renderGatewayCommand,
+  resumeEnabledFullAutoSessions,
   runGatewayScheduledTask,
 } from './gateway-service.js';
 import { startHealthServer } from './health.js';
@@ -666,6 +668,7 @@ async function startDiscordIntegration(): Promise<void> {
           channelId,
           args,
           userId,
+          username,
         });
         if (result.kind === 'error') {
           await reply(formatError(result.title || 'Error', result.text));
@@ -904,6 +907,8 @@ function startOrRestartMemoryConsolidationScheduler(): void {
 async function main(): Promise<void> {
   logger.info('Starting HybridClaw gateway');
   initDatabase();
+  initGatewayService();
+  resumeEnabledFullAutoSessions();
   startHealthServer();
   setupShutdown();
   await startDiscordIntegration();

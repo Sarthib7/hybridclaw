@@ -182,7 +182,6 @@ import {
   type GatewayAdminChannelUpsertRequest,
   type GatewayAdminConfigResponse,
   type GatewayAdminDeleteSessionResult,
-  type GatewayAdminModelCatalogEntry,
   type GatewayAdminMcpResponse,
   type GatewayAdminModelsResponse,
   type GatewayAdminModelUsageRow,
@@ -488,21 +487,6 @@ function mapModelUsageRow(
     callCount: value.call_count,
     totalToolCalls: value.total_tool_calls,
   };
-}
-
-function compareGatewayAdminModelsByUsage(
-  left: GatewayAdminModelCatalogEntry,
-  right: GatewayAdminModelCatalogEntry,
-): number {
-  const leftTokens = left.usageMonthly?.totalTokens || 0;
-  const rightTokens = right.usageMonthly?.totalTokens || 0;
-  if (rightTokens !== leftTokens) return rightTokens - leftTokens;
-
-  const leftCalls = left.usageMonthly?.callCount || 0;
-  const rightCalls = right.usageMonthly?.callCount || 0;
-  if (rightCalls !== leftCalls) return rightCalls - leftCalls;
-
-  return left.id.localeCompare(right.id);
 }
 
 function mapAdminSession(session: Session): GatewayAdminSession {
@@ -1978,7 +1962,7 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
           usageMonthly: monthlySummary ? mapUsageSummary(monthlySummary) : null,
         };
       })
-      .sort(compareGatewayAdminModelsByUsage),
+      .sort((left, right) => left.id.localeCompare(right.id)),
   };
 }
 

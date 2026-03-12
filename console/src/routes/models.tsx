@@ -17,6 +17,21 @@ interface ModelDraft {
   codexModels: string;
 }
 
+function compareModelsByUsage(
+  left: Awaited<ReturnType<typeof fetchModels>>['models'][number],
+  right: Awaited<ReturnType<typeof fetchModels>>['models'][number],
+): number {
+  const leftTokens = left.usageMonthly?.totalTokens || 0;
+  const rightTokens = right.usageMonthly?.totalTokens || 0;
+  if (rightTokens !== leftTokens) return rightTokens - leftTokens;
+
+  const leftCalls = left.usageMonthly?.callCount || 0;
+  const rightCalls = right.usageMonthly?.callCount || 0;
+  if (rightCalls !== leftCalls) return rightCalls - leftCalls;
+
+  return left.id.localeCompare(right.id);
+}
+
 function createDraft(
   payload?: Awaited<ReturnType<typeof fetchModels>>,
 ): ModelDraft {
@@ -61,17 +76,19 @@ export function ModelsPage() {
     );
   }, [modelsQuery.data]);
 
-  const filteredModels = (modelsQuery.data?.models || []).filter((model) => {
-    const haystack = [
-      model.id,
-      model.backend || '',
-      model.family || '',
-      model.parameterSize || '',
-    ]
-      .join(' ')
-      .toLowerCase();
-    return haystack.includes(filter.trim().toLowerCase());
-  });
+  const filteredModels = (modelsQuery.data?.models || [])
+    .filter((model) => {
+      const haystack = [
+        model.id,
+        model.backend || '',
+        model.family || '',
+        model.parameterSize || '',
+      ]
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(filter.trim().toLowerCase());
+    })
+    .sort(compareModelsByUsage);
 
   const providerEntries = Object.entries(
     modelsQuery.data?.providerStatus || {},

@@ -22,8 +22,13 @@ function restoreEnvVar(name: string, value: string | undefined): void {
   process.env[name] = value;
 }
 
-afterEach(() => {
+afterEach(async () => {
   vi.restoreAllMocks();
+  const { resetAgentRegistryForTesting } = await import(
+    '../src/agents/agent-registry.ts'
+  );
+  resetAgentRegistryForTesting();
+  vi.doUnmock('../src/logger.js');
   vi.resetModules();
   restoreEnvVar('HOME', ORIGINAL_HOME);
   while (tempDirs.length > 0) {
@@ -72,6 +77,10 @@ test('resolveAgentForRequest prefers request, then session, then main agent defa
   expect(listAgents().map((agent) => agent.id)).toEqual(['main', 'research']);
 
   const researchAgent = resolveAgentConfig('research');
+  expect(researchAgent.model).toEqual({
+    primary: 'ollama/llama3.2',
+    fallbacks: ['gpt-5-mini'],
+  });
   expect(resolveAgentModel(researchAgent)).toBe('ollama/llama3.2');
 
   const session = {
@@ -132,6 +141,60 @@ test('initAgentRegistry migrates the first legacy workspace to main', async () =
   const mainWorkspace = agentWorkspaceDir('main');
   expect(fs.existsSync(path.join(mainWorkspace, 'MEMORY.md'))).toBe(true);
   expect(fs.existsSync(legacyWorkspace)).toBe(false);
+});
+
+test('initAgentRegistry migrates only the first legacy workspace and warns about the rest', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const warnMock = vi.fn();
+  const infoMock = vi.fn();
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      warn: warnMock,
+      info: infoMock,
+      debug: vi.fn(),
+      error: vi.fn(),
+      fatal: vi.fn(),
+      trace: vi.fn(),
+      child: vi.fn(() => ({
+        warn: warnMock,
+        info: infoMock,
+        debug: vi.fn(),
+        error: vi.fn(),
+        fatal: vi.fn(),
+        trace: vi.fn(),
+      })),
+    },
+  }));
+
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
+  const ollamaWorkspace = agentWorkspaceDir('ollama');
+  const vllmWorkspace = agentWorkspaceDir('vllm');
+  fs.mkdirSync(ollamaWorkspace, { recursive: true });
+  fs.mkdirSync(vllmWorkspace, { recursive: true });
+  fs.writeFileSync(path.join(ollamaWorkspace, 'MEMORY.md'), 'ollama\n', 'utf8');
+  fs.writeFileSync(path.join(vllmWorkspace, 'MEMORY.md'), 'vllm\n', 'utf8');
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { initAgentRegistry } = await import('../src/agents/agent-registry.ts');
+  initDatabase({ quiet: true });
+  initAgentRegistry({ list: [{ id: 'main' }] });
+
+  const mainWorkspace = agentWorkspaceDir('main');
+  expect(fs.readFileSync(path.join(mainWorkspace, 'MEMORY.md'), 'utf8')).toBe(
+    'ollama\n',
+  );
+  expect(fs.existsSync(ollamaWorkspace)).toBe(false);
+  expect(fs.existsSync(path.join(vllmWorkspace, 'MEMORY.md'))).toBe(true);
+
+  expect(warnMock).toHaveBeenCalledWith(
+    {
+      orphanedLegacyWorkspaceDirs: [path.dirname(vllmWorkspace)],
+    },
+    'Additional legacy agent workspaces remain on disk after migration',
+  );
 });
 
 test('database migration v6 adds agents and backfills legacy agent ids to main', async () => {

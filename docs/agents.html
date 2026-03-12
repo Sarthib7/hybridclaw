@@ -2074,6 +2074,10 @@
       }
     }
 
+    // Keep this page aligned with GatewayAgentsResponse,
+    // GatewayLogicalAgentCard, and GatewaySessionCard in
+    // src/gateway/gateway-types.ts. tests/gateway-agents-docs.test.ts
+    // asserts the field contract used by this renderer.
     async function fetchAgents() {
       try {
         const payload = await requestJson('/api/agents', {

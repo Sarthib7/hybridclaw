@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import {
   resolveAgentConfig,
   resolveAgentForRequest,
@@ -402,7 +404,7 @@ export function mapLogicalAgentCard(params: {
     enableRag:
       typeof resolved.enableRag === 'boolean' ? resolved.enableRag : null,
     workspace: resolved.workspace || null,
-    workspacePath: agentWorkspaceDir(resolved.id),
+    workspacePath: path.resolve(agentWorkspaceDir(resolved.id)),
     sessionCount: sessions.length,
     activeSessions: sessions.filter((session) => session.status === 'active')
       .length,

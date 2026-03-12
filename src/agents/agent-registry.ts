@@ -33,14 +33,25 @@ const LEGACY_WORKSPACE_DIRS = [
   'openai-codex',
 ] as const;
 
-let configuredDefaults: AgentDefaultsConfig = {};
-let configuredAgents: AgentConfig[] = [{ id: DEFAULT_AGENT_ID }];
-let registry = new Map<string, AgentConfig>([
-  [DEFAULT_AGENT_ID, { id: DEFAULT_AGENT_ID, name: 'Main Agent' }],
-]);
-let registryInitialized = false;
-let registryDbBacked = false;
-let lastConfigFingerprint = '';
+let configuredDefaults: AgentDefaultsConfig;
+let configuredAgents: AgentConfig[];
+let registry: Map<string, AgentConfig>;
+let registryInitialized: boolean;
+let registryDbBacked: boolean;
+let lastConfigFingerprint: string;
+
+function resetRegistryState(): void {
+  configuredDefaults = {};
+  configuredAgents = [{ id: DEFAULT_AGENT_ID }];
+  registry = new Map<string, AgentConfig>([
+    [DEFAULT_AGENT_ID, { id: DEFAULT_AGENT_ID, name: 'Main Agent' }],
+  ]);
+  registryInitialized = false;
+  registryDbBacked = false;
+  lastConfigFingerprint = '';
+}
+
+resetRegistryState();
 
 function normalizeString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
@@ -232,6 +243,10 @@ function syncConfiguredAgentsToDatabase(): void {
 }
 
 function safeWorkspaceName(rawName: string): string {
+  // This only makes the workspace segment filesystem-safe; it does not
+  // preserve uniqueness. Values like `foo-bar` and `foo_bar` normalize to the
+  // same directory, so agent ids / workspace overrides should remain stable
+  // and intentionally unique at the config layer.
   return rawName.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
@@ -449,4 +464,9 @@ export function migrateWorkspaceDirs(): void {
       'Additional legacy agent workspaces remain on disk after migration',
     );
   }
+}
+
+// Tree-shakeable test helper for suites that intentionally reuse a module instance.
+export function resetAgentRegistryForTesting(): void {
+  resetRegistryState();
 }

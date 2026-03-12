@@ -62,6 +62,7 @@ const IDLE_TIMEOUT_MS = 300_000;
 const TOOL_RESULT_RE =
   /^\[tool\]\s+([a-zA-Z0-9_.-]+)\s+result\s+\((\d+)ms\):\s*(.*)$/;
 const TOOL_START_RE = /^\[tool\]\s+([a-zA-Z0-9_.-]+):\s*(.*)$/;
+const AGENT_OUTPUT_TIMEOUT_PREFIX = 'Timeout waiting for agent output after ';
 
 interface PoolEntry {
   process: ChildProcess;
@@ -211,6 +212,14 @@ function stopHostProcess(entry: PoolEntry): void {
       'Failed to stop host agent',
     );
   }
+}
+
+function isTimedOutAgentOutput(output: ContainerOutput): boolean {
+  return (
+    output.status === 'error' &&
+    typeof output.error === 'string' &&
+    output.error.startsWith(AGENT_OUTPUT_TIMEOUT_PREFIX)
+  );
 }
 
 function getOrSpawnHostProcess(sessionId: string, agentId: string): PoolEntry {
@@ -504,6 +513,13 @@ export async function runHostProcess(
       signal: abortSignal,
       activity,
     });
+    if (isTimedOutAgentOutput(output)) {
+      logger.warn(
+        { sessionId },
+        'Agent output timed out; stopping stuck host agent process',
+      );
+      stopSessionHostProcess(sessionId);
+    }
     remapOutputArtifacts(output, workspacePath);
     if (typeof output.result === 'string')
       output.result = redactSecrets(output.result);

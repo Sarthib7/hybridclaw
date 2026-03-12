@@ -37,6 +37,7 @@ import {
 } from './tui-fullauto.js';
 import { proactiveBadgeLabel, proactiveSourceSuffix } from './tui-proactive.js';
 import {
+  mapTuiApproveSlashToMessage,
   mapTuiSlashCommandToGatewayArgs,
   parseTuiSlashCommand,
 } from './tui-slash-command.js';
@@ -192,20 +193,6 @@ function mapApprovalSelectionToCommand(
 function isApprovalResponseContent(content: string): boolean {
   const normalized = content.trim().toLowerCase().replace(/\s+/g, ' ');
   return /^(yes|skip)\s+\S+(?:\s+for\s+(session|agent))?$/.test(normalized);
-}
-
-function mapTuiApproveSlashToMessage(parts: string[]): string | null {
-  const action = (parts[1] || 'view').trim().toLowerCase();
-  const approvalId = (parts[2] || tuiPendingApproval?.requestId || '').trim();
-  if (action === 'view' || action === 'status' || action === 'show') {
-    return null;
-  }
-  if (!approvalId) return '';
-  if (action === 'yes') return `yes ${approvalId}`;
-  if (action === 'session') return `yes ${approvalId} for session`;
-  if (action === 'agent') return `yes ${approvalId} for agent`;
-  if (action === 'no') return `skip ${approvalId}`;
-  return '';
 }
 
 async function promptApprovalSelection(
@@ -747,16 +734,19 @@ async function handleSlashCommand(
         return true;
       }
 
-      const approvalMessage = mapTuiApproveSlashToMessage(parts);
-      if (approvalMessage === '') {
+      const approvalResult = mapTuiApproveSlashToMessage(
+        parts,
+        tuiPendingApproval?.requestId,
+      );
+      if (approvalResult.kind === 'usage') {
         printInfo('Usage: /approve [view|yes|session|agent|no] [approval_id]');
         return true;
       }
-      if (!approvalMessage) {
+      if (approvalResult.kind === 'missing-approval') {
         printInfo('No pending approval request is available to approve.');
         return true;
       }
-      await processMessage(approvalMessage, rl);
+      await processMessage(approvalResult.message, rl);
       return true;
     }
     case 'info':

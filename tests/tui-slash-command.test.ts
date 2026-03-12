@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest';
 
 import {
+  mapTuiApproveSlashToMessage,
   mapTuiSlashCommandToGatewayArgs,
   parseTuiSlashCommand,
 } from '../src/tui-slash-command.js';
@@ -65,4 +66,31 @@ test('maps Discord-style slash commands to gateway command args', () => {
     'bot',
     'list',
   ]);
+});
+
+test('maps /approve actions to explicit typed results', () => {
+  expect(mapTuiApproveSlashToMessage(['approve', 'yes'], 'abc123')).toEqual({
+    kind: 'message',
+    message: 'yes abc123',
+  });
+  expect(mapTuiApproveSlashToMessage(['approve', 'agent'], 'abc123')).toEqual({
+    kind: 'message',
+    message: 'yes abc123 for agent',
+  });
+  expect(mapTuiApproveSlashToMessage(['approve', 'no'], 'abc123')).toEqual({
+    kind: 'message',
+    message: 'skip abc123',
+  });
+});
+
+test('returns missing-approval instead of overloading empty strings', () => {
+  expect(mapTuiApproveSlashToMessage(['approve', 'session'])).toEqual({
+    kind: 'missing-approval',
+  });
+});
+
+test('returns usage for invalid /approve actions', () => {
+  expect(mapTuiApproveSlashToMessage(['approve', 'maybe'], 'abc123')).toEqual({
+    kind: 'usage',
+  });
 });

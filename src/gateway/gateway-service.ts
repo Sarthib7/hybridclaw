@@ -721,12 +721,10 @@ function formatUsd(value: number | null): string {
   return `$${value.toFixed(6)}`;
 }
 
-function resolveSessionAgentId(session: { agent_id: string }): string | null {
+function resolveSessionAgentId(session: { agent_id: string }): string {
   const sessionAgent = session.agent_id?.trim();
   if (sessionAgent) return sessionAgent;
-  const defaultAgent = DEFAULT_AGENT_ID.trim();
-  if (defaultAgent) return defaultAgent;
-  return null;
+  return DEFAULT_AGENT_ID;
 }
 
 function extractUsageCostUsd(tokenUsage?: TokenUsageStats): number {
@@ -3724,8 +3722,7 @@ export async function handleGatewayCommand(
       }
 
       if (sub === 'list') {
-        const currentAgentId =
-          resolveSessionAgentId(session) || DEFAULT_AGENT_ID;
+        const currentAgentId = resolveSessionAgentId(session);
         const entries = listAgents();
         const lines = entries.map((agent) => {
           const label =
@@ -3796,10 +3793,16 @@ export async function handleGatewayCommand(
           }
           modelName = String(trailingArgs[1]).trim();
           const availableModels = getAvailableModelList();
-          if (
-            availableModels.length > 0 &&
-            !availableModels.includes(modelName)
-          ) {
+          if (availableModels.length === 0) {
+            logger.warn(
+              {
+                sessionId: req.sessionId,
+                agentId: newAgentId,
+                model: modelName,
+              },
+              'Skipping agent model validation because no available models are configured',
+            );
+          } else if (!availableModels.includes(modelName)) {
             return badCommand(
               'Unknown Model',
               `\`${modelName}\` is not in the available models list.`,
@@ -4506,18 +4509,18 @@ export async function handleGatewayCommand(
 
       const currentAgentId = resolveSessionAgentId(session);
       const daily = getUsageTotals({
-        agentId: currentAgentId || undefined,
+        agentId: currentAgentId,
         window: 'daily',
       });
       const monthly = getUsageTotals({
-        agentId: currentAgentId || undefined,
+        agentId: currentAgentId,
         window: 'monthly',
       });
       const topModels = listUsageByModel({
-        agentId: currentAgentId || undefined,
+        agentId: currentAgentId,
         window: 'monthly',
       }).slice(0, 5);
-      const scopeLabel = currentAgentId || 'all agents';
+      const scopeLabel = currentAgentId;
       const lines = [
         `Scope: ${scopeLabel}`,
         `Today: ${formatCompactNumber(daily.total_tokens)} tokens · ${daily.call_count} calls · ${formatUsd(daily.total_cost_usd)}`,
@@ -4551,14 +4554,7 @@ export async function handleGatewayCommand(
           `Session \`${targetSessionId}\` was not found.`,
         );
       }
-      const exportAgentId =
-        resolveSessionAgentId(targetSession) || resolveSessionAgentId(session);
-      if (!exportAgentId) {
-        return badCommand(
-          'Missing Agent',
-          'Cannot export session: no agent/chatbot is configured for the target session.',
-        );
-      }
+      const exportAgentId = resolveSessionAgentId(targetSession);
       const messages = memoryService.getRecentMessages(targetSessionId);
       const exported = exportSessionSnapshotJsonl({
         agentId: exportAgentId,

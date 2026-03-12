@@ -852,12 +852,63 @@ function serializeAgentModelConfig(
     return normalized || null;
   }
   const primary = model.primary.trim();
-  return primary || null;
+  if (!primary) return null;
+  const fallbacks = Array.isArray(model.fallbacks)
+    ? Array.from(
+        new Set(
+          model.fallbacks
+            .map((fallback) => fallback.trim())
+            .filter((fallback) => fallback && fallback !== primary),
+        ),
+      )
+    : [];
+  return JSON.stringify(
+    fallbacks.length > 0 ? { primary, fallbacks } : { primary },
+  );
+}
+
+function parseAgentModelConfig(
+  rawModel: string | null,
+): AgentModelConfig | undefined {
+  const normalized = rawModel?.trim() || '';
+  if (!normalized) return undefined;
+
+  try {
+    const parsed = JSON.parse(normalized) as unknown;
+    if (typeof parsed === 'string') {
+      const value = parsed.trim();
+      return value || undefined;
+    }
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const primary =
+        typeof (parsed as { primary?: unknown }).primary === 'string'
+          ? (parsed as { primary: string }).primary.trim()
+          : '';
+      if (!primary) return undefined;
+      const fallbacks = Array.isArray(
+        (parsed as { fallbacks?: unknown }).fallbacks,
+      )
+        ? Array.from(
+            new Set(
+              ((parsed as { fallbacks?: unknown[] }).fallbacks ?? [])
+                .filter((entry): entry is string => typeof entry === 'string')
+                .map((entry) => entry.trim())
+                .filter((entry) => entry && entry !== primary),
+            ),
+          )
+        : [];
+      return fallbacks.length > 0 ? { primary, fallbacks } : { primary };
+    }
+  } catch {
+    // Keep supporting legacy plain-string rows stored before JSON objects.
+  }
+
+  return normalized;
 }
 
 function mapAgentRow(row: AgentRow): AgentConfig {
   const name = row.name?.trim() || '';
-  const model = row.model?.trim() || '';
+  const model = parseAgentModelConfig(row.model);
   const chatbotId = row.chatbot_id?.trim() || '';
   const workspace = row.workspace?.trim() || '';
   return {
@@ -872,9 +923,9 @@ function mapAgentRow(row: AgentRow): AgentConfig {
   };
 }
 
-export function getAgentById(agentId: string): AgentConfig | undefined {
+export function getAgentById(agentId: string): AgentConfig | null {
   const normalizedAgentId = agentId.trim();
-  if (!normalizedAgentId) return undefined;
+  if (!normalizedAgentId) return null;
   const row = db
     .prepare(
       `SELECT id, name, model, chatbot_id, enable_rag, workspace, created_at, updated_at
@@ -882,7 +933,7 @@ export function getAgentById(agentId: string): AgentConfig | undefined {
        WHERE id = ?`,
     )
     .get(normalizedAgentId) as AgentRow | undefined;
-  return row ? mapAgentRow(row) : undefined;
+  return row ? mapAgentRow(row) : null;
 }
 
 export function listAgents(): AgentConfig[] {

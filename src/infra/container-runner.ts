@@ -98,6 +98,7 @@ const TOOL_RESULT_RE =
 const TOOL_START_RE = /^\[tool\]\s+([a-zA-Z0-9_.-]+):\s*(.*)$/;
 const CONTAINER_WORKSPACE_ROOT = '/workspace';
 const CONTAINER_DISCORD_MEDIA_CACHE_ROOT = '/discord-media-cache';
+const AGENT_OUTPUT_TIMEOUT_PREFIX = 'Timeout waiting for agent output after ';
 
 export function collectConfiguredDiscordChannelIds(
   currentChannelId: string,
@@ -211,6 +212,14 @@ function stopContainer(containerName: string): void {
   proc.on('error', (err) => {
     logger.debug({ containerName, err }, 'Failed to stop container');
   });
+}
+
+function isTimedOutAgentOutput(output: ContainerOutput): boolean {
+  return (
+    output.status === 'error' &&
+    typeof output.error === 'string' &&
+    output.error.startsWith(AGENT_OUTPUT_TIMEOUT_PREFIX)
+  );
 }
 
 function resolveArtifactHostPath(
@@ -663,6 +672,13 @@ export async function runContainer(
       signal: abortSignal,
       activity,
     });
+    if (isTimedOutAgentOutput(output)) {
+      logger.warn(
+        { sessionId, containerName: entry.containerName },
+        'Agent output timed out; stopping stuck container',
+      );
+      stopSessionContainer(sessionId);
+    }
     remapOutputArtifacts(output, workspacePath);
     if (typeof output.result === 'string')
       output.result = redactSecrets(output.result);

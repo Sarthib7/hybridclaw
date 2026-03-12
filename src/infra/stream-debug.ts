@@ -1,4 +1,5 @@
 const STREAM_DELTA_RE = /^\[stream\]\s+([A-Za-z0-9+/=]+)$/;
+const STREAM_ACTIVITY_RE = /^\[stream-activity\]$/;
 
 export interface StreamDebugState {
   sawFirstToken: boolean;
@@ -21,6 +22,10 @@ export function decodeStreamDelta(line: string): string | null {
   } catch {
     return null;
   }
+}
+
+export function isStreamActivityLine(line: string): boolean {
+  return STREAM_ACTIVITY_RE.test(line);
 }
 
 function escapeStreamDebugToken(delta: string): string {

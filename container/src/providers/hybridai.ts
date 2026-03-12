@@ -192,6 +192,7 @@ export async function callHybridAIProviderStream(
       return;
     }
 
+    args.onActivity?.();
     sawPayload = true;
     if (typeof payload.id === 'string' && payload.id) streamId = payload.id;
     if (typeof payload.model === 'string' && payload.model) {

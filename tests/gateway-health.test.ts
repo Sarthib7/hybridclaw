@@ -206,17 +206,55 @@ async function importFreshHealth(options?: {
       maxIterations: 0,
     },
     totals: {
-      all: 1,
-      active: 1,
-      idle: 0,
-      stopped: 0,
-      running: 1,
-      totalInputTokens: 10,
-      totalOutputTokens: 5,
-      totalTokens: 15,
-      totalCostUsd: 0.01,
+      agents: {
+        all: 1,
+        active: 1,
+        idle: 0,
+        stopped: 0,
+        unused: 0,
+        running: 1,
+        totalInputTokens: 10,
+        totalOutputTokens: 5,
+        totalTokens: 15,
+        totalCostUsd: 0.01,
+      },
+      sessions: {
+        all: 1,
+        active: 1,
+        idle: 0,
+        stopped: 0,
+        running: 1,
+        totalInputTokens: 10,
+        totalOutputTokens: 5,
+        totalTokens: 15,
+        totalCostUsd: 0.01,
+      },
     },
     agents: [
+      {
+        id: 'main',
+        name: 'Main Agent',
+        model: 'gpt-5',
+        chatbotId: null,
+        enableRag: true,
+        workspace: null,
+        workspacePath: '/tmp/main/workspace',
+        sessionCount: 1,
+        activeSessions: 1,
+        idleSessions: 0,
+        stoppedSessions: 0,
+        effectiveModels: ['gpt-5'],
+        lastActive: '2026-03-11T10:00:00.000Z',
+        inputTokens: 10,
+        outputTokens: 5,
+        costUsd: 0.01,
+        messageCount: 2,
+        toolCalls: 1,
+        recentSessionId: 'web:default',
+        status: 'active',
+      },
+    ],
+    sessions: [
       {
         id: 'web:default',
         name: 'Web web',
@@ -228,7 +266,7 @@ async function importFreshHealth(options?: {
         sessionId: 'web:default',
         channelId: 'web',
         channelName: null,
-        agentId: 'default',
+        agentId: 'main',
         startedAt: '2026-03-11T09:00:00.000Z',
         lastActive: '2026-03-11T10:00:00.000Z',
         runtimeMinutes: 60,
@@ -357,8 +395,8 @@ async function importFreshHealth(options?: {
         name: payload.name || null,
         model: payload.model || null,
         chatbotId: payload.chatbotId || null,
-      enableRag:
-        typeof payload.enableRag === 'boolean' ? payload.enableRag : null,
+        enableRag:
+          typeof payload.enableRag === 'boolean' ? payload.enableRag : null,
         workspace: payload.workspace || null,
         workspacePath: '/tmp/main/workspace',
       },
@@ -380,8 +418,8 @@ async function importFreshHealth(options?: {
         name: payload.name || null,
         model: payload.model || null,
         chatbotId: payload.chatbotId || null,
-      enableRag:
-        typeof payload.enableRag === 'boolean' ? payload.enableRag : null,
+        enableRag:
+          typeof payload.enableRag === 'boolean' ? payload.enableRag : null,
         workspace: payload.workspace || null,
         workspacePath: `/tmp/${agentId}/workspace`,
       },
@@ -689,10 +727,23 @@ describe('gateway health server', () => {
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toMatchObject({
       totals: {
-        all: 1,
-        active: 1,
+        agents: {
+          all: 1,
+          active: 1,
+        },
+        sessions: {
+          all: 1,
+          active: 1,
+        },
       },
       agents: [
+        {
+          id: 'main',
+          sessionCount: 1,
+          status: 'active',
+        },
+      ],
+      sessions: [
         {
           id: 'web:default',
           status: 'active',

@@ -25,6 +25,7 @@ export interface NormalizedCallArgs {
 
 export interface NormalizedStreamCallArgs extends NormalizedCallArgs {
   onTextDelta: (delta: string) => void;
+  onActivity?: () => void;
 }
 
 export class HybridAIRequestError extends Error {
@@ -108,6 +109,14 @@ export function normalizeStreamCallArgs(
   rawArgs: unknown[],
 ): NormalizedStreamCallArgs {
   if (isProvider(rawArgs[0])) {
+    const onActivity =
+      typeof rawArgs[10] === 'function'
+        ? (rawArgs[10] as () => void)
+        : () => undefined;
+    const maxTokensIndex = typeof rawArgs[10] === 'function' ? 11 : 10;
+    const isLocalIndex = maxTokensIndex + 1;
+    const contextWindowIndex = maxTokensIndex + 2;
+    const thinkingFormatIndex = maxTokensIndex + 3;
     return {
       provider: rawArgs[0],
       baseUrl: String(rawArgs[1] || ''),
@@ -119,13 +128,29 @@ export function normalizeStreamCallArgs(
       messages: (rawArgs[7] as ChatMessage[]) || [],
       tools: (rawArgs[8] as ToolDefinition[]) || [],
       onTextDelta: (rawArgs[9] as (delta: string) => void) || (() => {}),
-      maxTokens: typeof rawArgs[10] === 'number' ? rawArgs[10] : undefined,
-      isLocal: Boolean(rawArgs[11]),
-      contextWindow: typeof rawArgs[12] === 'number' ? rawArgs[12] : undefined,
-      thinkingFormat: rawArgs[13] === 'qwen' ? 'qwen' : undefined,
+      onActivity,
+      maxTokens:
+        typeof rawArgs[maxTokensIndex] === 'number'
+          ? rawArgs[maxTokensIndex]
+          : undefined,
+      isLocal: Boolean(rawArgs[isLocalIndex]),
+      contextWindow:
+        typeof rawArgs[contextWindowIndex] === 'number'
+          ? rawArgs[contextWindowIndex]
+          : undefined,
+      thinkingFormat:
+        rawArgs[thinkingFormatIndex] === 'qwen' ? 'qwen' : undefined,
     };
   }
 
+  const onActivity =
+    typeof rawArgs[8] === 'function'
+      ? (rawArgs[8] as () => void)
+      : () => undefined;
+  const maxTokensIndex = typeof rawArgs[8] === 'function' ? 9 : 8;
+  const isLocalIndex = maxTokensIndex + 1;
+  const contextWindowIndex = maxTokensIndex + 2;
+  const thinkingFormatIndex = maxTokensIndex + 3;
   return {
     provider: undefined,
     baseUrl: String(rawArgs[0] || ''),
@@ -137,9 +162,17 @@ export function normalizeStreamCallArgs(
     messages: (rawArgs[5] as ChatMessage[]) || [],
     tools: (rawArgs[6] as ToolDefinition[]) || [],
     onTextDelta: (rawArgs[7] as (delta: string) => void) || (() => {}),
-    maxTokens: typeof rawArgs[8] === 'number' ? rawArgs[8] : undefined,
-    isLocal: Boolean(rawArgs[9]),
-    contextWindow: typeof rawArgs[10] === 'number' ? rawArgs[10] : undefined,
-    thinkingFormat: rawArgs[11] === 'qwen' ? 'qwen' : undefined,
+    onActivity,
+    maxTokens:
+      typeof rawArgs[maxTokensIndex] === 'number'
+        ? rawArgs[maxTokensIndex]
+        : undefined,
+    isLocal: Boolean(rawArgs[isLocalIndex]),
+    contextWindow:
+      typeof rawArgs[contextWindowIndex] === 'number'
+        ? rawArgs[contextWindowIndex]
+        : undefined,
+    thinkingFormat:
+      rawArgs[thinkingFormatIndex] === 'qwen' ? 'qwen' : undefined,
   };
 }

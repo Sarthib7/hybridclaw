@@ -215,8 +215,9 @@ test('fullauto command enables auto-turns, queues follow-up results, and can be 
   expect(enabled.text).toContain('fullauto/LEARNING_');
   expect(enabled.text).toContain('fullauto/RUN_LOG_');
   expect(
-    getGatewayAgents().agents.find((agent) => agent.sessionId === sessionId)
-      ?.fullAutoEnabled,
+    getGatewayAgents().sessions.find(
+      (session) => session.sessionId === sessionId,
+    )?.fullAutoEnabled,
   ).toBe(true);
 
   await vi.advanceTimersByTimeAsync(3_000);
@@ -263,7 +264,10 @@ test('fullauto command enables auto-turns, queues follow-up results, and can be 
     'Developers and tinkerers respond to tactile, builder-oriented language',
   );
 
-  const fullAutoDir = path.join(agentWorkspaceDir(DEFAULT_AGENT_ID), 'fullauto');
+  const fullAutoDir = path.join(
+    agentWorkspaceDir(DEFAULT_AGENT_ID),
+    'fullauto',
+  );
   const fullAutoFiles = fs.readdirSync(fullAutoDir);
   const goalFilename = fullAutoFiles.find((entry) =>
     /^GOAL_.+\.md$/.test(entry),
@@ -340,8 +344,9 @@ test('fullauto command enables auto-turns, queues follow-up results, and can be 
   const session = memoryService.getSessionById(sessionId);
   expect(session?.full_auto_enabled).toBe(0);
   expect(
-    getGatewayAgents().agents.find((agent) => agent.sessionId === sessionId)
-      ?.fullAutoEnabled,
+    getGatewayAgents().sessions.find(
+      (session) => session.sessionId === sessionId,
+    )?.fullAutoEnabled,
   ).toBe(false);
 });
 

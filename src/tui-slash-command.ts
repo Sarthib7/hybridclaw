@@ -107,9 +107,7 @@ export function mapTuiSlashCommandToGatewayArgs(
       return parts.length > 1 ? ['mcp', ...parts.slice(1)] : ['mcp', 'list'];
 
     case 'fullauto':
-      return parts.length > 1
-        ? ['fullauto', ...parts.slice(1)]
-        : ['fullauto'];
+      return parts.length > 1 ? ['fullauto', ...parts.slice(1)] : ['fullauto'];
 
     case 'compact':
       return ['compact'];

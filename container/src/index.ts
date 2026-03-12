@@ -379,6 +379,10 @@ function emitStreamDelta(delta: string): void {
   console.error(`[stream] ${payload}`);
 }
 
+function emitStreamActivity(): void {
+  console.error('[stream-activity]');
+}
+
 function latestUserPrompt(messages: ChatMessage[]): string {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
@@ -551,6 +555,7 @@ async function callHybridAIWithRetry(params: {
   history: ChatMessage[];
   tools: ToolDefinition[];
   onTextDelta?: (delta: string) => void;
+  onActivity?: () => void;
   maxTokens?: number;
   isLocal?: boolean;
   contextWindow?: number;
@@ -567,6 +572,7 @@ async function callHybridAIWithRetry(params: {
     history,
     tools,
     onTextDelta,
+    onActivity,
     maxTokens,
     isLocal,
     contextWindow,
@@ -597,6 +603,7 @@ async function callHybridAIWithRetry(params: {
             history,
             tools,
             onTextDelta,
+            onActivity,
             maxTokens,
             isLocal,
             contextWindow,
@@ -740,6 +747,7 @@ async function processRequest(
         history,
         tools,
         onTextDelta: emitStreamDelta,
+        onActivity: emitStreamActivity,
         maxTokens,
         isLocal,
         contextWindow,

@@ -533,7 +533,10 @@ function migrateLegacyKvStoreAgentIds(
   database: Database.Database,
   targetAgentId: string,
 ): void {
-  if (!tableExists(database, 'kv_store') || !columnExists(database, 'kv_store', 'agent_id')) {
+  if (
+    !tableExists(database, 'kv_store') ||
+    !columnExists(database, 'kv_store', 'agent_id')
+  ) {
     return;
   }
 
@@ -697,10 +700,9 @@ function migrateLegacyCanonicalSessions(
     const earliestCreatedAt =
       orderedGroup[0]?.created_at || new Date().toISOString();
     const latestUpdatedAt =
-      [...orderedGroup]
-        .sort((left, right) =>
-          compareMigrationTimestamps(right.updated_at, left.updated_at),
-        )[0]?.updated_at || earliestCreatedAt;
+      [...orderedGroup].sort((left, right) =>
+        compareMigrationTimestamps(right.updated_at, left.updated_at),
+      )[0]?.updated_at || earliestCreatedAt;
 
     for (const row of group) {
       deleteStatement.run(row.canonical_id);
@@ -745,9 +747,7 @@ function migrateV6(
       );
     `);
     database
-      .prepare(
-        `INSERT OR IGNORE INTO agents (id, name) VALUES (?, ?)`,
-      )
+      .prepare(`INSERT OR IGNORE INTO agents (id, name) VALUES (?, ?)`)
       .run(DEFAULT_AGENT_ID, 'Main Agent');
 
     addColumnIfMissing({
@@ -757,8 +757,9 @@ function migrateV6(
       ddl: `agent_id TEXT DEFAULT '${DEFAULT_AGENT_ID}'`,
       quiet,
     });
-    database
-      .exec('CREATE INDEX IF NOT EXISTS idx_sessions_agent ON sessions(agent_id)');
+    database.exec(
+      'CREATE INDEX IF NOT EXISTS idx_sessions_agent ON sessions(agent_id)',
+    );
     if (columnExists(database, 'sessions', 'agent_id')) {
       database
         .prepare(
@@ -772,7 +773,10 @@ function migrateV6(
     migrateLegacyKvStoreAgentIds(database, DEFAULT_AGENT_ID);
     migrateLegacyCanonicalSessions(database, DEFAULT_AGENT_ID);
 
-    if (tableExists(database, 'usage_events') && columnExists(database, 'usage_events', 'agent_id')) {
+    if (
+      tableExists(database, 'usage_events') &&
+      columnExists(database, 'usage_events', 'agent_id')
+    ) {
       const placeholders = LEGACY_PROVIDER_AGENT_IDS.map(() => '?').join(', ');
       database
         .prepare(

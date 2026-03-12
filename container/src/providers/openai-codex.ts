@@ -533,6 +533,7 @@ function consumeCodexStreamPayload(
   eventName: string | null,
   state: CodexStreamAccumulator,
   onTextDelta: (delta: string) => void,
+  onActivity?: () => void,
 ): boolean {
   const trimmed = payloadText.trim();
   if (!trimmed) return false;
@@ -545,6 +546,7 @@ function consumeCodexStreamPayload(
     return false;
   }
   if (!isRecord(payload)) return false;
+  onActivity?.();
 
   const type =
     typeof payload.type === 'string' && payload.type
@@ -785,6 +787,7 @@ export async function callOpenAICodexProviderStream(
           event.event,
           streamState,
           args.onTextDelta,
+          args.onActivity,
         );
         if (streamDone) break;
       }
@@ -805,6 +808,7 @@ export async function callOpenAICodexProviderStream(
           event.event,
           streamState,
           args.onTextDelta,
+          args.onActivity,
         );
       }
     }

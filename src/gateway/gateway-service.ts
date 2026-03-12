@@ -161,7 +161,7 @@ import {
   resolveSessionRalphIterations,
   syncFullAutoRuntimeContext,
 } from './fullauto.js';
-import { mapAgentCard } from './gateway-agent-cards.js';
+import { mapLogicalAgentCard, mapSessionCard } from './gateway-agent-cards.js';
 import {
   classifyGatewayError,
   type GatewayErrorClass,
@@ -1370,15 +1370,20 @@ export function deleteGatewayAdminAgent(agentId: string): {
 export function getGatewayAgents(): GatewayAgentsResponse {
   const status = getGatewayStatus();
   const activeSessionIds = new Set(getActiveExecutorSessionIds());
+  const usageByAgent = new Map(
+    listUsageByAgent({ window: 'all' }).map(
+      (row) => [row.agent_id, row] as const,
+    ),
+  );
   const usageBySession = new Map(
     listUsageBySession({ window: 'all' }).map(
       (row) => [row.session_id, row] as const,
     ),
   );
   const sandboxMode = status.sandbox?.mode || 'container';
-  const agents = getAllSessions()
+  const sessions = getAllSessions()
     .map((session) =>
-      mapAgentCard({
+      mapSessionCard({
         session,
         activeSessionIds,
         usageBySession,
@@ -1394,6 +1399,35 @@ export function getGatewayAgents(): GatewayAgentsResponse {
         (parseTimestamp(left.lastActive)?.getTime() || 0)
       );
     });
+  const configuredAgents = listAgents();
+  const agentIds = dedupeStrings([
+    ...configuredAgents.map((agent) => agent.id),
+    ...sessions.map((session) => session.agentId),
+  ]);
+  const sessionsByAgent = new Map<string, typeof sessions>();
+  for (const session of sessions) {
+    const existing = sessionsByAgent.get(session.agentId) ?? [];
+    existing.push(session);
+    sessionsByAgent.set(session.agentId, existing);
+  }
+  const agents = agentIds
+    .map((agentId) =>
+      mapLogicalAgentCard({
+        agent: getAgentById(agentId) ?? resolveAgentConfig(agentId),
+        sessions: sessionsByAgent.get(agentId) ?? [],
+        usage: usageByAgent.get(agentId),
+      }),
+    )
+    .sort((left, right) => {
+      const rank = { active: 0, idle: 1, stopped: 2, unused: 3 } as const;
+      const byStatus = rank[left.status] - rank[right.status];
+      if (byStatus !== 0) return byStatus;
+      const byLastActive =
+        (parseTimestamp(right.lastActive)?.getTime() || 0) -
+        (parseTimestamp(left.lastActive)?.getTime() || 0);
+      if (byLastActive !== 0) return byLastActive;
+      return left.id.localeCompare(right.id);
+    });
 
   return {
     generatedAt: new Date().toISOString(),
@@ -1404,26 +1438,58 @@ export function getGatewayAgents(): GatewayAgentsResponse {
       maxIterations: PROACTIVE_RALPH_MAX_ITERATIONS,
     },
     totals: {
-      all: agents.length,
-      active: agents.filter((agent) => agent.status === 'active').length,
-      idle: agents.filter((agent) => agent.status === 'idle').length,
-      stopped: agents.filter((agent) => agent.status === 'stopped').length,
-      running: agents.filter((agent) => agent.status !== 'stopped').length,
-      totalInputTokens: agents.reduce(
-        (sum, agent) => sum + agent.inputTokens,
-        0,
-      ),
-      totalOutputTokens: agents.reduce(
-        (sum, agent) => sum + agent.outputTokens,
-        0,
-      ),
-      totalTokens: agents.reduce(
-        (sum, agent) => sum + agent.inputTokens + agent.outputTokens,
-        0,
-      ),
-      totalCostUsd: agents.reduce((sum, agent) => sum + agent.costUsd, 0),
+      agents: {
+        all: agents.length,
+        active: agents.filter((agent) => agent.status === 'active').length,
+        idle: agents.filter((agent) => agent.status === 'idle').length,
+        stopped: agents.filter((agent) => agent.status === 'stopped').length,
+        unused: agents.filter((agent) => agent.status === 'unused').length,
+        running: agents.filter(
+          (agent) => agent.status === 'active' || agent.status === 'idle',
+        ).length,
+        totalInputTokens: agents.reduce(
+          (sum, agent) => sum + agent.inputTokens,
+          0,
+        ),
+        totalOutputTokens: agents.reduce(
+          (sum, agent) => sum + agent.outputTokens,
+          0,
+        ),
+        totalTokens: agents.reduce(
+          (sum, agent) => sum + agent.inputTokens + agent.outputTokens,
+          0,
+        ),
+        totalCostUsd: agents.reduce((sum, agent) => sum + agent.costUsd, 0),
+      },
+      sessions: {
+        all: sessions.length,
+        active: sessions.filter((session) => session.status === 'active')
+          .length,
+        idle: sessions.filter((session) => session.status === 'idle').length,
+        stopped: sessions.filter((session) => session.status === 'stopped')
+          .length,
+        running: sessions.filter((session) => session.status !== 'stopped')
+          .length,
+        totalInputTokens: sessions.reduce(
+          (sum, session) => sum + session.inputTokens,
+          0,
+        ),
+        totalOutputTokens: sessions.reduce(
+          (sum, session) => sum + session.outputTokens,
+          0,
+        ),
+        totalTokens: sessions.reduce(
+          (sum, session) => sum + session.inputTokens + session.outputTokens,
+          0,
+        ),
+        totalCostUsd: sessions.reduce(
+          (sum, session) => sum + session.costUsd,
+          0,
+        ),
+      },
     },
     agents,
+    sessions,
   };
 }
 

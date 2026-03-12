@@ -66,6 +66,7 @@ import {
   createStreamDebugState,
   decodeStreamDelta,
   flushCollapsedStreamDebugSummary,
+  isStreamActivityLine,
   type StreamDebugState,
 } from './stream-debug.js';
 import { computeWorkerSignature } from './worker-signature.js';
@@ -448,6 +449,10 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
       const line = rawLine.trim();
       if (!line) continue;
       emitTextDelta(entry, line);
+      if (isStreamActivityLine(line)) {
+        entry.activity?.notify();
+        continue;
+      }
       if (
         consumeCollapsedStreamDebugLine(line, entry.streamDebug, (message) => {
           logger.debug({ container: containerName }, message);
@@ -466,7 +471,9 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
     const tail = entry.stderrBuffer.trim();
     if (tail) {
       emitTextDelta(entry, tail);
-      if (
+      if (isStreamActivityLine(tail)) {
+        entry.activity?.notify();
+      } else if (
         !consumeCollapsedStreamDebugLine(tail, entry.streamDebug, (message) => {
           logger.debug({ container: containerName }, message);
         })

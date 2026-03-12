@@ -297,7 +297,9 @@ function printHelp(): void {
   console.log(`  ${TEAL}/help${RESET}             Show this help`);
   console.log(`  ${TEAL}/agent${RESET}            Show current session agent`);
   console.log(`  ${TEAL}/agent list${RESET}       List available agents`);
-  console.log(`  ${TEAL}/agent switch <id>${RESET} Switch this session to an agent`);
+  console.log(
+    `  ${TEAL}/agent switch <id>${RESET} Switch this session to an agent`,
+  );
   console.log(
     `  ${TEAL}/agent create <id> [--model <model>]${RESET} Create a new agent`,
   );
@@ -747,9 +749,7 @@ async function handleSlashCommand(
 
       const approvalMessage = mapTuiApproveSlashToMessage(parts);
       if (approvalMessage === '') {
-        printInfo(
-          'Usage: /approve [view|yes|session|agent|no] [approval_id]',
-        );
+        printInfo('Usage: /approve [view|yes|session|agent|no] [approval_id]');
         return true;
       }
       if (!approvalMessage) {

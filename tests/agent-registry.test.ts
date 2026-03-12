@@ -223,12 +223,12 @@ test('database migration v6 adds agents and backfills legacy agent ids to main',
     );
   legacyDb
     .prepare(
-      'INSERT INTO kv_store (agent_id, key, value, version, updated_at) VALUES (?, ?, ?, ?, datetime(\'now\'))',
+      "INSERT INTO kv_store (agent_id, key, value, version, updated_at) VALUES (?, ?, ?, ?, datetime('now'))",
     )
     .run('ollama', 'memory:key', Buffer.from('null', 'utf8'), 1);
   legacyDb
     .prepare(
-      'INSERT INTO kv_store (agent_id, key, value, version, updated_at) VALUES (?, ?, ?, ?, datetime(\'now\', \'+1 minute\'))',
+      "INSERT INTO kv_store (agent_id, key, value, version, updated_at) VALUES (?, ?, ?, ?, datetime('now', '+1 minute'))",
     )
     .run(
       'vllm',
@@ -362,7 +362,9 @@ test('database migration v6 adds agents and backfills legacy agent ids to main',
     .prepare('SELECT id FROM agents WHERE id = ?')
     .get('main') as { id: string } | undefined;
   const canonicalCount = migratedDb
-    .prepare('SELECT COUNT(*) AS total FROM canonical_sessions WHERE user_id = ?')
+    .prepare(
+      'SELECT COUNT(*) AS total FROM canonical_sessions WHERE user_id = ?',
+    )
     .get('user-1') as { total: number };
   const kvCount = migratedDb
     .prepare('SELECT COUNT(*) AS total FROM kv_store WHERE key = ?')

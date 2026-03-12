@@ -1203,7 +1203,7 @@
   <div class="section-center">
     <div class="section-label">Personality</div>
     <h2 class="section-title">A workspace that shapes your agent</h2>
-    <p class="section-desc">Bootstrap files give your agent identity, memory, and purpose. Each bot gets its own persistent workspace.</p>
+    <p class="section-desc">Bootstrap files give your agent identity, memory, and purpose. Each agent gets its own persistent workspace, and sessions can bind or switch independently.</p>
   </div>
   <div class="comparison">
     <table>
@@ -1316,7 +1316,7 @@
     </div>
     <div class="faq-item">
       <div class="faq-q">Can different Discord channels use different bots?</div>
-      <div class="faq-a">Yes. Each channel can be independently configured with its own HybridAI chatbot, model, and RAG setting using the <code>bot set</code> and <code>model set</code> commands. You can also control reply activation per channel with <code>/channel-mode</code> and guild policy via <code>/channel-policy</code>.</div>
+      <div class="faq-a">Yes. Each channel is its own session, so it can use different chatbot/model/RAG settings and can also bind to a different agent workspace with <code>/agent switch</code>. You can control reply activation per channel with <code>/channel-mode</code> and guild policy via <code>/channel-policy</code>.</div>
     </div>
     <div class="faq-item">
       <div class="faq-q">How do I allow free-response in only one Discord channel?</div>
@@ -1340,7 +1340,7 @@
     </div>
     <div class="faq-item">
       <div class="faq-q">Does the agent remember things between conversations?</div>
-      <div class="faq-a">Yes. The agent writes daily memory files (<code>memory/YYYY-MM-DD.md</code>) and curates long-term insights into <code>MEMORY.md</code>. It also maintains canonical cross-channel context per user/agent pair so continuity survives channel switches. Before session compaction, a dedicated flush turn ensures durable notes are persisted. These files plus <code>SOUL.md</code> are injected into every request.</div>
+      <div class="faq-a">Yes. The active agent writes daily memory files (<code>memory/YYYY-MM-DD.md</code>) and curates long-term insights into <code>MEMORY.md</code>. It also maintains canonical cross-channel context per user/agent pair so continuity survives channel switches when sessions point at the same agent. Before session compaction, a dedicated flush turn ensures durable notes are persisted. These files plus <code>SOUL.md</code> are injected into every request.</div>
     </div>
     <div class="faq-item">
       <div class="faq-q">Can I switch the assistant personality at runtime?</div>

@@ -59,7 +59,10 @@ Core details:
   current working directory, and only reads `./.env` to import supported
   secrets into `~/.hybridclaw/credentials.json`.
 - Some settings still require restart, such as bind host and port.
-- Default bot is configured via `hybridai.defaultChatbotId`.
+- Default HybridAI chatbot is configured via `hybridai.defaultChatbotId`.
+- Agents are configured under `agents.defaults` and `agents.list`. Sessions bind
+  to an agent, and that agent owns the workspace under
+  `~/.hybridclaw/data/agents/<workspace>/workspace/`.
 - `hybridai.maxTokens` sets the default completion budget per model call.
 - Trust-model acceptance is persisted under `security.*` and enforced before
   runtime start.
@@ -160,11 +163,11 @@ Runtime details:
 - The gateway discovers running backends at startup and exposes reachable
   models in `gateway status` and the TUI/Discord model picker.
 - Worker pools are keyed by backend/provider signature, so changing the local
-  target or auth for a session respawns the pooled worker in the matching
-  agent workspace instead of reusing stale state.
-- Each local provider gets its own agent workspace at
-  `~/.hybridclaw/data/agents/<agentId>/workspace/`. Agent IDs are derived
-  from the backend name (e.g. `lmstudio`, `ollama`).
+  target or auth for a session respawns the pooled worker without reusing stale
+  runtime state.
+- Local backends no longer imply separate workspaces. A session keeps the same
+  workspace as long as it stays bound to the same agent, even when the model or
+  provider changes.
 - Local backends should be used with `--sandbox=host` since there is no
   need to route local traffic through Docker networking.
 
@@ -208,6 +211,31 @@ runtime flow:
 - If a workspace has been recreated before the next turn, HybridClaw drops
   stale transcript history for that session so conversation state stays aligned
   with the new workspace and tool surface.
+
+## Agent And Session Model
+
+HybridClaw now distinguishes between agents and sessions explicitly:
+
+- an **agent** owns a workspace, optional default model, optional default
+  chatbot, and durable memory
+- a **session** is a channel/client conversation handle that binds to an agent
+- changing the model/provider for a session does not change the workspace
+  unless the session is switched to a different agent
+
+Current resolution order for a turn:
+
+1. request/session chooses the session
+2. session chooses the bound `agent_id`
+3. agent chooses the workspace and agent defaults
+4. effective model is resolved from request/session override first, then agent
+   default, then global defaults
+
+Operational surfaces:
+
+- `agent`, `agent list`, `agent switch <id>`, `agent create <id> [--model <model>]`
+  are available through gateway commands, TUI, and Discord slash/text commands
+- `status` now includes the current session agent
+- `/agents` shows both logical agents and per-session runtime cards
 
 ## Agent Tool And Runtime Internals
 

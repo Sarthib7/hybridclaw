@@ -31,7 +31,6 @@ import {
   DISCORD_RATE_LIMIT_EXEMPT_ROLES,
   DISCORD_RATE_LIMIT_PER_USER,
   DISCORD_REMOVE_ACK_AFTER_REPLY,
-  DISCORD_RESPOND_TO_ALL_MESSAGES,
   DISCORD_SELF_PRESENCE,
   DISCORD_SUPPRESS_PATTERNS,
   DISCORD_TOKEN,
@@ -717,7 +716,6 @@ function resolveGuildMessageMode(msg: DiscordMessage): DiscordGuildMessageMode {
   if (explicitMode) return explicitMode;
   if (DISCORD_FREE_RESPONSE_CHANNELS.includes(msg.channelId)) return 'free';
   if (guildConfig) return guildConfig.defaultMode;
-  if (DISCORD_RESPOND_TO_ALL_MESSAGES) return 'free';
   return 'mention';
 }
 
@@ -761,7 +759,6 @@ function isTrigger(
     content: msg.content,
     isDm: !msg.guild,
     commandsOnly: DISCORD_COMMANDS_ONLY,
-    respondToAllMessages: DISCORD_RESPOND_TO_ALL_MESSAGES,
     guildMessageMode: behavior.guildMessageMode,
     prefix: DISCORD_PREFIX,
     botMentionRegex,

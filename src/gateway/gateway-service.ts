@@ -45,7 +45,6 @@ import {
   DISCORD_FREE_RESPONSE_CHANNELS,
   DISCORD_GROUP_POLICY,
   DISCORD_GUILDS,
-  DISCORD_RESPOND_TO_ALL_MESSAGES,
   FULLAUTO_NEVER_APPROVE_TOOLS,
   HYBRIDAI_CHATBOT_ID,
   HYBRIDAI_ENABLE_RAG,
@@ -790,7 +789,6 @@ function resolveActivationModeLabel(): string {
   if (DISCORD_GROUP_POLICY === 'allowlist') return 'allowlist';
   if (DISCORD_FREE_RESPONSE_CHANNELS.length > 0)
     return `mention + ${DISCORD_FREE_RESPONSE_CHANNELS.length} free channel(s)`;
-  if (DISCORD_RESPOND_TO_ALL_MESSAGES) return 'all messages';
   return 'mention';
 }
 
@@ -819,7 +817,6 @@ function resolveGuildChannelMode(
       return defaultMode;
     }
   }
-  if (DISCORD_RESPOND_TO_ALL_MESSAGES) return 'free';
   return 'mention';
 }
 
@@ -4439,6 +4436,7 @@ export async function handleGatewayCommand(
         `📚 Context: ${contextLabel} · 🧹 Compactions: ${session.compaction_count}`,
         `📊 Usage: uptime ${formatUptime(status.uptime)} · sessions ${status.sessions} · sandbox ${sandboxLabel}`,
         `🧵 Session: ${session.id} • updated ${formatRelativeTime(session.last_active)}`,
+        `🤖 Agent: ${runtime.agentId}`,
         `⚙️ Runtime: ${status.sandbox?.mode || 'container'} · RAG: ${session.enable_rag ? 'on' : 'off'} · Ralph: ${formatRalphIterations(resolveSessionRalphIterations(session))}`,
         `🤖 Full-auto: ${fullAutoLabel}`,
         `👥 Activation: ${resolveActivationModeLabel()} · 🪢 Queue: ${queueLabel} · 📬 Proactive queued: ${proactiveQueued}`,

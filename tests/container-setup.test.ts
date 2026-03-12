@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -50,14 +51,25 @@ function writeTrackedFiles(cwd: string): void {
   );
 }
 
-function writeLegacyState(
+function writeState(
+  homeDir: string,
   cwd: string,
   imageName: string,
   fingerprint: string,
 ): void {
-  fs.mkdirSync(path.join(cwd, '.hybridclaw'), { recursive: true });
+  const scopeKey = createHash('sha256')
+    .update(path.resolve(cwd))
+    .digest('hex')
+    .slice(0, 16);
+  const stateDir = path.join(
+    homeDir,
+    '.hybridclaw',
+    'container-image-state',
+    scopeKey,
+  );
+  fs.mkdirSync(stateDir, { recursive: true });
   fs.writeFileSync(
-    path.join(cwd, '.hybridclaw', 'container-image-state.json'),
+    path.join(stateDir, 'container-image-state.json'),
     `${JSON.stringify({
       imageName,
       fingerprint,
@@ -202,8 +214,9 @@ describe('resolveContainerImageAcquisitionMode', () => {
 describe('ensureContainerImageReady', () => {
   test('keeps using an existing image when stale rebuild fails', async () => {
     const cwd = createTempDir();
+    const homeDir = createTempDir();
     writeTrackedFiles(cwd);
-    writeLegacyState(cwd, 'hybridclaw-agent', 'stale-fingerprint');
+    writeState(homeDir, cwd, 'hybridclaw-agent', 'stale-fingerprint');
     Object.defineProperty(process.stdin, 'isTTY', {
       value: true,
       configurable: true,
@@ -232,7 +245,7 @@ describe('ensureContainerImageReady', () => {
     });
 
     const containerSetup = await importFreshContainerSetup({
-      homeDir: createTempDir(),
+      homeDir,
       spawnMock,
     });
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});

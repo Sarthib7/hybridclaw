@@ -2,6 +2,37 @@
 
 ## [Unreleased]
 
+### Added
+
+- **First-class agents and agent commands**: Agents now own workspaces
+  independently of the active model provider, with `agent` commands available
+  through the gateway, TUI, and Discord for inspecting, listing, creating, and
+  switching session bindings.
+- **Agent/session dashboard split**: The `/agents` page and `/api/agents`
+  response now distinguish logical agents from bound sessions so operators can
+  see both workspace-level state and per-session runtime state.
+
+### Changed
+
+- **Stable workspace identity across model/provider changes**: Session
+  workspaces are now keyed by agent identity instead of provider-derived agent
+  IDs, so switching from one backend or model family to another keeps the same
+  workspace and memory unless the session is explicitly rebound to another
+  agent.
+- **Runtime status visibility**: Shared `status` output in TUI and Discord now
+  includes the current session agent alongside the effective model and sandbox
+  state.
+- **Discord activation config cleanup**: Removed the obsolete
+  `discord.respondToAllMessages` config path. Guild activation now follows
+  `channel mode`, guild policy, and explicit free-response channel settings.
+
+### Fixed
+
+- **Heartbeat/tool-call stream timeouts**: Hidden stream activity now extends
+  the IPC inactivity deadline even when providers emit tool-call or reasoning
+  chunks without visible text, preventing false heartbeat timeouts on long
+  local-model turns.
+
 ## [0.6.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.6.0)
 
 ### Added

@@ -94,7 +94,6 @@ interface ContainerImageState {
 const CONTAINER_FINGERPRINT_VERSION = 'v1';
 const STATE_ROOT_DIR = path.join(os.homedir(), '.hybridclaw');
 const STATE_DIRNAME = 'container-image-state';
-const LEGACY_STATE_DIRNAME = '.hybridclaw';
 const STATE_FILENAME = 'container-image-state.json';
 const DEFAULT_CONTAINER_IMAGE = 'hybridclaw-agent';
 const DEFAULT_DOCKERHUB_IMAGE = 'hybridaione/hybridclaw-agent';
@@ -170,10 +169,6 @@ function stateFilePath(cwd: string): string {
   );
 }
 
-function legacyStateFilePath(cwd: string): string {
-  return path.join(cwd, LEGACY_STATE_DIRNAME, STATE_FILENAME);
-}
-
 function tryParseStateFile(
   file: string,
   imageName: string,
@@ -205,20 +200,7 @@ function readContainerImageState(
   cwd: string,
   imageName: string,
 ): ContainerImageState | null {
-  const primaryState = tryParseStateFile(stateFilePath(cwd), imageName);
-  if (primaryState) return primaryState;
-
-  const legacyFile = legacyStateFilePath(cwd);
-  const legacyState = tryParseStateFile(legacyFile, imageName);
-  if (legacyState) {
-    try {
-      writeContainerImageState(cwd, legacyState);
-      fs.rmSync(legacyFile, { force: true });
-    } catch {
-      // best-effort legacy state migration
-    }
-  }
-  return legacyState;
+  return tryParseStateFile(stateFilePath(cwd), imageName);
 }
 
 function writeContainerImageState(

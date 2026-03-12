@@ -72,7 +72,7 @@ hybridclaw tui
 # Web chat UI (built into gateway)
 # open http://127.0.0.1:9090/chat
 
-# Agent command center docs page
+# Agent and session dashboard
 # open http://127.0.0.1:9090/agents
 
 # Embedded admin console
@@ -328,6 +328,7 @@ CLI runtime commands:
 - `hybridclaw gateway stop` — Stop managed gateway backend process
 - `hybridclaw gateway status` — Show lifecycle/API status
 - `hybridclaw gateway <command...>` — Send a command to a running gateway (for example `sessions`, `bot info`)
+- `hybridclaw gateway agent [list|switch <id>|create <id> [--model <model>]]` — Inspect or change the current session-to-agent binding
 - `hybridclaw gateway compact` — Archive older session history into semantic memory while preserving a recent active context tail
 - `hybridclaw gateway reset [yes|no]` — Clear session history, reset per-session model/chatbot/RAG settings, and remove the current agent workspace (confirmation required)
 - `hybridclaw tui` — Start terminal client connected to gateway
@@ -349,6 +350,10 @@ CLI runtime commands:
 In Discord, use `!claw help` or the slash commands. Key ones:
 
 - `!claw <message>` — Talk to the agent
+- `/agent` or `!claw agent` — Show the current session agent and workspace
+- `/agent list` or `!claw agent list` — List configured agents
+- `/agent switch <id>` or `!claw agent switch <id>` — Rebind this session to another agent workspace
+- `/agent create <id> [--model <model>]` or `!claw agent create <id> [--model <model>]` — Create a new agent with its own workspace
 - `!claw bot set <id>` — Set chatbot for this channel
 - `!claw model set <name>` — Set model for this channel
 - `!claw rag on/off` — Toggle RAG
@@ -367,5 +372,8 @@ In Discord, use `!claw help` or the slash commands. Key ones:
 - `!claw schedule add at "<ISO time>" <prompt>` — Add one-shot task
 - `!claw schedule add every <ms> <prompt>` — Add interval task
 
-In the TUI, use `/compact` for session compaction, `/reset` for the confirmed
-workspace reset flow, and `/mcp ...` for runtime MCP management.
+In the TUI, use `/agent`, `/agent list`, `/agent switch <id>`, and
+`/agent create <id> [--model <model>]` for agent control; `/status` shows both
+the current session and agent; `/compact` handles session compaction; `/reset`
+runs the confirmed workspace reset flow; and `/mcp ...` manages runtime MCP
+servers.

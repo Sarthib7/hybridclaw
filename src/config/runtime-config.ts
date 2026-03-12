@@ -177,7 +177,6 @@ export interface RuntimeConfig {
     prefix: string;
     guildMembersIntent: boolean;
     presenceIntent: boolean;
-    respondToAllMessages: boolean;
     commandsOnly: boolean;
     commandMode: DiscordCommandMode;
     commandAllowedUserIds: string[];
@@ -354,7 +353,6 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     prefix: '!claw',
     guildMembersIntent: false,
     presenceIntent: false,
-    respondToAllMessages: false,
     commandsOnly: false,
     commandMode: 'public',
     commandAllowedUserIds: [],
@@ -1701,10 +1699,6 @@ function normalizeRuntimeConfig(
       presenceIntent: normalizeBoolean(
         rawDiscord.presenceIntent,
         DEFAULT_RUNTIME_CONFIG.discord.presenceIntent,
-      ),
-      respondToAllMessages: normalizeBoolean(
-        rawDiscord.respondToAllMessages,
-        DEFAULT_RUNTIME_CONFIG.discord.respondToAllMessages,
       ),
       commandsOnly: normalizeBoolean(
         rawDiscord.commandsOnly,

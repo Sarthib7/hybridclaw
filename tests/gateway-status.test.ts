@@ -90,3 +90,43 @@ test('getGatewayStatus includes Codex auth state', async () => {
     modelCount: expect.any(Number),
   });
 });
+
+test('status command includes the current session agent', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { upsertRegisteredAgent } = await import(
+    '../src/agents/agent-registry.ts'
+  );
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  upsertRegisteredAgent({
+    id: 'research',
+    model: 'openai-codex/gpt-5.3-codex',
+  });
+
+  await handleGatewayCommand({
+    sessionId: 'session-status-agent',
+    guildId: null,
+    channelId: 'channel-status-agent',
+    args: ['agent', 'switch', 'research'],
+  });
+  const result = await handleGatewayCommand({
+    sessionId: 'session-status-agent',
+    guildId: null,
+    channelId: 'channel-status-agent',
+    args: ['status'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Status');
+  expect(result.text).toContain('Agent: research');
+});

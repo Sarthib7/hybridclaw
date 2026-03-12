@@ -24,6 +24,14 @@ import {
   sendToChannel,
   setDiscordMaintenancePresence,
 } from '../channels/discord/runtime.js';
+import { getWhatsAppAuthStatus } from '../channels/whatsapp/auth.js';
+import { isWhatsAppJid } from '../channels/whatsapp/phone.js';
+import {
+  initWhatsApp,
+  sendToWhatsAppChat,
+  sendWhatsAppMediaToChat,
+  shutdownWhatsApp,
+} from '../channels/whatsapp/runtime.js';
 import {
   DISCORD_TOKEN,
   getConfigSnapshot,
@@ -57,8 +65,14 @@ import {
   startScheduler,
   stopScheduler,
 } from '../scheduler/scheduler.js';
+import {
+  mapTuiSlashCommandToGatewayArgs,
+  parseTuiSlashCommand,
+} from '../tui-slash-command.js';
 import type { ArtifactMetadata } from '../types.js';
 import { buildApprovalConfirmationComponents } from './approval-confirmation.js';
+import { normalizePlaceholderToolReply } from './chat-result.js';
+import { classifyGatewayError } from './gateway-error-utils.js';
 import {
   type GatewayChatResult,
   getGatewayStatus,
@@ -78,7 +92,9 @@ import {
   setPendingApproval,
 } from './pending-approvals.js';
 import {
+  hasQueuedProactiveDeliveryPath,
   isDiscordChannelId,
+  isSupportedProactiveChannelId,
   resolveHeartbeatDeliveryChannelId,
   shouldDropQueuedProactiveMessage,
 } from './proactive-delivery.js';
@@ -93,6 +109,10 @@ let memoryConsolidationTimer: ReturnType<typeof setInterval> | null = null;
 
 const MAX_QUEUED_PROACTIVE_MESSAGES = 100;
 const APPROVAL_PROMPT_DEFAULT_TTL_MS = 120_000;
+const WHATSAPP_INTERRUPTED_REPLY =
+  'The request was interrupted before I could reply. Please send it again.';
+const WHATSAPP_TRANSIENT_FAILURE_REPLY =
+  'The model request failed before I could reply. Please try again.';
 
 function buildArtifactAttachments(
   artifacts?: ArtifactMetadata[],
@@ -149,9 +169,12 @@ function simplifyImageAttachmentNarration(
   const keptLines: string[] = [];
   for (const line of text.split('\n')) {
     const normalizedLine = normalizePathForMatch(line);
-    const mentionsArtifact = Array.from(pathHints).some((hint) =>
-      normalizedLine.includes(hint),
-    );
+    let mentionsArtifact = false;
+    for (const hint of pathHints) {
+      if (!normalizedLine.includes(hint)) continue;
+      mentionsArtifact = true;
+      break;
+    }
     const isPathLine = pathishLine.test(line.trim());
     const isLocationNarration = locationNarration.test(line);
     if (mentionsArtifact && (isPathLine || isLocationNarration)) {
@@ -169,6 +192,23 @@ function simplifyImageAttachmentNarration(
     .trim();
   if (cleaned) return cleaned;
   return imageArtifacts.length === 1 ? 'Here it is.' : 'Here they are.';
+}
+
+function formatWhatsAppGatewayFailure(
+  error: string | null | undefined,
+): string {
+  const detail = String(error || '').trim();
+  if (
+    /interrupted by user|timed out|timeout waiting for agent output|terminated|abort/i.test(
+      detail,
+    )
+  ) {
+    return WHATSAPP_INTERRUPTED_REPLY;
+  }
+  if (detail && classifyGatewayError(detail) === 'transient') {
+    return WHATSAPP_TRANSIENT_FAILURE_REPLY;
+  }
+  return formatError('Agent Error', detail || 'Unknown error');
 }
 
 function findPendingApprovalMetadata(
@@ -343,6 +383,72 @@ async function handleApprovalCommand(params: {
   return true;
 }
 
+async function handleTextChannelCommand(params: {
+  sessionId: string;
+  guildId: string | null;
+  channelId: string;
+  userId: string;
+  username: string;
+  args: string[];
+  reply: ReplyFn;
+}): Promise<void> {
+  const { sessionId, guildId, channelId, userId, username, args, reply } =
+    params;
+  if (
+    await handleApprovalCommand({
+      sessionId,
+      guildId,
+      channelId,
+      userId,
+      username,
+      args,
+      reply,
+    })
+  ) {
+    return;
+  }
+  const result = await handleGatewayCommand({
+    sessionId,
+    guildId,
+    channelId,
+    args,
+    userId,
+    username,
+  });
+  if (result.kind === 'error') {
+    await reply(formatError(result.title || 'Error', result.text));
+    return;
+  }
+  if (result.kind === 'info') {
+    const text = formatInfo(result.title || 'Info', result.text);
+    if (result.components !== undefined) {
+      await reply(text, undefined, result.components);
+    } else {
+      await reply(text);
+    }
+    return;
+  }
+  await reply(renderGatewayCommand(result));
+}
+
+function resolveTextChannelSlashCommands(content: string): string[][] | null {
+  if (!content.trim().startsWith('/')) return null;
+
+  const parsed = parseTuiSlashCommand(content);
+  if (!parsed.cmd || parsed.parts.length === 0) return null;
+
+  if (parsed.cmd === 'approve') {
+    return [parsed.parts];
+  }
+
+  if (parsed.cmd === 'info') {
+    return [['bot', 'info'], ['model', 'info'], ['status']];
+  }
+
+  const args = mapTuiSlashCommandToGatewayArgs(parsed.parts);
+  return args ? [args] : null;
+}
+
 async function deliverProactiveMessage(
   channelId: string,
   text: string,
@@ -393,6 +499,33 @@ async function sendProactiveMessageNow(
   artifacts?: ArtifactMetadata[],
 ): Promise<void> {
   const attachments = buildArtifactAttachments(artifacts);
+  if (isWhatsAppJid(channelId)) {
+    const whatsappAuth = await getWhatsAppAuthStatus();
+    if (!whatsappAuth.linked) {
+      logger.info(
+        { source, channelId, text },
+        'Proactive WhatsApp message suppressed: WhatsApp not linked',
+      );
+      return;
+    }
+    if (attachments.length > 0) {
+      logger.warn(
+        { source, channelId, artifactCount: attachments.length },
+        'Proactive WhatsApp delivery currently sends text only',
+      );
+    }
+    try {
+      await sendToWhatsAppChat(channelId, text);
+    } catch (error) {
+      logger.warn(
+        { source, channelId, error },
+        'Failed to send proactive message to WhatsApp chat',
+      );
+      logger.info({ source, channelId, text }, 'Proactive message fallback');
+    }
+    return;
+  }
+
   if (!isDiscordChannelId(channelId)) {
     const { queued, dropped } = enqueueProactiveMessage(
       channelId,
@@ -467,10 +600,12 @@ async function deliverWebhookMessage(
   }
 }
 
-function resolveLastUsedDiscordChannelId(): string | null {
+function resolveLastUsedDeliverableChannelId(): string | null {
   const channelId = getMostRecentSessionChannelId();
   if (!channelId) return null;
-  return isDiscordChannelId(channelId) ? channelId : null;
+  return hasQueuedProactiveDeliveryPath({ channel_id: channelId })
+    ? channelId
+    : null;
 }
 
 async function flushQueuedProactiveMessages(): Promise<void> {
@@ -485,7 +620,7 @@ async function flushQueuedProactiveMessages(): Promise<void> {
   let droppedUndeliverable = 0;
   for (const item of pending) {
     if (!isWithinActiveHours()) break;
-    if (!isDiscordChannelId(item.channel_id)) {
+    if (!isSupportedProactiveChannelId(item.channel_id)) {
       if (shouldDropQueuedProactiveMessage(item)) {
         deleteQueuedProactiveMessage(item.id);
         droppedUndeliverable += 1;
@@ -537,37 +672,39 @@ async function startDiscordIntegration(): Promise<void> {
           }
           await context.stream.append(text);
         };
-        const result = await handleGatewayMessage({
-          sessionId,
-          guildId,
-          channelId,
-          userId,
-          username,
-          content,
-          media,
-          onTextDelta: (delta) => {
-            const filteredDelta = streamFilter.push(delta);
-            if (!filteredDelta) return;
-            void appendStreamText(filteredDelta);
-          },
-          onToolProgress: (event) => {
-            if (sawTextDelta) return;
-            if (event.phase === 'start') {
-              context.emitLifecyclePhase('toolUse');
-            } else {
-              context.emitLifecyclePhase('thinking');
-            }
-          },
-          onProactiveMessage: async (message) => {
-            await deliverProactiveMessage(
-              channelId,
-              message.text,
-              'delegate',
-              message.artifacts,
-            );
-          },
-          abortSignal: context.abortSignal,
-        });
+        const result = normalizePlaceholderToolReply(
+          await handleGatewayMessage({
+            sessionId,
+            guildId,
+            channelId,
+            userId,
+            username,
+            content,
+            media,
+            onTextDelta: (delta) => {
+              const filteredDelta = streamFilter.push(delta);
+              if (!filteredDelta) return;
+              void appendStreamText(filteredDelta);
+            },
+            onToolProgress: (event) => {
+              if (sawTextDelta) return;
+              if (event.phase === 'start') {
+                context.emitLifecyclePhase('toolUse');
+              } else {
+                context.emitLifecyclePhase('thinking');
+              }
+            },
+            onProactiveMessage: async (message) => {
+              await deliverProactiveMessage(
+                channelId,
+                message.text,
+                'delegate',
+                message.artifacts,
+              );
+            },
+            abortSignal: context.abortSignal,
+          }),
+        );
         if (result.status === 'error') {
           const errorText = formatError(
             'Agent Error',
@@ -657,41 +794,15 @@ async function startDiscordIntegration(): Promise<void> {
       reply: ReplyFn,
     ) => {
       try {
-        if (
-          await handleApprovalCommand({
-            sessionId,
-            guildId,
-            channelId,
-            userId,
-            username,
-            args,
-            reply,
-          })
-        ) {
-          return;
-        }
-        const result = await handleGatewayCommand({
+        await handleTextChannelCommand({
           sessionId,
           guildId,
           channelId,
-          args,
           userId,
           username,
+          args,
+          reply,
         });
-        if (result.kind === 'error') {
-          await reply(formatError(result.title || 'Error', result.text));
-          return;
-        }
-        if (result.kind === 'info') {
-          const text = formatInfo(result.title || 'Info', result.text);
-          if (result.components !== undefined) {
-            await reply(text, undefined, result.components);
-          } else {
-            await reply(text);
-          }
-          return;
-        }
-        await reply(renderGatewayCommand(result));
       } catch (error) {
         const text = error instanceof Error ? error.message : String(error);
         logger.error(
@@ -703,6 +814,119 @@ async function startDiscordIntegration(): Promise<void> {
     },
   );
   logger.info('Discord integration started inside gateway');
+}
+
+async function startWhatsAppIntegration(): Promise<boolean> {
+  const whatsappAuth = await getWhatsAppAuthStatus();
+  if (!whatsappAuth.linked) {
+    logger.info('WhatsApp integration disabled: no linked auth state found');
+    return false;
+  }
+
+  await initWhatsApp(
+    async (
+      sessionId,
+      guildId,
+      channelId,
+      userId,
+      username,
+      content,
+      media,
+      reply,
+      context,
+    ) => {
+      try {
+        const slashCommands = resolveTextChannelSlashCommands(content);
+        if (slashCommands) {
+          const textReply: ReplyFn = async (message) => {
+            await reply(message);
+          };
+          for (const args of slashCommands) {
+            await handleTextChannelCommand({
+              sessionId,
+              guildId,
+              channelId,
+              userId,
+              username,
+              args,
+              reply: textReply,
+            });
+          }
+          return;
+        }
+
+        const result = normalizePlaceholderToolReply(
+          await handleGatewayMessage({
+            sessionId,
+            guildId,
+            channelId,
+            userId,
+            username,
+            content,
+            media,
+            onProactiveMessage: async (message) => {
+              await deliverProactiveMessage(
+                channelId,
+                message.text,
+                'delegate',
+                message.artifacts,
+              );
+            },
+            abortSignal: context.abortSignal,
+            source: 'whatsapp',
+          }),
+        );
+        if (result.status === 'error') {
+          await reply(formatWhatsAppGatewayFailure(result.error));
+          return;
+        }
+
+        const cleanedResultText = stripSilentToken(String(result.result || ''));
+        const artifacts = result.artifacts || [];
+        if (isSilentReply(result.result)) {
+          return;
+        }
+        if (!cleanedResultText.trim() && artifacts.length === 0) {
+          return;
+        }
+
+        const showMode = normalizeSessionShowMode(
+          memoryService.getSessionById(sessionId)?.show_mode,
+        );
+        if (cleanedResultText.trim()) {
+          const responseText = buildResponseText(
+            cleanedResultText,
+            sessionShowModeShowsTools(showMode) ? result.toolsUsed : undefined,
+          );
+          await reply(responseText);
+        }
+        for (const artifact of artifacts) {
+          try {
+            await sendWhatsAppMediaToChat({
+              jid: channelId,
+              filePath: artifact.path,
+              mimeType: artifact.mimeType,
+              filename: artifact.filename,
+            });
+          } catch (error) {
+            logger.warn(
+              { error, channelId, artifactPath: artifact.path },
+              'Failed to send WhatsApp artifact',
+            );
+          }
+        }
+      } catch (error) {
+        const text = error instanceof Error ? error.message : String(error);
+        logger.error(
+          { error, sessionId, channelId },
+          'WhatsApp message handling failed',
+        );
+        await reply(formatWhatsAppGatewayFailure(text));
+      }
+    },
+  );
+  logger.info('WhatsApp integration started inside gateway');
+  return true;
 }
 
 function setupShutdown(): void {
@@ -719,6 +943,12 @@ function setupShutdown(): void {
       logger.debug(
         { error },
         'Failed to set Discord maintenance presence during shutdown',
+      );
+    });
+    await shutdownWhatsApp().catch((error) => {
+      logger.debug(
+        { error },
+        'Failed to stop WhatsApp runtime during shutdown',
       );
     });
     stopHeartbeat();
@@ -753,7 +983,7 @@ async function runScheduledTask(
     request.delivery.kind === 'channel'
       ? request.delivery.channelId
       : request.delivery.kind === 'last-channel'
-        ? resolveLastUsedDiscordChannelId()
+        ? resolveLastUsedDeliverableChannelId()
         : null;
 
   if (request.actionKind === 'system_event') {
@@ -767,7 +997,7 @@ async function runScheduledTask(
     }
     if (!resolvedDeliveryChannelId) {
       throw new Error(
-        'No Discord channel available for scheduled system event delivery.',
+        'No delivery channel available for scheduled system event delivery.',
       );
     }
     await deliverProactiveMessage(
@@ -816,7 +1046,9 @@ async function runScheduledTask(
       }
 
       if (!resolvedDeliveryChannelId) {
-        throw new Error('No Discord channel available for scheduled delivery.');
+        throw new Error(
+          'No delivery channel available for scheduled delivery.',
+        );
       }
       await deliverProactiveMessage(
         resolvedDeliveryChannelId,
@@ -858,12 +1090,12 @@ function startOrRestartHeartbeat(): void {
   startHeartbeat(agentId, HEARTBEAT_INTERVAL, (text) => {
     const channelId = resolveHeartbeatDeliveryChannelId({
       explicitChannelId: HEARTBEAT_CHANNEL,
-      lastUsedDiscordChannelId: resolveLastUsedDiscordChannelId(),
+      lastUsedChannelId: resolveLastUsedDeliverableChannelId(),
     });
     if (!channelId) {
       logger.info(
         { text },
-        'Heartbeat message dropped: no Discord delivery channel available',
+        'Heartbeat message dropped: no delivery channel available',
       );
       return;
     }
@@ -920,6 +1152,7 @@ async function main(): Promise<void> {
   startHealthServer();
   setupShutdown();
   await startDiscordIntegration();
+  const whatsappActive = await startWhatsAppIntegration();
 
   startOrRestartHeartbeat();
   startObservabilityIngest();
@@ -1001,7 +1234,11 @@ async function main(): Promise<void> {
   });
 
   logger.info(
-    { ...getGatewayStatus(), discord: !!DISCORD_TOKEN },
+    {
+      ...getGatewayStatus(),
+      discord: !!DISCORD_TOKEN,
+      whatsapp: whatsappActive,
+    },
     'HybridClaw gateway started',
   );
 }

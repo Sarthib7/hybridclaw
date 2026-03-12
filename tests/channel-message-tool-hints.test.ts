@@ -63,3 +63,20 @@ test('includes DM context hint when guildId is null', () => {
     hints.some((entry) => entry.includes('Current Discord context is a DM')),
   ).toBe(true);
 });
+
+test('resolves WhatsApp hints from explicit WhatsApp context', () => {
+  const hints = resolveChannelMessageToolHints({
+    runtimeInfo: {
+      channelType: 'whatsapp',
+      channelId: '491234567890@s.whatsapp.net',
+    },
+  });
+
+  expect(hints.length).toBeGreaterThan(0);
+  expect(hints.some((entry) => entry.includes('Current WhatsApp chat'))).toBe(
+    true,
+  );
+  expect(
+    hints.some((entry) => entry.includes('`*bold*`, `_italic_`, `~strike~`')),
+  ).toBe(true);
+});

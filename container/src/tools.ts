@@ -771,13 +771,18 @@ async function readVisionImageFromUrl(
 }
 
 function visionModelContextError(): string | null {
-  if (!currentModelApiKey)
-    return 'vision_analyze is not configured: missing API key context.';
   if (!currentModelBaseUrl)
     return 'vision_analyze is not configured: missing base URL context.';
   if (!currentModelName)
     return 'vision_analyze is not configured: missing model context.';
-  if (currentModelProvider !== 'openai-codex' && !currentChatbotId)
+  if (
+    (currentModelProvider === 'hybridai' ||
+      currentModelProvider === 'openai-codex') &&
+    !currentModelApiKey
+  ) {
+    return 'vision_analyze is not configured: missing API key context.';
+  }
+  if (currentModelProvider === 'hybridai' && !currentChatbotId)
     return 'vision_analyze is not configured: missing chatbot_id context.';
   return null;
 }
@@ -788,12 +793,52 @@ function normalizeCodexModelName(model: string): string {
   return trimmed.slice('openai-codex/'.length) || trimmed;
 }
 
+function normalizeVisionBaseUrl(baseUrl: string): string {
+  return String(baseUrl || '')
+    .trim()
+    .replace(/\/+$/g, '');
+}
+
+function normalizeVisionOllamaBaseUrl(baseUrl: string): string {
+  return String(baseUrl || '')
+    .trim()
+    .replace(/\/+$/g, '')
+    .replace(/\/v1$/i, '');
+}
+
+function normalizeVisionLocalModelName(
+  provider: 'ollama' | 'lmstudio' | 'vllm',
+  model: string,
+): string {
+  const trimmed = String(model || '').trim();
+  const prefix = `${provider}/`;
+  if (!trimmed.toLowerCase().startsWith(prefix)) return trimmed;
+  return trimmed.slice(prefix.length) || trimmed;
+}
+
+function extractDataUriImagePayload(url: string): string | null {
+  const match = String(url || '').match(
+    /^data:[^;]+;base64,([A-Za-z0-9+/=]+)$/i,
+  );
+  return match?.[1] || null;
+}
+
+function resolveVisionChatCompletionsEndpoint(baseUrl: string): string {
+  const normalized = normalizeVisionBaseUrl(baseUrl);
+  return /\/v1$/i.test(normalized)
+    ? `${normalized}/chat/completions`
+    : `${normalized}/v1/chat/completions`;
+}
+
 function buildModelRequestHeaders(): Record<string, string> {
-  return {
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    Authorization: `Bearer ${currentModelApiKey}`,
     ...currentModelHeaders,
   };
+  if (currentModelApiKey) {
+    headers.Authorization = `Bearer ${currentModelApiKey}`;
+  }
+  return headers;
 }
 
 function extractCodexOutputText(payload: Record<string, unknown>): string {
@@ -830,29 +875,46 @@ async function callVisionModel(
   const contextError = visionModelContextError();
   if (contextError) throw new Error(contextError);
 
-  const response = await fetch(
+  const endpoint =
     currentModelProvider === 'openai-codex'
-      ? `${currentModelBaseUrl}/responses`
-      : `${currentModelBaseUrl}/v1/chat/completions`,
-    {
-      method: 'POST',
-      headers: buildModelRequestHeaders(),
-      body: JSON.stringify(
-        currentModelProvider === 'openai-codex'
-          ? {
-              model: normalizeCodexModelName(currentModelName),
-              instructions: CODEX_VISION_INSTRUCTIONS,
-              input: [
-                {
-                  role: 'user',
-                  content: [
-                    { type: 'input_text', text: question },
-                    { type: 'input_image', image_url: imageDataUrl },
-                  ],
-                },
+      ? `${normalizeVisionBaseUrl(currentModelBaseUrl)}/responses`
+      : currentModelProvider === 'ollama'
+        ? `${normalizeVisionOllamaBaseUrl(currentModelBaseUrl)}/api/chat`
+        : currentModelProvider === 'hybridai'
+          ? `${normalizeVisionBaseUrl(currentModelBaseUrl)}/v1/chat/completions`
+          : resolveVisionChatCompletionsEndpoint(currentModelBaseUrl);
+  const body =
+    currentModelProvider === 'openai-codex'
+      ? {
+          model: normalizeCodexModelName(currentModelName),
+          instructions: CODEX_VISION_INSTRUCTIONS,
+          input: [
+            {
+              role: 'user',
+              content: [
+                { type: 'input_text', text: question },
+                { type: 'input_image', image_url: imageDataUrl },
               ],
-            }
-          : {
+            },
+          ],
+        }
+      : currentModelProvider === 'ollama'
+        ? {
+            model: normalizeVisionLocalModelName(
+              currentModelProvider,
+              currentModelName,
+            ),
+            stream: false,
+            messages: [
+              {
+                role: 'user',
+                content: question,
+                images: [extractDataUriImagePayload(imageDataUrl) || ''],
+              },
+            ],
+          }
+        : currentModelProvider === 'hybridai'
+          ? {
               model: currentModelName,
               chatbot_id: currentChatbotId,
               enable_rag: false,
@@ -865,10 +927,32 @@ async function callVisionModel(
                   ],
                 },
               ],
-            },
-      ),
-    },
-  );
+            }
+          : {
+              model:
+                currentModelProvider === 'lmstudio' ||
+                currentModelProvider === 'vllm'
+                  ? normalizeVisionLocalModelName(
+                      currentModelProvider,
+                      currentModelName,
+                    )
+                  : currentModelName,
+              messages: [
+                {
+                  role: 'user',
+                  content: [
+                    { type: 'text', text: question },
+                    { type: 'image_url', image_url: { url: imageDataUrl } },
+                  ],
+                },
+              ],
+            };
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: buildModelRequestHeaders(),
+    body: JSON.stringify(body),
+  });
 
   const rawText = await response.text();
   if (!response.ok) {
@@ -894,6 +978,17 @@ async function callVisionModel(
     const analysis = extractCodexOutputText(record);
     if (!analysis) {
       throw new Error('vision API response did not include text output');
+    }
+    return {
+      model: currentModelName,
+      analysis,
+    };
+  }
+  if (currentModelProvider === 'ollama') {
+    const message = asRecord(record?.message);
+    const analysis = extractVisionTextContent(message?.content);
+    if (!analysis) {
+      throw new Error('vision API returned empty analysis');
     }
     return {
       model: currentModelName,

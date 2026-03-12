@@ -10,13 +10,19 @@ import {
 
 describe.sequential('container tool runtime guards', () => {
   let workspaceRoot = '';
+  let tempImagePath = '';
 
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.restoreAllMocks();
     vi.resetModules();
     if (workspaceRoot) {
       fs.rmSync(workspaceRoot, { recursive: true, force: true });
       workspaceRoot = '';
+    }
+    if (tempImagePath) {
+      fs.rmSync(tempImagePath, { force: true });
+      tempImagePath = '';
     }
   });
 
@@ -58,6 +64,208 @@ describe.sequential('container tool runtime guards', () => {
 
     expect(result.isError).toBe(true);
     expect(result.output).toContain('File not found');
+  });
+
+  test('vision_analyze supports vllm without apiKey or chatbotId', async () => {
+    tempImagePath = path.join(
+      os.tmpdir(),
+      `hybridclaw-vision-${Date.now()}.jpg`,
+    );
+    fs.writeFileSync(tempImagePath, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) =>
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: 'Detected test image.',
+                },
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { executeToolWithMetadata, setModelContext } = await import(
+      '../container/src/tools.js'
+    );
+    setModelContext(
+      'vllm',
+      'http://haigpu1:8000/v1',
+      '',
+      'vllm/Qwen/Qwen3.5-27B-FP8',
+      '',
+    );
+
+    const result = await executeToolWithMetadata(
+      'vision_analyze',
+      JSON.stringify({
+        image_url: tempImagePath,
+        question: 'What is in this image?',
+      }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://haigpu1:8000/v1/chat/completions',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.not.objectContaining({
+          Authorization: expect.any(String),
+        }),
+      }),
+    );
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(requestBody).toMatchObject({
+      model: 'Qwen/Qwen3.5-27B-FP8',
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'What is in this image?' },
+            {
+              type: 'image_url',
+              image_url: expect.objectContaining({
+                url: expect.stringMatching(/^data:image\/jpeg;base64,/),
+              }),
+            },
+          ],
+        },
+      ],
+    });
+    expect(result.output).toContain('"success": true');
+    expect(result.output).toContain('Detected test image.');
+  });
+
+  test('vision_analyze uses Ollama native vision requests', async () => {
+    tempImagePath = path.join(
+      os.tmpdir(),
+      `hybridclaw-vision-${Date.now()}.png`,
+    );
+    fs.writeFileSync(tempImagePath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            message: {
+              content: 'Detected test image via Ollama.',
+            },
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { executeToolWithMetadata, setModelContext } = await import(
+      '../container/src/tools.js'
+    );
+    setModelContext(
+      'ollama',
+      'http://127.0.0.1:11434/v1',
+      '',
+      'ollama/llava:7b',
+      '',
+    );
+
+    const result = await executeToolWithMetadata(
+      'vision_analyze',
+      JSON.stringify({
+        image_url: tempImagePath,
+        question: 'What is in this image?',
+      }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:11434/api/chat',
+      expect.objectContaining({
+        method: 'POST',
+      }),
+    );
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(requestBody).toMatchObject({
+      model: 'llava:7b',
+      stream: false,
+      messages: [
+        {
+          role: 'user',
+          content: 'What is in this image?',
+          images: [expect.any(String)],
+        },
+      ],
+    });
+    expect(requestBody.messages[0].images[0]).not.toMatch(/^data:/);
+    expect(result.output).toContain('Detected test image via Ollama.');
+  });
+
+  test('vision_analyze adds /v1 for lmstudio base URLs without a version suffix', async () => {
+    tempImagePath = path.join(
+      os.tmpdir(),
+      `hybridclaw-vision-${Date.now()}.jpg`,
+    );
+    fs.writeFileSync(tempImagePath, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: 'Detected test image via LM Studio.',
+                },
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { executeToolWithMetadata, setModelContext } = await import(
+      '../container/src/tools.js'
+    );
+    setModelContext(
+      'lmstudio',
+      'http://127.0.0.1:1234',
+      '',
+      'lmstudio/qwen/qwen2.5-vl',
+      '',
+    );
+
+    const result = await executeToolWithMetadata(
+      'vision_analyze',
+      JSON.stringify({
+        image_url: tempImagePath,
+        question: 'What is in this image?',
+      }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:1234/v1/chat/completions',
+      expect.objectContaining({
+        method: 'POST',
+      }),
+    );
+    expect(result.output).toContain('Detected test image via LM Studio.');
   });
 
   test('blocks repeated identical discovery calls with identical outcomes', () => {

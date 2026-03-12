@@ -38,6 +38,7 @@ import {
 import { getObservabilityIngestState } from '../audit/observability-ingest.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
+import { isWhatsAppJid } from '../channels/whatsapp/phone.js';
 import {
   APP_VERSION,
   DATA_DIR,
@@ -337,6 +338,18 @@ export interface GatewayChatRequest {
   ) => void | Promise<void>;
   abortSignal?: AbortSignal;
   source?: string;
+}
+
+function resolveChannelType(
+  req: Pick<GatewayChatRequest, 'channelId' | 'source'>,
+): string | undefined {
+  const source = String(req.source || '')
+    .trim()
+    .toLowerCase();
+  if (source === 'discord' || source === 'whatsapp') return source;
+  if (isWhatsAppJid(req.channelId)) return 'whatsapp';
+  if (isDiscordChannelId(req.channelId)) return 'discord';
+  return source || undefined;
 }
 
 export type {
@@ -3241,7 +3254,7 @@ export async function handleGatewayMessage(
       chatbotId,
       model,
       defaultModel: HYBRIDAI_MODEL,
-      channelType: 'discord',
+      channelType: resolveChannelType(req),
       channelId: req.channelId,
       guildId: req.guildId,
       workspacePath,
@@ -3305,6 +3318,11 @@ export async function handleGatewayMessage(
     content: agentUserContent,
   });
 
+  let agentStage:
+    | 'pre-agent'
+    | 'awaiting-agent-output'
+    | 'processing-agent-output' = 'pre-agent';
+
   try {
     const scheduledTasks: ScheduledTask[] = getTasksForSession(req.sessionId);
     let firstTextDeltaMs: number | null = null;
@@ -3344,6 +3362,18 @@ export async function handleGatewayMessage(
       },
       'Gateway chat invoking agent',
     );
+    recordAuditEvent({
+      sessionId: req.sessionId,
+      runId,
+      event: {
+        type: 'agent.start',
+        provider,
+        model,
+        scheduledTaskCount: scheduledTasks.length,
+        promptMessages: messages.length,
+      },
+    });
+    agentStage = 'awaiting-agent-output';
     const output = await runAgent({
       sessionId: req.sessionId,
       messages,
@@ -3362,6 +3392,7 @@ export async function handleGatewayMessage(
       abortSignal: activeGatewayRequest.signal,
       media,
     });
+    agentStage = 'processing-agent-output';
     const effectiveUserContent =
       typeof output.effectiveUserPrompt === 'string' &&
       output.effectiveUserPrompt.trim()
@@ -3481,6 +3512,7 @@ export async function handleGatewayMessage(
           errorType: 'agent',
           message: errorMessage,
           recoverable: true,
+          stage: agentStage,
         },
       });
       recordAuditEvent({
@@ -3565,7 +3597,12 @@ export async function handleGatewayMessage(
       Date.now() - startedAt,
     );
     logger.error(
-      { ...debugMeta, durationMs: Date.now() - startedAt, err },
+      {
+        ...debugMeta,
+        durationMs: Date.now() - startedAt,
+        stage: agentStage,
+        err,
+      },
       'Gateway message handling failed',
     );
     recordAuditEvent({
@@ -3576,6 +3613,7 @@ export async function handleGatewayMessage(
         errorType: 'gateway',
         message: errorMsg,
         recoverable: true,
+        stage: agentStage,
       },
     });
     recordAuditEvent({

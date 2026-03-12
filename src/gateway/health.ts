@@ -25,6 +25,7 @@ import type { ToolProgressEvent } from '../types.js';
 import {
   filterChatResultForSession,
   hasMessageSendToolExecution,
+  normalizePlaceholderToolReply,
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
 import {
@@ -321,7 +322,9 @@ async function handleApiChat(
 
   const result = filterChatResultForSession(
     chatRequest.sessionId,
-    normalizeSilentMessageSendReply(await handleGatewayMessage(chatRequest)),
+    normalizePlaceholderToolReply(
+      normalizeSilentMessageSendReply(await handleGatewayMessage(chatRequest)),
+    ),
   );
   sendJson(res, result.status === 'success' ? 200 : 500, result);
 }
@@ -363,12 +366,14 @@ async function handleApiChatStream(
   };
 
   try {
-    let result = normalizeSilentMessageSendReply(
-      await handleGatewayMessage({
-        ...chatRequest,
-        onTextDelta,
-        onToolProgress,
-      }),
+    let result = normalizePlaceholderToolReply(
+      normalizeSilentMessageSendReply(
+        await handleGatewayMessage({
+          ...chatRequest,
+          onTextDelta,
+          onToolProgress,
+        }),
+      ),
     );
     if (result.status === 'success') {
       const bufferedDelta = streamFilter.flush();

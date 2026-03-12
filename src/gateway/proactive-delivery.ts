@@ -1,3 +1,4 @@
+import { isWhatsAppJid } from '../channels/whatsapp/phone.js';
 import type { QueuedProactiveMessage } from '../memory/db.js';
 
 const DISCORD_CHANNEL_ID_RE = /^\d{16,22}$/;
@@ -7,22 +8,27 @@ export function isDiscordChannelId(channelId: string): boolean {
   return DISCORD_CHANNEL_ID_RE.test(channelId);
 }
 
+export function isSupportedProactiveChannelId(channelId: string): boolean {
+  const trimmed = channelId.trim();
+  if (!trimmed) return false;
+  if (isDiscordChannelId(trimmed)) return true;
+  if (isWhatsAppJid(trimmed)) return true;
+  return LOCAL_PROACTIVE_PULL_CHANNEL_IDS.has(trimmed);
+}
+
 export function hasQueuedProactiveDeliveryPath(
   item: Pick<QueuedProactiveMessage, 'channel_id'>,
 ): boolean {
-  const channelId = item.channel_id.trim();
-  if (!channelId) return false;
-  if (isDiscordChannelId(channelId)) return true;
-  return LOCAL_PROACTIVE_PULL_CHANNEL_IDS.has(channelId);
+  return isSupportedProactiveChannelId(item.channel_id);
 }
 
 export function resolveHeartbeatDeliveryChannelId(params: {
   explicitChannelId: string;
-  lastUsedDiscordChannelId: string | null;
+  lastUsedChannelId: string | null;
 }): string | null {
   const explicitChannelId = params.explicitChannelId.trim();
   if (explicitChannelId) return explicitChannelId;
-  return params.lastUsedDiscordChannelId;
+  return params.lastUsedChannelId;
 }
 
 export function shouldDropQueuedProactiveMessage(

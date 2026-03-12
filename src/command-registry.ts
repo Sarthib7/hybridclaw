@@ -136,6 +136,7 @@ export function mapCanonicalCommandToGatewayArgs(
 
     case 'model': {
       const sub = (parts[1] || '').trim().toLowerCase();
+      if (!sub || sub === 'select') return ['model', 'info'];
       if (sub === 'info' || sub === 'list') return ['model', sub];
       if (sub === 'default') {
         return parts.length > 2
@@ -219,6 +220,9 @@ export function mapCanonicalCommandToGatewayArgs(
     case 'stop':
     case 'abort':
       return ['stop'];
+
+    case 'help':
+      return ['help'];
 
     default:
       return null;

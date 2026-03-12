@@ -1499,11 +1499,23 @@ export class TrustedCoworkerApprovalRuntime {
       };
     }
 
-    if (
-      lowerTool.startsWith('browser_') ||
-      lowerTool === 'vision_analyze' ||
-      lowerTool === 'image'
-    ) {
+    if (lowerTool === 'vision_analyze' || lowerTool === 'image') {
+      return {
+        tier: 'green',
+        actionKey: lowerTool,
+        intent: `run ${toolName}`,
+        consequenceIfDenied: 'I will continue without image analysis.',
+        reason: 'this action is read-only analysis of the provided image',
+        commandPreview: normalizePreview(JSON.stringify(args)),
+        pathHints: [],
+        hostHints: [],
+        writeIntent: false,
+        promotableRed: false,
+        stickyYellow: false,
+      };
+    }
+
+    if (lowerTool.startsWith('browser_')) {
       return {
         tier: 'yellow',
         actionKey: lowerTool,

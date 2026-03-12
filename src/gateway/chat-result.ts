@@ -20,6 +20,14 @@ function parseJsonObject(raw: unknown): Record<string, unknown> | null {
   }
 }
 
+function extractVisionAnalysisFromToolResult(raw: unknown): string | null {
+  const parsed = parseJsonObject(raw);
+  if (!parsed || parsed.success !== true) return null;
+  const analysis =
+    typeof parsed.analysis === 'string' ? parsed.analysis.trim() : '';
+  return analysis || null;
+}
+
 export function filterChatResultForSession(
   sessionId: string,
   result: GatewayChatResult,
@@ -80,6 +88,32 @@ export function fallbackResultFromTools(result: GatewayChatResult): string {
     return text;
   }
   return 'Done.';
+}
+
+export function normalizePlaceholderToolReply(
+  result: GatewayChatResult,
+): GatewayChatResult {
+  if (result.status !== 'success') return result;
+  const rawResult = String(result.result || '').trim();
+  if (rawResult !== 'Done.') return result;
+  const executions = Array.isArray(result.toolExecutions)
+    ? result.toolExecutions
+    : [];
+  for (let i = executions.length - 1; i >= 0; i -= 1) {
+    const execution = executions[i];
+    if (execution.isError) continue;
+    const toolName = String(execution.name || '')
+      .trim()
+      .toLowerCase();
+    if (toolName !== 'vision_analyze' && toolName !== 'image') continue;
+    const analysis = extractVisionAnalysisFromToolResult(execution.result);
+    if (!analysis) continue;
+    return {
+      ...result,
+      result: analysis,
+    };
+  }
+  return result;
 }
 
 export function normalizeSilentMessageSendReply(

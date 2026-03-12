@@ -65,6 +65,7 @@ hybridclaw gateway start --foreground
 hybridclaw gateway start --foreground --sandbox=host
 
 # If DISCORD_TOKEN is set, gateway auto-connects to Discord.
+# If linked WhatsApp auth exists, gateway auto-connects to WhatsApp.
 
 # Start terminal adapter (optional, in a second terminal)
 hybridclaw tui
@@ -137,6 +138,7 @@ Runtime model:
 
 - `hybridclaw gateway` is the core process and should run first.
 - If `DISCORD_TOKEN` is set, Discord runs inside gateway automatically.
+- If linked WhatsApp auth exists under `~/.hybridclaw/credentials/whatsapp`, WhatsApp runs inside gateway automatically.
 - `hybridclaw tui` is a thin client that connects to the gateway.
 - `hybridclaw gateway` and `hybridclaw tui` validate the container image at startup.
 - `container.sandboxMode` defaults to `container`, but if HybridClaw is already running inside a container and the setting is not explicitly pinned, the gateway auto-switches to `host` to avoid Docker-in-Docker.
@@ -333,6 +335,8 @@ CLI runtime commands:
 - `hybridclaw gateway reset [yes|no]` — Clear session history, reset per-session model/chatbot/RAG settings, and remove the current agent workspace (confirmation required)
 - `hybridclaw tui` — Start terminal client connected to gateway
 - `hybridclaw onboarding` — Run HybridAI account/API key onboarding
+- `hybridclaw channels discord setup [--token <token>] [--allow-user-id <snowflake>]... [--prefix <prefix>]` — Prepare restricted command-only Discord config and print bot/token next steps
+- `hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...` — Prepare private-by-default WhatsApp config, enable the default `👀` ack reaction, optionally wipe stale auth, open a temporary pairing session, and print the QR code
 - `hybridclaw local status` — Show current local backend config and default model
 - `hybridclaw local configure <backend> <model-id> [--base-url <url>] [--api-key <key>] [--no-default]` — Enable and configure a local backend
 - `hybridclaw hybridai login [--device-code|--browser|--import]` — Store HybridAI API credentials via browser-assisted, headless/manual, or env-import flows

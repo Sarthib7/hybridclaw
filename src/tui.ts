@@ -291,20 +291,13 @@ function printHelp(): void {
   console.log();
   console.log(`  ${BOLD}${GOLD}Commands${RESET}`);
   console.log(`  ${TEAL}/help${RESET}             Show this help`);
-  console.log(`  ${TEAL}/agent${RESET}            Show current session agent`);
-  console.log(`  ${TEAL}/agent list${RESET}       List available agents`);
   console.log(
-    `  ${TEAL}/agent switch <id>${RESET} Switch this session to an agent`,
-  );
-  console.log(
-    `  ${TEAL}/agent create <id> [--model <model>]${RESET} Create a new agent`,
+    `  ${TEAL}/agent [info|list|switch|create] [id] [--model <model>]${RESET} Inspect or manage agents`,
   );
   console.log(`  ${TEAL}/bots${RESET}             List available bots`);
   console.log(`  ${TEAL}/bot <id|name>${RESET}    Switch bot for this session`);
-  console.log(`  ${TEAL}/model${RESET}            Pick model from selector`);
-  console.log(`  ${TEAL}/model <name>${RESET}     Set model for this session`);
   console.log(
-    `  ${TEAL}/model default [name]${RESET} Show or set default model`,
+    `  ${TEAL}/model [<name>|default [name]]${RESET} Pick from selector or set session/default model`,
   );
   console.log(`  ${TEAL}/rag [on|off]${RESET}     Toggle or set RAG`);
   console.log(`  ${TEAL}/ralph [on|off|set n]${RESET} Configure Ralph loop`);
@@ -324,18 +317,8 @@ function printHelp(): void {
   console.log(
     `  ${TEAL}/fullauto [status|off|on [prompt]|prompt]${RESET} Enable or inspect session full-auto mode`,
   );
-  console.log(`  ${TEAL}/mcp list${RESET}         List configured MCP servers`);
   console.log(
-    `  ${TEAL}/mcp add <name> <json>${RESET} Add or update an MCP server`,
-  );
-  console.log(
-    `  ${TEAL}/mcp toggle <name>${RESET} Disable or enable an MCP server`,
-  );
-  console.log(
-    `  ${TEAL}/mcp remove <name>${RESET} Remove an MCP server config`,
-  );
-  console.log(
-    `  ${TEAL}/mcp reconnect <name>${RESET} Restart MCP for the current session`,
+    `  ${TEAL}/mcp [list|add|toggle|remove|reconnect] [name] [json]${RESET} Manage MCP servers`,
   );
   console.log(`  ${TEAL}/info${RESET}             Show current settings`);
   console.log(

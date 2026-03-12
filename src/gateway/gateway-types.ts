@@ -94,6 +94,7 @@ export interface GatewayChatRequestBody {
     sizeBytes: number;
     filename: string;
   }>;
+  agentId?: string | null;
   chatbotId?: string | null;
   model?: string | null;
   enableRag?: boolean;
@@ -215,6 +216,7 @@ export interface GatewayAdminSession {
   id: string;
   guildId: string | null;
   channelId: string;
+  agentId: string;
   chatbotId: string | null;
   effectiveChatbotId: string | null;
   model: string | null;
@@ -252,7 +254,7 @@ export interface GatewayAdminOverview {
   };
 }
 
-export interface GatewayAgentCard {
+export interface GatewaySessionCard {
   id: string;
   name: string;
   task: string;
@@ -279,6 +281,45 @@ export interface GatewayAgentCard {
   output: string[];
 }
 
+export interface GatewayLogicalAgentCard {
+  id: string;
+  name: string | null;
+  model: string | null;
+  chatbotId: string | null;
+  enableRag: boolean | null;
+  workspace: string | null;
+  workspacePath: string;
+  sessionCount: number;
+  activeSessions: number;
+  idleSessions: number;
+  stoppedSessions: number;
+  effectiveModels: string[];
+  lastActive: string | null;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+  messageCount: number;
+  toolCalls: number;
+  recentSessionId: string | null;
+  status: 'active' | 'idle' | 'stopped' | 'unused';
+}
+
+export interface GatewayCollectionTotals {
+  all: number;
+  active: number;
+  idle: number;
+  stopped: number;
+  running: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalTokens: number;
+  totalCostUsd: number;
+}
+
+export interface GatewayLogicalAgentTotals extends GatewayCollectionTotals {
+  unused: number;
+}
+
 export interface GatewayAgentsResponse {
   generatedAt: string;
   version: string;
@@ -288,17 +329,11 @@ export interface GatewayAgentsResponse {
     maxIterations: number;
   };
   totals: {
-    all: number;
-    active: number;
-    idle: number;
-    stopped: number;
-    running: number;
-    totalInputTokens: number;
-    totalOutputTokens: number;
-    totalTokens: number;
-    totalCostUsd: number;
+    agents: GatewayLogicalAgentTotals;
+    sessions: GatewayCollectionTotals;
   };
-  agents: GatewayAgentCard[];
+  agents: GatewayLogicalAgentCard[];
+  sessions: GatewaySessionCard[];
 }
 
 export interface GatewayAdminDeleteSessionResult {

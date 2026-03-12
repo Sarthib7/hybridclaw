@@ -300,6 +300,7 @@ export async function callOllamaProviderStream(
           continue;
         }
 
+        args.onActivity?.();
         sawPayload = true;
         latestPayload = payload;
         if (
@@ -331,6 +332,7 @@ export async function callOllamaProviderStream(
     if (!streamDone && buffer.trim()) {
       try {
         const payload = JSON.parse(buffer.trim()) as OllamaStreamPayload;
+        args.onActivity?.();
         sawPayload = true;
         latestPayload = payload;
         if (

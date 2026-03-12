@@ -1,13 +1,19 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-
+import {
+  type AgentConfig,
+  type AgentDefaultsConfig,
+  type AgentModelConfig,
+  type AgentsConfig,
+  DEFAULT_AGENT_ID,
+} from '../agents/agent-types.js';
 import { CODEX_DEFAULT_BASE_URL } from '../auth/codex-auth.js';
 import type { LocalProviderConfig } from '../providers/local-types.js';
 import type { McpServerConfig } from '../types.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 9;
+export const CONFIG_VERSION = 10;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
 const DEFAULT_RUNTIME_HOME_DIR = path.join(os.homedir(), '.hybridclaw');
@@ -162,6 +168,7 @@ export interface RuntimeSchedulerJob {
 export interface RuntimeConfig {
   version: number;
   security: RuntimeSecurityConfig;
+  agents: AgentsConfig;
   skills: {
     extraDirs: string[];
     disabled: string[];
@@ -170,7 +177,6 @@ export interface RuntimeConfig {
     prefix: string;
     guildMembersIntent: boolean;
     presenceIntent: boolean;
-    respondToAllMessages: boolean;
     commandsOnly: boolean;
     commandMode: DiscordCommandMode;
     commandAllowedUserIds: string[];
@@ -335,6 +341,10 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     trustModelVersion: '',
     trustModelAcceptedBy: '',
   },
+  agents: {
+    defaults: {},
+    list: [{ id: DEFAULT_AGENT_ID }],
+  },
   skills: {
     extraDirs: [],
     disabled: [],
@@ -343,7 +353,6 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     prefix: '!claw',
     guildMembersIntent: false,
     presenceIntent: false,
-    respondToAllMessages: false,
     commandsOnly: false,
     commandMode: 'public',
     commandAllowedUserIds: [],
@@ -645,6 +654,123 @@ function normalizeStringArray(value: unknown, fallback: string[]): string[] {
   }
 
   return fallback;
+}
+
+function cloneAgentModelConfig(
+  value: AgentModelConfig | undefined,
+): AgentModelConfig | undefined {
+  if (!value) return undefined;
+  if (typeof value === 'string') return value;
+  return {
+    primary: value.primary,
+    ...(Array.isArray(value.fallbacks) && value.fallbacks.length > 0
+      ? { fallbacks: [...value.fallbacks] }
+      : {}),
+  };
+}
+
+function normalizeAgentModelConfig(
+  value: unknown,
+  fallback?: AgentModelConfig,
+): AgentModelConfig | undefined {
+  if (typeof value === 'string') {
+    const normalized = value.trim();
+    return normalized || cloneAgentModelConfig(fallback);
+  }
+  if (!isRecord(value)) return cloneAgentModelConfig(fallback);
+
+  const primary = normalizeString(value.primary, '', { allowEmpty: true });
+  if (!primary) return cloneAgentModelConfig(fallback);
+  const fallbacks = normalizeStringArray(value.fallbacks, []).filter(
+    (candidate) => candidate !== primary,
+  );
+  return fallbacks.length > 0 ? { primary, fallbacks } : { primary };
+}
+
+function normalizeAgentDefaultsConfig(
+  value: unknown,
+  fallback: AgentDefaultsConfig,
+): AgentDefaultsConfig {
+  if (!isRecord(value)) return { ...fallback };
+  const model = normalizeAgentModelConfig(value.model, fallback.model);
+  const chatbotId = normalizeString(value.chatbotId, fallback.chatbotId ?? '', {
+    allowEmpty: true,
+  });
+  const enableRag =
+    typeof value.enableRag === 'boolean' ? value.enableRag : fallback.enableRag;
+  return {
+    ...(model ? { model } : {}),
+    ...(chatbotId ? { chatbotId } : {}),
+    ...(typeof enableRag === 'boolean' ? { enableRag } : {}),
+  };
+}
+
+function normalizeAgentConfig(
+  value: unknown,
+  fallback?: AgentConfig,
+): AgentConfig | null {
+  if (!isRecord(value)) return fallback ? { ...fallback } : null;
+  const id = normalizeString(value.id, fallback?.id ?? '', {
+    allowEmpty: false,
+  });
+  if (!id) return null;
+  const name = normalizeString(value.name, fallback?.name ?? '', {
+    allowEmpty: true,
+  });
+  const model = normalizeAgentModelConfig(value.model, fallback?.model);
+  const workspace = normalizeString(
+    value.workspace,
+    fallback?.workspace ?? '',
+    {
+      allowEmpty: true,
+    },
+  );
+  const chatbotId = normalizeString(
+    value.chatbotId,
+    fallback?.chatbotId ?? '',
+    {
+      allowEmpty: true,
+    },
+  );
+  const enableRag =
+    typeof value.enableRag === 'boolean'
+      ? value.enableRag
+      : fallback?.enableRag;
+  return {
+    id,
+    ...(name ? { name } : {}),
+    ...(model ? { model } : {}),
+    ...(workspace ? { workspace } : {}),
+    ...(chatbotId ? { chatbotId } : {}),
+    ...(typeof enableRag === 'boolean' ? { enableRag } : {}),
+  };
+}
+
+function normalizeAgentsConfig(
+  value: unknown,
+  fallback: AgentsConfig,
+): AgentsConfig {
+  const raw = isRecord(value) ? value : {};
+  const defaults = normalizeAgentDefaultsConfig(
+    raw.defaults,
+    fallback.defaults ?? {},
+  );
+  const listSource = Array.isArray(raw.list) ? raw.list : (fallback.list ?? []);
+  const seen = new Set<string>();
+  const list: AgentConfig[] = [];
+  for (const entry of listSource) {
+    const normalized = normalizeAgentConfig(entry);
+    if (!normalized || seen.has(normalized.id)) continue;
+    seen.add(normalized.id);
+    list.push(normalized);
+  }
+  if (!seen.has(DEFAULT_AGENT_ID)) {
+    list.unshift({ id: DEFAULT_AGENT_ID });
+  }
+  return {
+    defaults,
+    list,
+  };
 }
 
 function normalizeStringRecord(value: unknown): Record<string, string> {
@@ -1407,6 +1533,7 @@ function normalizeRuntimeConfig(
   const raw = patch ?? {};
 
   const rawSecurity = isRecord(raw.security) ? raw.security : {};
+  const rawAgents = isRecord(raw.agents) ? raw.agents : {};
   const rawSkills = isRecord(raw.skills) ? raw.skills : {};
   const rawDiscord = isRecord(raw.discord) ? raw.discord : {};
   const rawHybridAi = isRecord(raw.hybridai) ? raw.hybridai : {};
@@ -1548,6 +1675,7 @@ function normalizeRuntimeConfig(
         { allowEmpty: true },
       ),
     },
+    agents: normalizeAgentsConfig(rawAgents, DEFAULT_RUNTIME_CONFIG.agents),
     skills: {
       extraDirs: normalizeStringArray(
         rawSkills.extraDirs,
@@ -1571,10 +1699,6 @@ function normalizeRuntimeConfig(
       presenceIntent: normalizeBoolean(
         rawDiscord.presenceIntent,
         DEFAULT_RUNTIME_CONFIG.discord.presenceIntent,
-      ),
-      respondToAllMessages: normalizeBoolean(
-        rawDiscord.respondToAllMessages,
-        DEFAULT_RUNTIME_CONFIG.discord.respondToAllMessages,
       ),
       commandsOnly: normalizeBoolean(
         rawDiscord.commandsOnly,

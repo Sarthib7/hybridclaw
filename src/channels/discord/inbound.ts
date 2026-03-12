@@ -7,6 +7,7 @@ export interface ParsedCommand {
 export type DiscordGuildMessageMode = 'off' | 'mention' | 'free';
 export type DiscordCommandAccessMode = 'public' | 'restricted';
 const KNOWN_SUBCOMMANDS = new Set([
+  'agent',
   'bot',
   'rag',
   'model',
@@ -230,7 +231,6 @@ export function isTrigger(params: {
   content: string;
   isDm: boolean;
   commandsOnly: boolean;
-  respondToAllMessages: boolean;
   guildMessageMode: DiscordGuildMessageMode;
   prefix: string;
   botMentionRegex: RegExp | null;
@@ -256,8 +256,6 @@ export function isTrigger(params: {
   if (shouldSuppressAutoReply(stripped, params.suppressPatterns)) return false;
   if (params.guildMessageMode === 'off') return false;
   if (params.guildMessageMode === 'free') return true;
-  // Keep `respondToAllMessages` consumed for compatibility; mode resolution decides guild behavior.
-  void params.respondToAllMessages;
   if (params.hasBotMention) return true;
   return false;
 }

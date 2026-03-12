@@ -537,6 +537,55 @@ describe('local container providers', () => {
     expect(result.choices[0]?.finish_reason).toBe('tool_calls');
   });
 
+  test('OpenAI-compatible stream reports hidden activity for tool-call-only chunks', async () => {
+    const deltas: string[] = [];
+    let activityCount = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        makeEventStreamResponse([
+          'data: {"id":"resp_1","choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"tool_call","arguments":"{\\"name\\":\\"tools.shell\\",\\"arguments\\":{\\"command\\":\\"pwd\\""}}]}}]}\n\n',
+          'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"}"}}]}}]}\n\n',
+          'data: {"choices":[{"finish_reason":"tool_calls"}]}\n\n',
+          'data: [DONE]\n\n',
+        ]),
+      ),
+    );
+
+    const result = await callLocalOpenAICompatProviderStream({
+      provider: 'vllm',
+      baseUrl: 'http://127.0.0.1:8000/v1',
+      apiKey: '',
+      model: 'vllm/Qwen/Qwen3.5-27B-FP8',
+      chatbotId: '',
+      enableRag: false,
+      requestHeaders: undefined,
+      messages: baseMessages,
+      tools,
+      onTextDelta: (delta) => deltas.push(delta),
+      onActivity: () => {
+        activityCount += 1;
+      },
+      maxTokens: 128,
+      isLocal: true,
+      contextWindow: 32_768,
+    });
+
+    expect(deltas).toEqual([]);
+    expect(activityCount).toBeGreaterThan(0);
+    expect(result.choices[0]?.message.tool_calls).toEqual([
+      {
+        id: 'call_1',
+        type: 'function',
+        function: {
+          name: 'shell',
+          arguments: '{"command":"pwd"}',
+        },
+      },
+    ]);
+    expect(result.choices[0]?.finish_reason).toBe('tool_calls');
+  });
+
   test('OpenAI-compatible provider recovers blank tool names from Mistral content', async () => {
     vi.stubGlobal(
       'fetch',

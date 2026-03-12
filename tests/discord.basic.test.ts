@@ -61,7 +61,6 @@ test('isTrigger blocks non-command chatter when channel mode is off', () => {
     content: 'hello',
     isDm: false,
     commandsOnly: false,
-    respondToAllMessages: false,
     guildMessageMode: 'off',
     prefix: '!claw',
     botMentionRegex: null,
@@ -75,7 +74,6 @@ test('isTrigger still allows prefixed commands when channel mode is off', () => 
     content: '!claw status',
     isDm: false,
     commandsOnly: false,
-    respondToAllMessages: false,
     guildMessageMode: 'off',
     prefix: '!claw',
     botMentionRegex: null,
@@ -89,7 +87,6 @@ test('isTrigger allows slash-text commands when channel mode is off', () => {
     content: '/status',
     isDm: false,
     commandsOnly: false,
-    respondToAllMessages: false,
     guildMessageMode: 'off',
     prefix: '!claw',
     botMentionRegex: null,
@@ -103,7 +100,6 @@ test('isTrigger allows free-response mode in guild channels', () => {
     content: 'Can you review this patch?',
     isDm: false,
     commandsOnly: false,
-    respondToAllMessages: false,
     guildMessageMode: 'free',
     prefix: '!claw',
     botMentionRegex: null,
@@ -112,12 +108,11 @@ test('isTrigger allows free-response mode in guild channels', () => {
   expect(shouldTrigger).toBe(true);
 });
 
-test('isTrigger keeps mention mode even when respondToAllMessages is enabled', () => {
+test('isTrigger keeps mention mode for plain guild chatter', () => {
   const shouldTrigger = isTrigger({
     content: 'hello',
     isDm: false,
     commandsOnly: false,
-    respondToAllMessages: true,
     guildMessageMode: 'mention',
     prefix: '!claw',
     botMentionRegex: null,
@@ -131,7 +126,6 @@ test('isTrigger allows greeting-only direct messages', () => {
     content: 'hey',
     isDm: true,
     commandsOnly: false,
-    respondToAllMessages: false,
     guildMessageMode: 'free',
     prefix: '!claw',
     botMentionRegex: null,
@@ -185,12 +179,33 @@ test('parseCommand recognizes slash-text reset command namespace', () => {
   });
 });
 
+test('parseCommand recognizes slash-text agent command namespace', () => {
+  const parsed = parseCommand('/agent switch research', null, '!claw');
+  expect(parsed).toEqual({
+    isCommand: true,
+    command: 'agent',
+    args: ['switch', 'research'],
+  });
+});
+
 test('isTrigger commands-only allows slash-text commands', () => {
   const shouldTrigger = isTrigger({
     content: '/status',
     isDm: false,
     commandsOnly: true,
-    respondToAllMessages: false,
+    guildMessageMode: 'off',
+    prefix: '!claw',
+    botMentionRegex: null,
+    hasBotMention: false,
+  });
+  expect(shouldTrigger).toBe(true);
+});
+
+test('isTrigger commands-only allows slash-text agent commands', () => {
+  const shouldTrigger = isTrigger({
+    content: '/agent list',
+    isDm: false,
+    commandsOnly: true,
     guildMessageMode: 'off',
     prefix: '!claw',
     botMentionRegex: null,

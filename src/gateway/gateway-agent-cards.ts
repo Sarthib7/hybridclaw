@@ -1,14 +1,24 @@
+import path from 'node:path';
+
+import {
+  resolveAgentConfig,
+  resolveAgentForRequest,
+  resolveAgentModel,
+} from '../agents/agent-registry.js';
+import type { AgentConfig } from '../agents/agent-types.js';
 import { getDiscordChannelDisplayName } from '../channels/discord/runtime.js';
-import { HYBRIDAI_CHATBOT_ID, HYBRIDAI_MODEL } from '../config/config.js';
+import { agentWorkspaceDir } from '../infra/ipc.js';
 import {
   getRecentMessages,
   getRecentStructuredAuditForSession,
 } from '../memory/db.js';
-import { resolveAgentIdForModel } from '../providers/factory.js';
 import type { Session, StoredMessage, StructuredAuditEntry } from '../types.js';
 import { isFullAutoEnabled } from './fullauto.js';
 import { formatRelativeTimeFromMs, parseTimestamp } from './gateway-time.js';
-import type { GatewayAgentsResponse } from './gateway-types.js';
+import type {
+  GatewayLogicalAgentCard,
+  GatewaySessionCard,
+} from './gateway-types.js';
 import { numberFromUnknown, parseAuditPayload } from './gateway-utils.js';
 
 export interface GatewaySessionUsageSummary {
@@ -274,11 +284,11 @@ function buildAgentPreview(
   };
 }
 
-function getAgentStatus(
+function getSessionStatus(
   session: Session,
   activeSessionIds: Set<string>,
   lastActiveMs: number,
-): GatewayAgentsResponse['agents'][number]['status'] {
+): GatewaySessionCard['status'] {
   if (activeSessionIds.has(session.id)) return 'active';
   if (lastActiveMs > 0 && Date.now() - lastActiveMs <= 60 * 60 * 1000) {
     return 'idle';
@@ -287,7 +297,7 @@ function getAgentStatus(
 }
 
 function getAgentWatcherLabel(
-  status: GatewayAgentsResponse['agents'][number]['status'],
+  status: GatewaySessionCard['status'],
   sandboxMode: string,
 ): string {
   if (status === 'active') return `${sandboxMode} runtime attached`;
@@ -295,20 +305,20 @@ function getAgentWatcherLabel(
   return 'runtime detached';
 }
 
-export function mapAgentCard(params: {
+export function mapSessionCard(params: {
   session: Session;
   activeSessionIds: Set<string>;
   usageBySession: Map<string, GatewaySessionUsageSummary>;
   sandboxMode: string;
-}): GatewayAgentsResponse['agents'][number] {
+}): GatewaySessionCard {
   const { session, activeSessionIds, usageBySession, sandboxMode } = params;
-  const effectiveModel = session.model || HYBRIDAI_MODEL;
-  const effectiveChatbotId = session.chatbot_id || HYBRIDAI_CHATBOT_ID || '';
-  const agentId = resolveAgentIdForModel(effectiveModel, effectiveChatbotId);
+  const { agentId, model: effectiveModel } = resolveAgentForRequest({
+    session,
+  });
   const startedAtMs =
     parseTimestamp(session.created_at)?.getTime() ?? Date.now();
   const lastActiveMs = parseTimestamp(session.last_active)?.getTime() ?? 0;
-  const status = getAgentStatus(session, activeSessionIds, lastActiveMs);
+  const status = getSessionStatus(session, activeSessionIds, lastActiveMs);
   const usage = usageBySession.get(session.id);
   const startedAt = session.created_at;
   const endMs = status === 'stopped' ? lastActiveMs || Date.now() : Date.now();
@@ -348,5 +358,71 @@ export function mapAgentCard(params: {
     previewTitle: preview.title,
     previewMeta: preview.meta,
     output: preview.lines,
+  };
+}
+
+function getLogicalAgentStatus(
+  sessions: GatewaySessionCard[],
+): GatewayLogicalAgentCard['status'] {
+  if (sessions.length === 0) return 'unused';
+  if (sessions.some((session) => session.status === 'active')) return 'active';
+  if (sessions.some((session) => session.status === 'idle')) return 'idle';
+  return 'stopped';
+}
+
+function dedupeStrings(values: string[]): string[] {
+  const seen = new Set<string>();
+  const deduped: string[] = [];
+  for (const rawValue of values) {
+    const value = String(rawValue || '').trim();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    deduped.push(value);
+  }
+  return deduped;
+}
+
+export function mapLogicalAgentCard(params: {
+  agent: AgentConfig;
+  sessions: GatewaySessionCard[];
+  usage?: GatewaySessionUsageSummary;
+}): GatewayLogicalAgentCard {
+  const resolved = resolveAgentConfig(params.agent.id);
+  const sessions = [...params.sessions].sort((left, right) => {
+    const leftMs = parseTimestamp(left.lastActive)?.getTime() ?? 0;
+    const rightMs = parseTimestamp(right.lastActive)?.getTime() ?? 0;
+    return rightMs - leftMs;
+  });
+  const status = getLogicalAgentStatus(sessions);
+  const usage = params.usage;
+
+  return {
+    id: resolved.id,
+    name: resolved.name || null,
+    model: resolveAgentModel(resolved) || null,
+    chatbotId: resolved.chatbotId || null,
+    enableRag:
+      typeof resolved.enableRag === 'boolean' ? resolved.enableRag : null,
+    workspace: resolved.workspace || null,
+    workspacePath: path.resolve(agentWorkspaceDir(resolved.id)),
+    sessionCount: sessions.length,
+    activeSessions: sessions.filter((session) => session.status === 'active')
+      .length,
+    idleSessions: sessions.filter((session) => session.status === 'idle')
+      .length,
+    stoppedSessions: sessions.filter((session) => session.status === 'stopped')
+      .length,
+    effectiveModels: dedupeStrings(sessions.map((session) => session.model)),
+    lastActive: sessions[0]?.lastActive || null,
+    inputTokens: usage?.total_input_tokens || 0,
+    outputTokens: usage?.total_output_tokens || 0,
+    costUsd: usage?.total_cost_usd || 0,
+    messageCount: sessions.reduce(
+      (sum, session) => sum + Number(session.messageCount || 0),
+      0,
+    ),
+    toolCalls: usage?.total_tool_calls || 0,
+    recentSessionId: sessions[0]?.sessionId || null,
+    status,
   };
 }

@@ -6,6 +6,7 @@ import { type ChildProcess, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ExecutorRequest } from '../agent/executor-types.js';
+import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
   ADDITIONAL_MOUNTS,
   CONTAINER_BINDS,
@@ -65,6 +66,7 @@ import {
   createStreamDebugState,
   decodeStreamDelta,
   flushCollapsedStreamDebugSummary,
+  isStreamActivityLine,
   type StreamDebugState,
 } from './stream-debug.js';
 import { computeWorkerSignature } from './worker-signature.js';
@@ -96,6 +98,7 @@ const TOOL_RESULT_RE =
 const TOOL_START_RE = /^\[tool\]\s+([a-zA-Z0-9_.-]+):\s*(.*)$/;
 const CONTAINER_WORKSPACE_ROOT = '/workspace';
 const CONTAINER_DISCORD_MEDIA_CACHE_ROOT = '/discord-media-cache';
+const AGENT_OUTPUT_TIMEOUT_PREFIX = 'Timeout waiting for agent output after ';
 
 export function collectConfiguredDiscordChannelIds(
   currentChannelId: string,
@@ -209,6 +212,14 @@ function stopContainer(containerName: string): void {
   proc.on('error', (err) => {
     logger.debug({ containerName, err }, 'Failed to stop container');
   });
+}
+
+function isTimedOutAgentOutput(output: ContainerOutput): boolean {
+  return (
+    output.status === 'error' &&
+    typeof output.error === 'string' &&
+    output.error.startsWith(AGENT_OUTPUT_TIMEOUT_PREFIX)
+  );
 }
 
 function resolveArtifactHostPath(
@@ -447,6 +458,10 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
       const line = rawLine.trim();
       if (!line) continue;
       emitTextDelta(entry, line);
+      if (isStreamActivityLine(line)) {
+        entry.activity?.notify();
+        continue;
+      }
       if (
         consumeCollapsedStreamDebugLine(line, entry.streamDebug, (message) => {
           logger.debug({ container: containerName }, message);
@@ -465,7 +480,9 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
     const tail = entry.stderrBuffer.trim();
     if (tail) {
       emitTextDelta(entry, tail);
-      if (
+      if (isStreamActivityLine(tail)) {
+        entry.activity?.notify();
+      } else if (
         !consumeCollapsedStreamDebugLine(tail, entry.streamDebug, (message) => {
           logger.debug({ container: containerName }, message);
         })
@@ -503,7 +520,7 @@ export async function runContainer(
     chatbotId,
     enableRag,
     model = HYBRIDAI_MODEL,
-    agentId = chatbotId,
+    agentId = DEFAULT_AGENT_ID,
     channelId = '',
     ralphMaxIterations,
     fullAutoEnabled,
@@ -521,6 +538,7 @@ export async function runContainer(
     model,
     chatbotId,
     enableRag,
+    agentId,
   });
   // Enforce concurrent container limit
   if (pool.size >= MAX_CONCURRENT_CONTAINERS && !pool.has(sessionId)) {
@@ -654,6 +672,13 @@ export async function runContainer(
       signal: abortSignal,
       activity,
     });
+    if (isTimedOutAgentOutput(output)) {
+      logger.warn(
+        { sessionId, containerName: entry.containerName },
+        'Agent output timed out; stopping stuck container',
+      );
+      stopSessionContainer(sessionId);
+    }
     remapOutputArtifacts(output, workspacePath);
     if (typeof output.result === 'string')
       output.result = redactSecrets(output.result);

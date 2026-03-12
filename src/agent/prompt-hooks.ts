@@ -13,19 +13,13 @@ import {
 import { readRuntimeInstructionFile } from '../security/instruction-integrity.js';
 import { buildSkillsPrompt, type Skill } from '../skills/skills.js';
 import { buildContextPrompt, loadBootstrapFiles } from '../workspace.js';
-import { SILENT_REPLY_TOKEN, stripSilentToken } from './silent-reply.js';
+import { SILENT_REPLY_TOKEN } from './silent-reply.js';
 import { buildToolsSummary } from './tool-summary.js';
 
 export type PromptHookName = 'bootstrap' | 'memory' | 'safety' | 'runtime';
 export type ExtendedPromptHookName = PromptHookName | 'proactivity';
 export type PromptMode = 'full' | 'minimal' | 'none';
 export const MESSAGE_SEND_SILENT_REPLY_TOKEN = SILENT_REPLY_TOKEN;
-
-export function stripMessageSendSilentReplyToken(
-  value: string | null | undefined,
-): string {
-  return stripSilentToken(String(value || ''));
-}
 
 export interface PromptRuntimeInfo {
   chatbotId?: string;

@@ -130,3 +130,117 @@ test('ContainerExecutor redacts result and error strings from agent output', asy
   expect(output.result).toBe('OPENAI_API_KEY=sk-123...mnop');
   expect(output.error).toBe('Authorization: Bearer 123456...stuv');
 });
+
+test('ContainerExecutor stops and respawns a timed out pooled container', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const spawn = vi.fn(() => makeFakeChildProcess() as never);
+  const readOutput = vi
+    .fn()
+    .mockResolvedValueOnce({
+      status: 'error' as const,
+      result: null,
+      toolsUsed: [],
+      artifacts: [],
+      error:
+        'Timeout waiting for agent output after 1200000ms total (300000ms inactivity window)',
+    })
+    .mockResolvedValueOnce({
+      status: 'success' as const,
+      result: 'ok',
+      toolsUsed: [],
+      artifacts: [],
+    });
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'hybridai' as const,
+    apiKey: '',
+    baseUrl: 'https://hybridai.one',
+    chatbotId: 'bot-a',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: 'default',
+    isLocal: false,
+    contextWindow: 128_000,
+    thinkingFormat: undefined,
+  }));
+
+  vi.doMock('node:child_process', async () => {
+    const actual =
+      await vi.importActual<typeof import('node:child_process')>(
+        'node:child_process',
+      );
+    return {
+      ...actual,
+      spawn,
+    };
+  });
+  vi.doMock('../src/infra/ipc.js', async () => {
+    const actual = await vi.importActual<typeof import('../src/infra/ipc.js')>(
+      '../src/infra/ipc.js',
+    );
+    return {
+      ...actual,
+      readOutput,
+    };
+  });
+  vi.doMock('../src/providers/factory.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/factory.js')
+    >('../src/providers/factory.js');
+    return {
+      ...actual,
+      resolveModelRuntimeCredentials,
+    };
+  });
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    },
+  }));
+
+  const { ContainerExecutor } = await import(
+    '../src/infra/container-runner.js'
+  );
+  const executor = new ContainerExecutor();
+
+  const firstOutput = await executor.exec({
+    sessionId: 'heartbeat:main',
+    messages: [{ role: 'user', content: 'heartbeat' }],
+    chatbotId: 'bot-a',
+    enableRag: false,
+    model: 'gpt-5',
+    agentId: 'main',
+    channelId: 'heartbeat',
+  });
+
+  expect(firstOutput.status).toBe('error');
+  const stopCallsAfterFirstRun = spawn.mock.calls.filter(
+    (call) => Array.isArray(call[1]) && call[1][0] === 'stop',
+  );
+  expect(stopCallsAfterFirstRun).toHaveLength(1);
+
+  const secondOutput = await executor.exec({
+    sessionId: 'heartbeat:main',
+    messages: [{ role: 'user', content: 'heartbeat retry' }],
+    chatbotId: 'bot-a',
+    enableRag: false,
+    model: 'gpt-5',
+    agentId: 'main',
+    channelId: 'heartbeat',
+  });
+
+  expect(secondOutput.status).toBe('success');
+  const runCalls = spawn.mock.calls.filter(
+    (call) => Array.isArray(call[1]) && call[1][0] !== 'stop',
+  );
+  const stopCalls = spawn.mock.calls.filter(
+    (call) => Array.isArray(call[1]) && call[1][0] === 'stop',
+  );
+  expect(runCalls).toHaveLength(2);
+  expect(stopCalls).toHaveLength(1);
+});

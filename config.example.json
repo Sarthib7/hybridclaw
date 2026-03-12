@@ -14,7 +14,6 @@
     "prefix": "!claw",
     "guildMembersIntent": false,
     "presenceIntent": false,
-    "respondToAllMessages": false,
     "commandsOnly": false,
     "commandMode": "public",
     "commandAllowedUserIds": [],

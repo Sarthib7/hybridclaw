@@ -267,3 +267,110 @@ test('HostExecutor respawns the pooled worker when the agentId changes without a
     path.join('.hybridclaw', 'data', 'agents', 'workspace-b', 'workspace'),
   );
 });
+
+test('HostExecutor stops and respawns a timed out pooled worker', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const spawned: ReturnType<typeof makeFakeChildProcess>[] = [];
+  const spawn = vi.fn(() => {
+    const proc = makeFakeChildProcess();
+    spawned.push(proc);
+    return proc as never;
+  });
+  const readOutput = vi
+    .fn()
+    .mockResolvedValueOnce({
+      status: 'error' as const,
+      result: null,
+      toolsUsed: [],
+      artifacts: [],
+      error:
+        'Timeout waiting for agent output after 1200000ms total (300000ms inactivity window)',
+    })
+    .mockResolvedValueOnce({
+      status: 'success' as const,
+      result: 'ok',
+      toolsUsed: [],
+      artifacts: [],
+    });
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'hybridai' as const,
+    apiKey: 'shared-token',
+    baseUrl: 'https://hybridai.one',
+    chatbotId: 'bot-a',
+    enableRag: true,
+    requestHeaders: {},
+    agentId: 'default',
+    isLocal: false,
+    contextWindow: 128_000,
+    thinkingFormat: undefined,
+  }));
+
+  vi.doMock('node:child_process', async () => {
+    const actual =
+      await vi.importActual<typeof import('node:child_process')>(
+        'node:child_process',
+      );
+    return {
+      ...actual,
+      spawn,
+    };
+  });
+  vi.doMock('../src/infra/ipc.js', async () => {
+    const actual = await vi.importActual<typeof import('../src/infra/ipc.js')>(
+      '../src/infra/ipc.js',
+    );
+    return {
+      ...actual,
+      readOutput,
+    };
+  });
+  vi.doMock('../src/providers/factory.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/factory.js')
+    >('../src/providers/factory.js');
+    return {
+      ...actual,
+      resolveModelRuntimeCredentials,
+    };
+  });
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    },
+  }));
+
+  const { HostExecutor } = await import('../src/infra/host-runner.js');
+  const executor = new HostExecutor();
+
+  const firstOutput = await executor.exec({
+    sessionId: 'heartbeat:main',
+    messages: [{ role: 'user', content: 'heartbeat' }],
+    chatbotId: 'bot-a',
+    enableRag: true,
+    model: 'gpt-5',
+    agentId: 'main',
+    channelId: 'heartbeat',
+  });
+
+  expect(firstOutput.status).toBe('error');
+  expect(spawned[0]?.kill).toHaveBeenCalledWith('SIGTERM');
+
+  const secondOutput = await executor.exec({
+    sessionId: 'heartbeat:main',
+    messages: [{ role: 'user', content: 'heartbeat retry' }],
+    chatbotId: 'bot-a',
+    enableRag: true,
+    model: 'gpt-5',
+    agentId: 'main',
+    channelId: 'heartbeat',
+  });
+
+  expect(secondOutput.status).toBe('success');
+  expect(spawn).toHaveBeenCalledTimes(2);
+});

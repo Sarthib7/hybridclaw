@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ExecutorRequest } from '../agent/executor-types.js';
+import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
   CONTAINER_TIMEOUT,
   GATEWAY_API_TOKEN,
@@ -52,6 +53,7 @@ import {
   createStreamDebugState,
   decodeStreamDelta,
   flushCollapsedStreamDebugSummary,
+  isStreamActivityLine,
   type StreamDebugState,
 } from './stream-debug.js';
 import { computeWorkerSignature } from './worker-signature.js';
@@ -60,6 +62,7 @@ const IDLE_TIMEOUT_MS = 300_000;
 const TOOL_RESULT_RE =
   /^\[tool\]\s+([a-zA-Z0-9_.-]+)\s+result\s+\((\d+)ms\):\s*(.*)$/;
 const TOOL_START_RE = /^\[tool\]\s+([a-zA-Z0-9_.-]+):\s*(.*)$/;
+const AGENT_OUTPUT_TIMEOUT_PREFIX = 'Timeout waiting for agent output after ';
 
 interface PoolEntry {
   process: ChildProcess;
@@ -211,6 +214,14 @@ function stopHostProcess(entry: PoolEntry): void {
   }
 }
 
+function isTimedOutAgentOutput(output: ContainerOutput): boolean {
+  return (
+    output.status === 'error' &&
+    typeof output.error === 'string' &&
+    output.error.startsWith(AGENT_OUTPUT_TIMEOUT_PREFIX)
+  );
+}
+
 function getOrSpawnHostProcess(sessionId: string, agentId: string): PoolEntry {
   const existing = pool.get(sessionId);
   if (
@@ -287,6 +298,10 @@ function getOrSpawnHostProcess(sessionId: string, agentId: string): PoolEntry {
       const line = rawLine.trim();
       if (!line) continue;
       emitTextDelta(entry, line);
+      if (isStreamActivityLine(line)) {
+        entry.activity?.notify();
+        continue;
+      }
       if (
         consumeCollapsedStreamDebugLine(line, entry.streamDebug, (message) => {
           logger.debug({ sessionId }, message);
@@ -308,7 +323,9 @@ function getOrSpawnHostProcess(sessionId: string, agentId: string): PoolEntry {
     const tail = entry.stderrBuffer.trim();
     if (tail) {
       emitTextDelta(entry, tail);
-      if (
+      if (isStreamActivityLine(tail)) {
+        entry.activity?.notify();
+      } else if (
         !consumeCollapsedStreamDebugLine(tail, entry.streamDebug, (message) => {
           logger.debug({ sessionId }, message);
         })
@@ -355,7 +372,7 @@ export async function runHostProcess(
     chatbotId,
     enableRag,
     model = HYBRIDAI_MODEL,
-    agentId = chatbotId,
+    agentId = DEFAULT_AGENT_ID,
     channelId = '',
     ralphMaxIterations,
     fullAutoEnabled,
@@ -374,6 +391,7 @@ export async function runHostProcess(
     model,
     chatbotId,
     enableRag,
+    agentId,
   });
 
   if (pool.size >= MAX_CONCURRENT_CONTAINERS && !pool.has(sessionId)) {
@@ -495,6 +513,13 @@ export async function runHostProcess(
       signal: abortSignal,
       activity,
     });
+    if (isTimedOutAgentOutput(output)) {
+      logger.warn(
+        { sessionId },
+        'Agent output timed out; stopping stuck host agent process',
+      );
+      stopSessionHostProcess(sessionId);
+    }
     remapOutputArtifacts(output, workspacePath);
     if (typeof output.result === 'string')
       output.result = redactSecrets(output.result);

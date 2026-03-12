@@ -83,7 +83,7 @@ describe('runtime config migration logging', () => {
 
     expect(
       infoSpy.mock.calls.some(([message]) =>
-        String(message).includes('normalized config schema v9'),
+        String(message).includes('normalized config schema v10'),
       ),
     ).toBe(false);
   });
@@ -91,6 +91,7 @@ describe('runtime config migration logging', () => {
   it('logs normalization when startup rewrites the config file', async () => {
     const homeDir = makeTempHome();
     writeRuntimeConfig(homeDir, (config) => {
+      config.version = 10;
       config.ops.dbPath = '~/.hybridclaw/data/hybridclaw.db';
     });
     const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
@@ -99,7 +100,7 @@ describe('runtime config migration logging', () => {
 
     expect(
       infoSpy.mock.calls.some(([message]) =>
-        String(message).includes('normalized config schema v9'),
+        String(message).includes('normalized config schema v10'),
       ),
     ).toBe(true);
   });

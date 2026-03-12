@@ -28,6 +28,9 @@ function makeJwt(payload: Record<string, unknown>): string {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.doUnmock('../src/logger.js');
+  vi.doUnmock('../src/providers/model-catalog.js');
+  vi.doUnmock('../src/providers/local-discovery.js');
   vi.resetModules();
   restoreEnvVar('HOME', ORIGINAL_HOME);
   restoreEnvVar('HYBRIDAI_API_KEY', ORIGINAL_HYBRIDAI_API_KEY);
@@ -89,4 +92,94 @@ test('getGatewayStatus includes Codex auth state', async () => {
     reachable: true,
     modelCount: expect.any(Number),
   });
+});
+
+test('status command includes the current session agent', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { upsertRegisteredAgent } = await import(
+    '../src/agents/agent-registry.ts'
+  );
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  upsertRegisteredAgent({
+    id: 'research',
+    model: 'openai-codex/gpt-5.3-codex',
+  });
+
+  await handleGatewayCommand({
+    sessionId: 'session-status-agent',
+    guildId: null,
+    channelId: 'channel-status-agent',
+    args: ['agent', 'switch', 'research'],
+  });
+  const result = await handleGatewayCommand({
+    sessionId: 'session-status-agent',
+    guildId: null,
+    channelId: 'channel-status-agent',
+    args: ['status'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Status');
+  expect(result.text).toContain('Agent: research');
+});
+
+test('agent create warns when model validation is skipped because no models are available', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const warnMock = vi.fn();
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: warnMock,
+      error: vi.fn(),
+      fatal: vi.fn(),
+    },
+  }));
+  vi.doMock('../src/providers/model-catalog.js', () => ({
+    getAvailableModelList: vi.fn(() => []),
+  }));
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-create-agent',
+    guildId: null,
+    channelId: 'channel-create-agent',
+    args: ['agent', 'create', 'research', '--model', 'garbage/model'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Agent Created');
+  expect(result.text).toContain('Agent: research');
+  expect(result.text).toContain('Model: garbage/model');
+  expect(warnMock).toHaveBeenCalledWith(
+    expect.objectContaining({
+      sessionId: 'session-create-agent',
+      agentId: 'research',
+      model: 'garbage/model',
+    }),
+    'Skipping agent model validation because no available models are configured',
+  );
 });

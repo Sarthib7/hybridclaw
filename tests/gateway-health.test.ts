@@ -206,17 +206,55 @@ async function importFreshHealth(options?: {
       maxIterations: 0,
     },
     totals: {
-      all: 1,
-      active: 1,
-      idle: 0,
-      stopped: 0,
-      running: 1,
-      totalInputTokens: 10,
-      totalOutputTokens: 5,
-      totalTokens: 15,
-      totalCostUsd: 0.01,
+      agents: {
+        all: 1,
+        active: 1,
+        idle: 0,
+        stopped: 0,
+        unused: 0,
+        running: 1,
+        totalInputTokens: 10,
+        totalOutputTokens: 5,
+        totalTokens: 15,
+        totalCostUsd: 0.01,
+      },
+      sessions: {
+        all: 1,
+        active: 1,
+        idle: 0,
+        stopped: 0,
+        running: 1,
+        totalInputTokens: 10,
+        totalOutputTokens: 5,
+        totalTokens: 15,
+        totalCostUsd: 0.01,
+      },
     },
     agents: [
+      {
+        id: 'main',
+        name: 'Main Agent',
+        model: 'gpt-5',
+        chatbotId: null,
+        enableRag: true,
+        workspace: null,
+        workspacePath: '/tmp/main/workspace',
+        sessionCount: 1,
+        activeSessions: 1,
+        idleSessions: 0,
+        stoppedSessions: 0,
+        effectiveModels: ['gpt-5'],
+        lastActive: '2026-03-11T10:00:00.000Z',
+        inputTokens: 10,
+        outputTokens: 5,
+        costUsd: 0.01,
+        messageCount: 2,
+        toolCalls: 1,
+        recentSessionId: 'web:default',
+        status: 'active',
+      },
+    ],
+    sessions: [
       {
         id: 'web:default',
         name: 'Web web',
@@ -228,7 +266,7 @@ async function importFreshHealth(options?: {
         sessionId: 'web:default',
         channelId: 'web',
         channelName: null,
-        agentId: 'default',
+        agentId: 'main',
         startedAt: '2026-03-11T09:00:00.000Z',
         lastActive: '2026-03-11T10:00:00.000Z',
         runtimeMinutes: 60,
@@ -251,6 +289,19 @@ async function importFreshHealth(options?: {
     codexModels: ['openai-codex/gpt-5-codex'],
     providerStatus: {},
     models: [],
+  }));
+  const getGatewayAdminAgents = vi.fn(() => ({
+    agents: [
+      {
+        id: 'main',
+        name: 'Main Agent',
+        model: 'gpt-5',
+        chatbotId: null,
+        enableRag: true,
+        workspace: null,
+        workspacePath: '/tmp/main/workspace',
+      },
+    ],
   }));
   const getGatewayAdminSessions = vi.fn(() => []);
   const getGatewayAdminScheduler = vi.fn(() => ({
@@ -330,6 +381,54 @@ async function importFreshHealth(options?: {
     deletedStructuredAuditEntries: 0,
     deletedApprovalEntries: 0,
   }));
+  const createGatewayAdminAgent = vi.fn(
+    (payload: {
+      id?: string;
+      name?: string | null;
+      model?: string | null;
+      chatbotId?: string | null;
+      enableRag?: boolean | null;
+      workspace?: string | null;
+    }) => ({
+      agent: {
+        id: payload.id || 'main',
+        name: payload.name || null,
+        model: payload.model || null,
+        chatbotId: payload.chatbotId || null,
+        enableRag:
+          typeof payload.enableRag === 'boolean' ? payload.enableRag : null,
+        workspace: payload.workspace || null,
+        workspacePath: '/tmp/main/workspace',
+      },
+    }),
+  );
+  const updateGatewayAdminAgent = vi.fn(
+    (
+      agentId: string,
+      payload: {
+        name?: string | null;
+        model?: string | null;
+        chatbotId?: string | null;
+        enableRag?: boolean | null;
+        workspace?: string | null;
+      },
+    ) => ({
+      agent: {
+        id: agentId,
+        name: payload.name || null,
+        model: payload.model || null,
+        chatbotId: payload.chatbotId || null,
+        enableRag:
+          typeof payload.enableRag === 'boolean' ? payload.enableRag : null,
+        workspace: payload.workspace || null,
+        workspacePath: `/tmp/${agentId}/workspace`,
+      },
+    }),
+  );
+  const deleteGatewayAdminAgent = vi.fn((agentId: string) => ({
+    deleted: true,
+    agentId,
+  }));
   const removeGatewayAdminChannel = vi.fn(() => ({
     channels: [],
   }));
@@ -400,8 +499,11 @@ async function importFreshHealth(options?: {
     claimQueuedProactiveMessages,
   }));
   vi.doMock('../src/gateway/gateway-service.js', () => ({
+    createGatewayAdminAgent,
+    deleteGatewayAdminAgent,
     deleteGatewayAdminSession,
     getGatewayAgents,
+    getGatewayAdminAgents,
     getGatewayAdminAudit,
     getGatewayAdminChannels,
     getGatewayAdminConfig,
@@ -423,6 +525,7 @@ async function importFreshHealth(options?: {
     saveGatewayAdminModels,
     setGatewayAdminSchedulerJobPaused,
     setGatewayAdminSkillEnabled,
+    updateGatewayAdminAgent,
     upsertGatewayAdminChannel,
     upsertGatewayAdminMcpServer,
     upsertGatewayAdminSchedulerJob,
@@ -449,12 +552,16 @@ async function importFreshHealth(options?: {
     getGatewayHistory,
     getGatewayAdminOverview,
     getGatewayAgents,
+    getGatewayAdminAgents,
     getGatewayAdminModels,
     getGatewayAdminScheduler,
     getGatewayAdminMcp,
     getGatewayAdminAudit,
     getGatewayAdminSkills,
     getGatewayAdminTools,
+    createGatewayAdminAgent,
+    updateGatewayAdminAgent,
+    deleteGatewayAdminAgent,
     setGatewayAdminSkillEnabled,
     handleGatewayMessage,
     handleGatewayCommand,
@@ -583,6 +690,31 @@ describe('gateway health server', () => {
     });
   });
 
+  test('returns admin agents for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/admin/agents' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminAgents).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      agents: [
+        {
+          id: 'main',
+          name: 'Main Agent',
+          model: 'gpt-5',
+          chatbotId: null,
+          enableRag: true,
+          workspace: null,
+          workspacePath: '/tmp/main/workspace',
+        },
+      ],
+    });
+  });
+
   test('returns agents for authorized API requests', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({ url: '/api/agents' });
@@ -595,10 +727,23 @@ describe('gateway health server', () => {
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toMatchObject({
       totals: {
-        all: 1,
-        active: 1,
+        agents: {
+          all: 1,
+          active: 1,
+        },
+        sessions: {
+          all: 1,
+          active: 1,
+        },
       },
       agents: [
+        {
+          id: 'main',
+          sessionCount: 1,
+          status: 'active',
+        },
+      ],
+      sessions: [
         {
           id: 'web:default',
           status: 'active',

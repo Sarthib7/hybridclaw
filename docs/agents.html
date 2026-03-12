@@ -560,6 +560,10 @@
       border-top-color: var(--error);
     }
 
+    .agent-card.is-unused {
+      border-top-color: #64748b;
+    }
+
     .agent-card.is-fullauto {
       border-top-color: var(--brand-blue);
     }
@@ -635,6 +639,26 @@
       min-height: 36px;
     }
 
+    .agent-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .agent-tag {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: #eef2ff;
+      color: #3657e9;
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1.2;
+      max-width: 100%;
+    }
+
     .status-badge {
       display: inline-flex;
       align-items: center;
@@ -672,6 +696,12 @@
       color: var(--error);
       background: var(--error-soft);
       border-color: #fecaca;
+    }
+
+    .status-badge.is-unused {
+      color: #475569;
+      background: #f8fafc;
+      border-color: #cbd5e1;
     }
 
     .status-badge.is-fullauto {
@@ -1212,10 +1242,26 @@
         <section id="statsRow" class="stats-row" aria-label="Gateway stats"></section>
 
         <section class="card">
-          <div id="filterBar" class="filter-bar" role="tablist" aria-label="Agent filters"></div>
+          <div class="section-head">
+            <div>
+              <h2 class="card-title">Agents</h2>
+              <p class="section-head-copy">Workspace-owning agents aggregated across every bound session.</p>
+            </div>
+          </div>
+          <section id="logicalAgentGrid" class="agent-grid" aria-label="Agent grid"></section>
         </section>
 
-        <section id="agentGrid" class="agent-grid" aria-label="Agent grid"></section>
+        <section class="card">
+          <div class="section-head">
+            <div>
+              <h2 class="card-title">Sessions</h2>
+              <p class="section-head-copy">Persisted per-channel and per-client sessions currently bound to agents.</p>
+            </div>
+          </div>
+          <div id="filterBar" class="filter-bar" role="tablist" aria-label="Session filters"></div>
+        </section>
+
+        <section id="sessionGrid" class="agent-grid" aria-label="Session grid"></section>
 
         <section class="bottom-grid">
           <section class="card">
@@ -1258,8 +1304,9 @@
     const refreshChipEl = document.getElementById('refreshChip');
     const refreshLabelEl = document.getElementById('refreshLabel');
     const statsRowEl = document.getElementById('statsRow');
+    const logicalAgentGridEl = document.getElementById('logicalAgentGrid');
     const filterBarEl = document.getElementById('filterBar');
-    const agentGridEl = document.getElementById('agentGrid');
+    const sessionGridEl = document.getElementById('sessionGrid');
     const watcherListEl = document.getElementById('watcherList');
     const quickActionNoteEl = document.getElementById('quickActionNote');
     const openChatButtonEl = document.getElementById('openChatButton');
@@ -1280,6 +1327,7 @@
     const state = {
       filter: localStorage.getItem('hybridclaw_agents_filter') || 'all',
       agents: [],
+      sessions: [],
       snapshot: null,
       isRefreshing: false,
       refreshTimer: null,
@@ -1431,40 +1479,45 @@
       return `Last refresh ${formatDateTime(state.lastRefreshAt)}`;
     }
 
-    function visibleAgents() {
-      return state.agents.filter((agent) => {
+    function visibleSessions() {
+      return state.sessions.filter((session) => {
         if (state.filter === 'all') return true;
-        return agent.status === state.filter;
+        return session.status === state.filter;
       });
     }
 
-    function counts() {
-      if (state.snapshot?.totals) {
+    function sessionCounts() {
+      if (state.snapshot?.totals?.sessions) {
         return {
-          all: state.snapshot.totals.all || 0,
-          active: state.snapshot.totals.active || 0,
-          idle: state.snapshot.totals.idle || 0,
-          stopped: state.snapshot.totals.stopped || 0,
+          all: state.snapshot.totals.sessions.all || 0,
+          active: state.snapshot.totals.sessions.active || 0,
+          idle: state.snapshot.totals.sessions.idle || 0,
+          stopped: state.snapshot.totals.sessions.stopped || 0,
         };
       }
       return {
-        all: state.agents.length,
-        active: state.agents.filter((agent) => agent.status === 'active').length,
-        idle: state.agents.filter((agent) => agent.status === 'idle').length,
-        stopped: state.agents.filter((agent) => agent.status === 'stopped').length,
+        all: state.sessions.length,
+        active: state.sessions.filter((session) => session.status === 'active').length,
+        idle: state.sessions.filter((session) => session.status === 'idle').length,
+        stopped: state.sessions.filter((session) => session.status === 'stopped').length,
       };
     }
 
-    function runningAgentsCount() {
-      return state.snapshot?.totals?.running || 0;
+    function logicalAgentCount() {
+      return state.snapshot?.totals?.agents?.all || state.agents.length;
+    }
+
+    function runningSessionCount() {
+      return state.snapshot?.totals?.sessions?.running
+        || state.sessions.filter((session) => session.status !== 'stopped').length;
     }
 
     function totalTokens() {
-      return state.snapshot?.totals?.totalTokens || 0;
+      return state.snapshot?.totals?.sessions?.totalTokens || 0;
     }
 
     function totalCost() {
-      return state.snapshot?.totals?.totalCostUsd || 0;
+      return state.snapshot?.totals?.sessions?.totalCostUsd || 0;
     }
 
     function statusClass(agent) {
@@ -1476,6 +1529,7 @@
     }
 
     function statusLabel(agent) {
+      if (agent.status === 'unused') return 'Unused';
       if (agent.status === 'idle') return 'Idle';
       if (agent.status === 'stopped') return 'Stopped';
       return 'Active';
@@ -1488,6 +1542,34 @@
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
+    }
+
+    function formatNullableDateTime(value, fallback) {
+      return value ? formatDateTime(value) : fallback;
+    }
+
+    function formatList(values, fallback) {
+      return Array.isArray(values) && values.length > 0
+        ? values.join(', ')
+        : fallback;
+    }
+
+    function formatLogicalAgentModel(agent) {
+      return agent.model || 'Inherited global default';
+    }
+
+    function formatLogicalAgentSessions(agent) {
+      if (!agent.sessionCount) {
+        return 'No persisted sessions';
+      }
+      return `${formatNumber(agent.sessionCount)} total · ${formatNumber(agent.activeSessions)} active · ${formatNumber(agent.idleSessions)} idle · ${formatNumber(agent.stoppedSessions)} stopped`;
+    }
+
+    function formatLogicalAgentChatbot(agent) {
+      const chatbot = String(agent.chatbotId || '').trim() || 'none';
+      const rag =
+        agent.enableRag == null ? 'inherit' : agent.enableRag ? 'on' : 'off';
+      return `Chatbot ${chatbot} · RAG ${rag}`;
     }
 
     function lineClass(line) {
@@ -1604,15 +1686,15 @@
     }
 
     function syncOpenOutputIds() {
-      const validIds = new Set(state.agents.map((agent) => agent.id));
+      const validIds = new Set(state.sessions.map((session) => session.id));
       const nextIds = new Set();
       state.openOutputIds.forEach((id) => {
         if (validIds.has(id)) {
           nextIds.add(id);
         }
       });
-      if (!state.hasStoredOutputState && nextIds.size === 0 && state.agents.length > 0) {
-        nextIds.add(state.agents[0].id);
+      if (!state.hasStoredOutputState && nextIds.size === 0 && state.sessions.length > 0) {
+        nextIds.add(state.sessions[0].id);
       }
       state.openOutputIds = nextIds;
       persistUiState();
@@ -1623,26 +1705,26 @@
         {
           accent: 'is-green',
           icon: 'A',
-          value: formatNumber(runningAgentsCount()),
-          label: 'Agents Running',
+          value: formatNumber(logicalAgentCount()),
+          label: 'Agents',
         },
         {
           accent: 'is-blue',
+          icon: 'S',
+          value: formatNumber(runningSessionCount()),
+          label: 'Sessions Live',
+        },
+        {
+          accent: 'is-gold',
           icon: 'T',
           value: formatCompact(totalTokens()),
           label: 'Tokens Used',
         },
         {
-          accent: 'is-gold',
+          accent: 'is-slate',
           icon: '$',
           value: formatUsd(totalCost()),
           label: 'Total Cost',
-        },
-        {
-          accent: 'is-slate',
-          icon: 'U',
-          value: formatUptime(state.snapshot?.uptime),
-          label: 'Uptime',
         },
       ];
 
@@ -1656,7 +1738,7 @@
     }
 
     function renderFilters() {
-      const totals = counts();
+      const totals = sessionCounts();
       filterBarEl.innerHTML = FILTERS.map((filter) => `
         <button
           type="button"
@@ -1678,12 +1760,86 @@
       });
     }
 
-    function renderAgents() {
-      const cards = visibleAgents();
-      if (cards.length === 0) {
-        agentGridEl.innerHTML = `
+    function renderLogicalAgents() {
+      if (state.agents.length === 0) {
+        logicalAgentGridEl.innerHTML = `
           <section class="card">
-            <h2 class="card-title">${state.snapshot ? 'No agents in this filter' : 'Waiting for runtime data'}</h2>
+            <h2 class="card-title">${state.snapshot ? 'No agents found' : 'Waiting for runtime data'}</h2>
+            <p class="card-copy">${state.snapshot
+              ? 'Create an agent or bind a session to see it here.'
+              : 'Fetching agents from /api/agents.'}</p>
+          </section>
+        `;
+        return;
+      }
+
+      logicalAgentGridEl.innerHTML = state.agents.map((agent, index) => `
+        <article class="card agent-card is-${statusClass(agent)}" id="agent-${agent.id}" style="animation-delay:${index * 45}ms">
+          <div class="agent-card-header">
+            <div>
+              <h2 class="agent-name">${escapeHtml(agent.name || agent.id)}</h2>
+              <p class="agent-task">${escapeHtml(agent.sessionCount > 0
+                ? `${formatNumber(agent.sessionCount)} persisted session(s) are currently bound to this workspace.`
+                : 'No persisted sessions are bound to this workspace yet.')}</p>
+              <div class="agent-tags">
+                <span class="agent-tag">${escapeHtml(agent.id)}</span>
+                ${agent.recentSessionId ? `<span class="agent-tag">${escapeHtml(`Recent ${agent.recentSessionId}`)}</span>` : ''}
+              </div>
+            </div>
+            <span class="status-badge is-${statusClass(agent)}">
+              <span class="status-badge-dot" aria-hidden="true"></span>
+              ${statusLabel(agent)}
+            </span>
+          </div>
+
+          <div class="agent-meta">
+            <div class="agent-meta-block">
+              <span class="agent-meta-label">Default Model</span>
+              <p class="agent-meta-value">${escapeHtml(formatLogicalAgentModel(agent))}</p>
+            </div>
+            <div class="agent-meta-block">
+              <span class="agent-meta-label">Session Models</span>
+              <p class="agent-meta-value">${escapeHtml(formatList(agent.effectiveModels, 'No session-specific models yet'))}</p>
+            </div>
+            <div class="agent-meta-block">
+              <span class="agent-meta-label">Workspace</span>
+              <p class="agent-meta-value">${escapeHtml(agent.workspacePath)}</p>
+            </div>
+            <div class="agent-meta-block">
+              <span class="agent-meta-label">Sessions</span>
+              <p class="agent-meta-value">${escapeHtml(formatLogicalAgentSessions(agent))}</p>
+            </div>
+            <div class="agent-meta-block">
+              <span class="agent-meta-label">Token I/O</span>
+              <p class="agent-meta-value">${formatTokenIo(agent)}</p>
+            </div>
+            <div class="agent-meta-block">
+              <span class="agent-meta-label">MSG / TOOLS</span>
+              <p class="agent-meta-value">${formatNumber(agent.messageCount)} msgs / ${formatNumber(agent.toolCalls)} calls</p>
+            </div>
+            <div class="agent-meta-block">
+              <span class="agent-meta-label">Cost</span>
+              <p class="agent-meta-value">${formatUsd(agent.costUsd)}</p>
+            </div>
+            <div class="agent-meta-block">
+              <span class="agent-meta-label">Chatbot / RAG</span>
+              <p class="agent-meta-value">${escapeHtml(formatLogicalAgentChatbot(agent))}</p>
+            </div>
+            <div class="agent-meta-block">
+              <span class="agent-meta-label">Last Active</span>
+              <p class="agent-meta-value">${escapeHtml(formatNullableDateTime(agent.lastActive, 'No session activity yet'))}</p>
+            </div>
+          </div>
+        </article>
+      `).join('');
+    }
+
+    function renderSessions() {
+      const cards = visibleSessions();
+      if (cards.length === 0) {
+        sessionGridEl.innerHTML = `
+          <section class="card">
+            <h2 class="card-title">${state.snapshot ? 'No sessions in this filter' : 'Waiting for runtime data'}</h2>
             <p class="card-copy">${state.snapshot
               ? 'Change the filter or open /chat to create another live session.'
               : 'Fetching persisted sessions from /api/agents.'}</p>
@@ -1692,54 +1848,58 @@
         return;
       }
 
-      agentGridEl.innerHTML = cards.map((agent, index) => {
-        const isOutputOpen = state.openOutputIds.has(agent.id);
-        const outputLines = Array.isArray(agent.output) && agent.output.length > 0
-          ? agent.output
+      sessionGridEl.innerHTML = cards.map((session, index) => {
+        const isOutputOpen = state.openOutputIds.has(session.id);
+        const outputLines = Array.isArray(session.output) && session.output.length > 0
+          ? session.output
           : ['No recent activity captured for this session yet.'];
-        const channel = channelMeta(agent);
+        const channel = channelMeta(session);
 
         return `
-          <article class="card agent-card is-${statusClass(agent)}${isFullAuto(agent) ? ' is-fullauto' : ''}" id="${agent.id}" style="animation-delay:${index * 45}ms">
+          <article class="card agent-card is-${statusClass(session)}${isFullAuto(session) ? ' is-fullauto' : ''}" id="${session.id}" style="animation-delay:${index * 45}ms">
             <div class="agent-card-header">
               <div>
-                <h2 class="agent-name">${escapeHtml(agent.name)}</h2>
-                ${agent.lastQuestion || agent.lastAnswer
+                <h2 class="agent-name">${escapeHtml(session.name)}</h2>
+                ${session.lastQuestion || session.lastAnswer
                   ? `
                     <div class="agent-preview">
-                      ${agent.lastQuestion
+                      ${session.lastQuestion
                         ? `<div class="agent-preview-row">
                             <span class="agent-preview-label">Q</span>
-                            <p class="agent-preview-text">${escapeHtml(agent.lastQuestion)}</p>
+                            <p class="agent-preview-text">${escapeHtml(session.lastQuestion)}</p>
                           </div>`
                         : ''}
-                      ${agent.lastAnswer
+                      ${session.lastAnswer
                         ? `<div class="agent-preview-row">
                             <span class="agent-preview-label">A</span>
-                            <p class="agent-preview-text">${escapeHtml(agent.lastAnswer)}</p>
+                            <p class="agent-preview-text">${escapeHtml(session.lastAnswer)}</p>
                           </div>`
                         : ''}
                     </div>
                   `
-                  : `<p class="agent-task">${escapeHtml(agent.task)}</p>`}
-                ${isFullAuto(agent)
+                  : `<p class="agent-task">${escapeHtml(session.task)}</p>`}
+                ${isFullAuto(session)
                   ? '<div class="fullauto-badge">Full-auto enabled</div>'
                   : ''}
               </div>
-              <span class="status-badge is-${statusClass(agent)}">
+              <span class="status-badge is-${statusClass(session)}">
                 <span class="status-badge-dot" aria-hidden="true"></span>
-                ${statusLabel(agent)}
+                ${statusLabel(session)}
               </span>
             </div>
 
             <div class="agent-meta">
               <div class="agent-meta-block">
                 <span class="agent-meta-label">Model</span>
-                <p class="agent-meta-value">${escapeHtml(agent.model)}</p>
+                <p class="agent-meta-value">${escapeHtml(session.model)}</p>
+              </div>
+              <div class="agent-meta-block">
+                <span class="agent-meta-label">Agent</span>
+                <p class="agent-meta-value">${escapeHtml(session.agentId)}</p>
               </div>
               <div class="agent-meta-block">
                 <span class="agent-meta-label">Session ID</span>
-                <p class="agent-meta-value">${escapeHtml(agent.sessionId)}</p>
+                <p class="agent-meta-value">${escapeHtml(session.sessionId)}</p>
               </div>
               <div class="agent-meta-block">
                 <span class="agent-meta-label">Channel</span>
@@ -1756,34 +1916,34 @@
               </div>
               <div class="agent-meta-block">
                 <span class="agent-meta-label">Runtime</span>
-                <p class="agent-meta-value">${formatMinutes(agent.runtimeMinutes)}</p>
+                <p class="agent-meta-value">${formatMinutes(session.runtimeMinutes)}</p>
               </div>
               <div class="agent-meta-block">
                 <span class="agent-meta-label">Token I/O</span>
-                <p class="agent-meta-value">${formatTokenIo(agent)}</p>
+                <p class="agent-meta-value">${formatTokenIo(session)}</p>
               </div>
               <div class="agent-meta-block">
                 <span class="agent-meta-label">MSG / TOOLS</span>
-                <p class="agent-meta-value">${formatNumber(agent.messageCount)} msgs / ${formatNumber(agent.toolCalls)} calls</p>
+                <p class="agent-meta-value">${formatNumber(session.messageCount)} msgs / ${formatNumber(session.toolCalls)} calls</p>
               </div>
               <div class="agent-meta-block">
                 <span class="agent-meta-label">Cost</span>
-                <p class="agent-meta-value">${formatUsd(agent.costUsd)}</p>
+                <p class="agent-meta-value">${formatUsd(session.costUsd)}</p>
               </div>
               <div class="agent-meta-block">
                 <span class="agent-meta-label">Last Active</span>
-                <p class="agent-meta-value">${escapeHtml(formatDateTime(agent.lastActive))}</p>
+                <p class="agent-meta-value">${escapeHtml(formatDateTime(session.lastActive))}</p>
               </div>
             </div>
 
-            <div class="terminal ${isOutputOpen ? '' : 'is-collapsed'}" data-terminal="${agent.id}">
+            <div class="terminal ${isOutputOpen ? '' : 'is-collapsed'}" data-terminal="${session.id}">
               <div class="terminal-top">
                 <span class="terminal-dot is-red"></span>
                 <span class="terminal-dot is-yellow"></span>
                 <span class="terminal-dot is-green"></span>
                 <div class="terminal-head">
-                  <span class="terminal-label">${escapeHtml(agent.previewTitle || 'Recent activity')}</span>
-                  <span class="terminal-meta">${escapeHtml(agent.previewMeta || '')}</span>
+                  <span class="terminal-label">${escapeHtml(session.previewTitle || 'Recent activity')}</span>
+                  <span class="terminal-meta">${escapeHtml(session.previewMeta || '')}</span>
                 </div>
               </div>
               <div class="terminal-body">
@@ -1792,9 +1952,9 @@
             </div>
 
             <div class="agent-actions">
-              <button type="button" class="button button-primary agent-action" data-action="open-chat" data-agent-id="${agent.id}">Open Chat</button>
-              <button type="button" class="button button-secondary agent-action" data-action="open-admin" data-agent-id="${agent.id}">Open Sessions</button>
-              <button type="button" class="button button-secondary agent-action" data-action="toggle-output" data-agent-id="${agent.id}" aria-expanded="${isOutputOpen ? 'true' : 'false'}">
+              <button type="button" class="button button-primary agent-action" data-action="open-chat" data-session-id="${session.id}">Open Chat</button>
+              <button type="button" class="button button-secondary agent-action" data-action="open-admin" data-session-id="${session.id}">Open Sessions</button>
+              <button type="button" class="button button-secondary agent-action" data-action="toggle-output" data-session-id="${session.id}" aria-expanded="${isOutputOpen ? 'true' : 'false'}">
                 ${isOutputOpen ? 'Hide Output' : 'Show Output'}
               </button>
             </div>
@@ -1802,18 +1962,18 @@
         `;
       }).join('');
 
-      agentGridEl.querySelectorAll('[data-action]').forEach((button) => {
+      sessionGridEl.querySelectorAll('[data-action]').forEach((button) => {
         button.addEventListener('click', () => {
           const action = button.getAttribute('data-action');
-          const agentId = button.getAttribute('data-agent-id');
-          if (!action || !agentId) return;
-          void handleAgentAction(action, agentId);
+          const sessionId = button.getAttribute('data-session-id');
+          if (!action || !sessionId) return;
+          void handleSessionAction(action, sessionId);
         });
       });
     }
 
     function renderWatchers() {
-      if (state.agents.length === 0) {
+      if (state.sessions.length === 0) {
         watcherListEl.innerHTML = `
           <div class="watcher-row">
             <div>
@@ -1826,13 +1986,13 @@
         return;
       }
 
-      watcherListEl.innerHTML = state.agents.map((agent) => {
+      watcherListEl.innerHTML = state.sessions.map((session) => {
         let watcherState = 'is-active';
         let watcherLabel = 'Watching';
-        if (agent.status === 'idle') {
+        if (session.status === 'idle') {
           watcherState = 'is-idle';
           watcherLabel = 'Idle';
-        } else if (agent.status === 'stopped' || !agent.watcher) {
+        } else if (session.status === 'stopped' || !session.watcher) {
           watcherState = 'is-stopped';
           watcherLabel = 'Detached';
         }
@@ -1840,8 +2000,8 @@
         return `
           <div class="watcher-row">
             <div>
-              <p class="watcher-title">${escapeHtml(agent.name)}</p>
-              <p class="watcher-copy">${escapeHtml(agent.watcher || 'No runtime currently attached')} · last active ${escapeHtml(formatRelativeTime(agent.lastActive))}</p>
+              <p class="watcher-title">${escapeHtml(session.name)}</p>
+              <p class="watcher-copy">${escapeHtml(session.watcher || 'No runtime currently attached')} · last active ${escapeHtml(formatRelativeTime(session.lastActive))}</p>
             </div>
             <span class="watcher-state ${watcherState}">${watcherLabel}</span>
           </div>
@@ -1851,15 +2011,15 @@
 
     function renderQuickActions() {
       if (!state.snapshot) {
-        quickActionNoteEl.textContent = 'Open Chat to create sessions. This page fills in once persisted sessions exist.';
+        quickActionNoteEl.textContent = 'Open Chat to create sessions. This page fills in once agents and persisted sessions are available.';
         return;
       }
 
-      const running = `${formatNumber(state.snapshot.totals.running)} running across ${formatNumber(state.snapshot.totals.all)} persisted session(s).`;
+      const running = `${formatNumber(state.snapshot.totals.agents.running)} active/idle agent(s) backing ${formatNumber(state.snapshot.totals.sessions.running)} live session(s).`;
       const ralph = state.snapshot.ralph.enabled
         ? `Ralph is enabled with a max of ${formatNumber(state.snapshot.ralph.maxIterations)} iteration(s).`
         : 'Ralph is disabled.';
-      quickActionNoteEl.textContent = `${running} ${ralph}`;
+      quickActionNoteEl.textContent = `${running} Uptime ${formatUptime(state.snapshot.uptime)}. ${ralph}`;
     }
 
     function renderRefreshState() {
@@ -1869,7 +2029,7 @@
 
     function scrollOpenTerminalsToBottom() {
       window.requestAnimationFrame(() => {
-        agentGridEl
+        sessionGridEl
           .querySelectorAll('.terminal:not(.is-collapsed) .terminal-body')
           .forEach((element) => {
             element.scrollTop = element.scrollHeight;
@@ -1880,19 +2040,20 @@
     function renderAll() {
       renderStats();
       renderFilters();
-      renderAgents();
+      renderLogicalAgents();
+      renderSessions();
       scrollOpenTerminalsToBottom();
       renderWatchers();
       renderQuickActions();
       renderRefreshState();
     }
 
-    async function handleAgentAction(action, agentId) {
-      const agent = state.agents.find((entry) => entry.id === agentId);
-      if (!agent) return;
+    async function handleSessionAction(action, sessionId) {
+      const session = state.sessions.find((entry) => entry.id === sessionId);
+      if (!session) return;
 
       if (action === 'open-chat') {
-        localStorage.setItem('hybridclaw_session', agent.sessionId);
+        localStorage.setItem('hybridclaw_session', session.sessionId);
         window.location.assign('/chat');
         return;
       }
@@ -1903,16 +2064,20 @@
       }
 
       if (action === 'toggle-output') {
-        if (state.openOutputIds.has(agentId)) {
-          state.openOutputIds.delete(agentId);
+        if (state.openOutputIds.has(sessionId)) {
+          state.openOutputIds.delete(sessionId);
         } else {
-          state.openOutputIds.add(agentId);
+          state.openOutputIds.add(sessionId);
         }
         persistUiState();
         renderAll();
       }
     }
 
+    // Keep this page aligned with GatewayAgentsResponse,
+    // GatewayLogicalAgentCard, and GatewaySessionCard in
+    // src/gateway/gateway-types.ts. tests/gateway-agents-docs.test.ts
+    // asserts the field contract used by this renderer.
     async function fetchAgents() {
       try {
         const payload = await requestJson('/api/agents', {
@@ -1921,17 +2086,19 @@
         });
         state.snapshot = payload;
         state.agents = Array.isArray(payload.agents) ? payload.agents : [];
+        state.sessions = Array.isArray(payload.sessions) ? payload.sessions : [];
         syncOpenOutputIds();
         setAppVersion(payload.version || '');
         setConnectionState(
           'is-online',
-          `${formatNumber(payload.totals?.running || 0)} running / ${formatNumber(payload.totals?.all || 0)} total`,
+          `${formatNumber(payload.totals?.agents?.running || 0)} active agent(s) · ${formatNumber(payload.totals?.sessions?.running || 0)} live session(s)`,
         );
         showNotice('');
         state.lastRefreshAt = payload.generatedAt || new Date().toISOString();
       } catch (error) {
         state.snapshot = null;
         state.agents = [];
+        state.sessions = [];
         setAppVersion('');
         const message = error instanceof Error ? error.message : String(error);
         if (/401|unauthorized/i.test(message)) {
@@ -1941,7 +2108,7 @@
           showNotice('Gateway requires WEB_API_TOKEN. Reuse the same token flow as /chat with ?token=... or localStorage.hybridclaw_token.');
         } else {
           setConnectionState('is-offline', 'Gateway unavailable');
-          showNotice(`Agent data unavailable: ${message}`);
+          showNotice(`Agent/session data unavailable: ${message}`);
         }
       }
     }

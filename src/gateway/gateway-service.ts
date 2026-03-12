@@ -20,6 +20,17 @@ import {
   isKnownToolName,
 } from '../agent/tool-summary.js';
 import {
+  deleteRegisteredAgent,
+  findAgentConfig,
+  getAgentById,
+  listAgents,
+  resolveAgentConfig,
+  resolveAgentForRequest,
+  resolveAgentModel,
+  upsertRegisteredAgent,
+} from '../agents/agent-registry.js';
+import { type AgentConfig, DEFAULT_AGENT_ID } from '../agents/agent-types.js';
+import {
   emitToolExecutionAuditEvents,
   makeAuditRunId,
   recordAuditEvent,
@@ -34,7 +45,6 @@ import {
   DISCORD_FREE_RESPONSE_CHANNELS,
   DISCORD_GROUP_POLICY,
   DISCORD_GUILDS,
-  DISCORD_RESPOND_TO_ALL_MESSAGES,
   FULLAUTO_NEVER_APPROVE_TOOLS,
   HYBRIDAI_CHATBOT_ID,
   HYBRIDAI_ENABLE_RAG,
@@ -79,6 +89,7 @@ import {
   pauseTask,
   recordUsageEvent,
   resumeTask,
+  updateSessionAgent,
   updateSessionChatbot,
   updateSessionModel,
   updateSessionRag,
@@ -86,7 +97,6 @@ import {
 import { memoryService } from '../memory/memory-service.js';
 import {
   modelRequiresChatbotId,
-  resolveAgentIdForModel,
   resolveModelProvider,
 } from '../providers/factory.js';
 import { fetchHybridAIBots } from '../providers/hybridai-bots.js';
@@ -150,7 +160,7 @@ import {
   resolveSessionRalphIterations,
   syncFullAutoRuntimeContext,
 } from './fullauto.js';
-import { mapAgentCard } from './gateway-agent-cards.js';
+import { mapLogicalAgentCard, mapSessionCard } from './gateway-agent-cards.js';
 import {
   classifyGatewayError,
   type GatewayErrorClass,
@@ -307,6 +317,7 @@ export interface GatewayChatRequest {
   username: GatewayChatRequestBody['username'];
   content: GatewayChatRequestBody['content'];
   media?: GatewayChatRequestBody['media'];
+  agentId?: GatewayChatRequestBody['agentId'];
   chatbotId?: GatewayChatRequestBody['chatbotId'];
   model?: GatewayChatRequestBody['model'];
   enableRag?: GatewayChatRequestBody['enableRag'];
@@ -337,6 +348,7 @@ let gatewayServiceInitialized = false;
 
 export function initGatewayService(): void {
   if (gatewayServiceInitialized) return;
+  listAgents();
   configureFullAutoRuntime({ handleGatewayMessage });
   gatewayServiceInitialized = true;
 }
@@ -369,6 +381,28 @@ function mapUsageSummary(value: {
     totalCostUsd: value.total_cost_usd,
     callCount: value.call_count,
     totalToolCalls: value.total_tool_calls,
+  };
+}
+
+function mapGatewayAdminAgent(agent: AgentConfig): {
+  id: string;
+  name: string | null;
+  model: string | null;
+  chatbotId: string | null;
+  enableRag: boolean | null;
+  workspace: string | null;
+  workspacePath: string;
+} {
+  const resolved = resolveAgentConfig(agent.id);
+  return {
+    id: resolved.id,
+    name: resolved.name || null,
+    model: resolveAgentModel(resolved) || null,
+    chatbotId: resolved.chatbotId || null,
+    enableRag:
+      typeof resolved.enableRag === 'boolean' ? resolved.enableRag : null,
+    workspace: resolved.workspace || null,
+    workspacePath: path.resolve(agentWorkspaceDir(resolved.id)),
   };
 }
 
@@ -456,14 +490,16 @@ function mapModelUsageRow(
 }
 
 function mapAdminSession(session: Session): GatewayAdminSession {
+  const runtime = resolveAgentForRequest({ session });
   return {
     id: session.id,
     guildId: session.guild_id,
     channelId: session.channel_id,
+    agentId: runtime.agentId,
     chatbotId: session.chatbot_id,
-    effectiveChatbotId: session.chatbot_id || HYBRIDAI_CHATBOT_ID || null,
+    effectiveChatbotId: runtime.chatbotId || null,
     model: session.model,
-    effectiveModel: session.model || HYBRIDAI_MODEL,
+    effectiveModel: runtime.model,
     ragEnabled: session.enable_rag !== 0,
     messageCount: session.message_count,
     summary: session.session_summary,
@@ -685,14 +721,10 @@ function formatUsd(value: number | null): string {
   return `$${value.toFixed(6)}`;
 }
 
-function resolveSessionAgentId(session: {
-  chatbot_id: string | null;
-}): string | null {
-  const sessionAgent = session.chatbot_id?.trim();
+function resolveSessionAgentId(session: { agent_id: string }): string {
+  const sessionAgent = session.agent_id?.trim();
   if (sessionAgent) return sessionAgent;
-  const defaultAgent = HYBRIDAI_CHATBOT_ID?.trim();
-  if (defaultAgent) return defaultAgent;
-  return null;
+  return DEFAULT_AGENT_ID;
 }
 
 function extractUsageCostUsd(tokenUsage?: TokenUsageStats): number {
@@ -755,7 +787,6 @@ function resolveActivationModeLabel(): string {
   if (DISCORD_GROUP_POLICY === 'allowlist') return 'allowlist';
   if (DISCORD_FREE_RESPONSE_CHANNELS.length > 0)
     return `mention + ${DISCORD_FREE_RESPONSE_CHANNELS.length} free channel(s)`;
-  if (DISCORD_RESPOND_TO_ALL_MESSAGES) return 'all messages';
   return 'mention';
 }
 
@@ -784,7 +815,6 @@ function resolveGuildChannelMode(
       return defaultMode;
     }
   }
-  if (DISCORD_RESPOND_TO_ALL_MESSAGES) return 'free';
   return 'mention';
 }
 
@@ -1089,9 +1119,7 @@ function resolveSessionRuntimeTarget(session: Session): {
   agentId: string;
   workspacePath: string;
 } {
-  const model = session.model ?? HYBRIDAI_MODEL;
-  const chatbotId = session.chatbot_id ?? HYBRIDAI_CHATBOT_ID ?? '';
-  const agentId = resolveAgentIdForModel(model, chatbotId);
+  const { agentId, model, chatbotId } = resolveAgentForRequest({ session });
   return {
     model,
     chatbotId,
@@ -1249,18 +1277,108 @@ export function getGatewayAdminOverview(): GatewayAdminOverview {
   };
 }
 
+export function getGatewayAdminAgents(): {
+  agents: Array<ReturnType<typeof mapGatewayAdminAgent>>;
+} {
+  return {
+    agents: listAgents().map((agent) => mapGatewayAdminAgent(agent)),
+  };
+}
+
+export function createGatewayAdminAgent(params: {
+  id: string;
+  name?: string | null;
+  model?: string | null;
+  chatbotId?: string | null;
+  enableRag?: boolean | null;
+  workspace?: string | null;
+}): { agent: ReturnType<typeof mapGatewayAdminAgent> } {
+  const saved = upsertRegisteredAgent({
+    id: params.id,
+    ...(params.name?.trim() ? { name: params.name.trim() } : {}),
+    ...(params.model?.trim() ? { model: params.model.trim() } : {}),
+    ...(params.chatbotId?.trim() ? { chatbotId: params.chatbotId.trim() } : {}),
+    ...(typeof params.enableRag === 'boolean'
+      ? { enableRag: params.enableRag }
+      : {}),
+    ...(params.workspace?.trim() ? { workspace: params.workspace.trim() } : {}),
+  });
+  return {
+    agent: mapGatewayAdminAgent(saved),
+  };
+}
+
+export function updateGatewayAdminAgent(
+  agentId: string,
+  params: {
+    name?: string | null;
+    model?: string | null;
+    chatbotId?: string | null;
+    enableRag?: boolean | null;
+    workspace?: string | null;
+  },
+): { agent: ReturnType<typeof mapGatewayAdminAgent> } {
+  const existing = getAgentById(agentId);
+  if (!existing) {
+    throw new Error(`Agent "${agentId}" was not found.`);
+  }
+  const saved = upsertRegisteredAgent({
+    ...existing,
+    ...(params.name !== undefined
+      ? { name: params.name?.trim() || undefined }
+      : {}),
+    ...(params.model !== undefined
+      ? { model: params.model?.trim() || undefined }
+      : {}),
+    ...(params.chatbotId !== undefined
+      ? { chatbotId: params.chatbotId?.trim() || undefined }
+      : {}),
+    ...(params.workspace !== undefined
+      ? { workspace: params.workspace?.trim() || undefined }
+      : {}),
+    ...(typeof params.enableRag === 'boolean'
+      ? { enableRag: params.enableRag }
+      : {}),
+  });
+  return {
+    agent: mapGatewayAdminAgent(saved),
+  };
+}
+
+export function deleteGatewayAdminAgent(agentId: string): {
+  deleted: boolean;
+  agentId: string;
+} {
+  const normalizedAgentId = agentId.trim();
+  if (!normalizedAgentId) {
+    throw new Error('Agent id is required.');
+  }
+  if (normalizedAgentId === DEFAULT_AGENT_ID) {
+    throw new Error('The main agent cannot be deleted.');
+  }
+  return {
+    deleted: deleteRegisteredAgent(normalizedAgentId),
+    agentId: normalizedAgentId,
+  };
+}
+
 export function getGatewayAgents(): GatewayAgentsResponse {
   const status = getGatewayStatus();
   const activeSessionIds = new Set(getActiveExecutorSessionIds());
+  const usageByAgent = new Map(
+    listUsageByAgent({ window: 'all' }).map(
+      (row) => [row.agent_id, row] as const,
+    ),
+  );
   const usageBySession = new Map(
     listUsageBySession({ window: 'all' }).map(
       (row) => [row.session_id, row] as const,
     ),
   );
   const sandboxMode = status.sandbox?.mode || 'container';
-  const agents = getAllSessions()
+  const sessions = getAllSessions()
     .map((session) =>
-      mapAgentCard({
+      mapSessionCard({
         session,
         activeSessionIds,
         usageBySession,
@@ -1276,6 +1394,35 @@ export function getGatewayAgents(): GatewayAgentsResponse {
         (parseTimestamp(left.lastActive)?.getTime() || 0)
       );
     });
+  const configuredAgents = listAgents();
+  const agentIds = dedupeStrings([
+    ...configuredAgents.map((agent) => agent.id),
+    ...sessions.map((session) => session.agentId),
+  ]);
+  const sessionsByAgent = new Map<string, typeof sessions>();
+  for (const session of sessions) {
+    const existing = sessionsByAgent.get(session.agentId) ?? [];
+    existing.push(session);
+    sessionsByAgent.set(session.agentId, existing);
+  }
+  const agents = agentIds
+    .map((agentId) =>
+      mapLogicalAgentCard({
+        agent: getAgentById(agentId) ?? resolveAgentConfig(agentId),
+        sessions: sessionsByAgent.get(agentId) ?? [],
+        usage: usageByAgent.get(agentId),
+      }),
+    )
+    .sort((left, right) => {
+      const rank = { active: 0, idle: 1, stopped: 2, unused: 3 } as const;
+      const byStatus = rank[left.status] - rank[right.status];
+      if (byStatus !== 0) return byStatus;
+      const byLastActive =
+        (parseTimestamp(right.lastActive)?.getTime() || 0) -
+        (parseTimestamp(left.lastActive)?.getTime() || 0);
+      if (byLastActive !== 0) return byLastActive;
+      return left.id.localeCompare(right.id);
+    });
 
   return {
     generatedAt: new Date().toISOString(),
@@ -1286,26 +1433,58 @@ export function getGatewayAgents(): GatewayAgentsResponse {
       maxIterations: PROACTIVE_RALPH_MAX_ITERATIONS,
     },
     totals: {
-      all: agents.length,
-      active: agents.filter((agent) => agent.status === 'active').length,
-      idle: agents.filter((agent) => agent.status === 'idle').length,
-      stopped: agents.filter((agent) => agent.status === 'stopped').length,
-      running: agents.filter((agent) => agent.status !== 'stopped').length,
-      totalInputTokens: agents.reduce(
-        (sum, agent) => sum + agent.inputTokens,
-        0,
-      ),
-      totalOutputTokens: agents.reduce(
-        (sum, agent) => sum + agent.outputTokens,
-        0,
-      ),
-      totalTokens: agents.reduce(
-        (sum, agent) => sum + agent.inputTokens + agent.outputTokens,
-        0,
-      ),
-      totalCostUsd: agents.reduce((sum, agent) => sum + agent.costUsd, 0),
+      agents: {
+        all: agents.length,
+        active: agents.filter((agent) => agent.status === 'active').length,
+        idle: agents.filter((agent) => agent.status === 'idle').length,
+        stopped: agents.filter((agent) => agent.status === 'stopped').length,
+        unused: agents.filter((agent) => agent.status === 'unused').length,
+        running: agents.filter(
+          (agent) => agent.status === 'active' || agent.status === 'idle',
+        ).length,
+        totalInputTokens: agents.reduce(
+          (sum, agent) => sum + agent.inputTokens,
+          0,
+        ),
+        totalOutputTokens: agents.reduce(
+          (sum, agent) => sum + agent.outputTokens,
+          0,
+        ),
+        totalTokens: agents.reduce(
+          (sum, agent) => sum + agent.inputTokens + agent.outputTokens,
+          0,
+        ),
+        totalCostUsd: agents.reduce((sum, agent) => sum + agent.costUsd, 0),
+      },
+      sessions: {
+        all: sessions.length,
+        active: sessions.filter((session) => session.status === 'active')
+          .length,
+        idle: sessions.filter((session) => session.status === 'idle').length,
+        stopped: sessions.filter((session) => session.status === 'stopped')
+          .length,
+        running: sessions.filter((session) => session.status !== 'stopped')
+          .length,
+        totalInputTokens: sessions.reduce(
+          (sum, session) => sum + session.inputTokens,
+          0,
+        ),
+        totalOutputTokens: sessions.reduce(
+          (sum, session) => sum + session.outputTokens,
+          0,
+        ),
+        totalTokens: sessions.reduce(
+          (sum, session) => sum + session.inputTokens + session.outputTokens,
+          0,
+        ),
+        totalCostUsd: sessions.reduce(
+          (sum, session) => sum + session.costUsd,
+          0,
+        ),
+      },
     },
     agents,
+    sessions,
   };
 }
 
@@ -2794,6 +2973,7 @@ export async function handleGatewayMessage(
     req.sessionId,
     req.guildId,
     req.channelId,
+    req.agentId ?? undefined,
   );
   if (source !== 'fullauto') {
     preemptRunningFullAutoTurn(req.sessionId, source);
@@ -2810,12 +2990,24 @@ export async function handleGatewayMessage(
     sessionId: req.sessionId,
     abortSignal: req.abortSignal,
   });
-  const chatbotId = req.chatbotId ?? session.chatbot_id ?? HYBRIDAI_CHATBOT_ID;
+  const resolvedRequest = resolveAgentForRequest({
+    agentId: req.agentId,
+    session,
+    model: req.model,
+    chatbotId: req.chatbotId,
+  });
+  const { agentId, model, chatbotId } = resolvedRequest;
+  if (session.agent_id !== agentId) {
+    session = memoryService.getOrCreateSession(
+      req.sessionId,
+      req.guildId,
+      req.channelId,
+      agentId,
+    );
+  }
   const enableRag = req.enableRag ?? session.enable_rag === 1;
-  const model = req.model ?? session.model ?? HYBRIDAI_MODEL;
   const provider = resolveModelProvider(model);
   const media = normalizeMediaContextItems(req.media);
-  const agentId = resolveAgentIdForModel(model, chatbotId);
   const workspacePath = path.resolve(agentWorkspaceDir(agentId));
   const workspaceBootstrap = ensureBootstrapFiles(agentId);
   if (
@@ -2829,6 +3021,7 @@ export async function handleGatewayMessage(
         req.sessionId,
         req.guildId,
         req.channelId,
+        agentId,
       );
     logger.info(
       {
@@ -3420,8 +3613,7 @@ export async function runGatewayScheduledTask(
     null,
     channelId,
   );
-  const chatbotId = session.chatbot_id || HYBRIDAI_CHATBOT_ID;
-  const model = session.model || HYBRIDAI_MODEL;
+  const { agentId, chatbotId, model } = resolveAgentForRequest({ session });
   if (modelRequiresChatbotId(model) && !chatbotId) {
     logger.warn(
       {
@@ -3438,7 +3630,6 @@ export async function runGatewayScheduledTask(
     );
     return;
   }
-  const agentId = resolveAgentIdForModel(model, chatbotId);
 
   await runIsolatedScheduledTask({
     taskId,
@@ -3466,6 +3657,10 @@ export async function handleGatewayCommand(
   switch (cmd) {
     case 'help': {
       const help = [
+        '`agent` — Show current session agent',
+        '`agent list` — List available agents',
+        '`agent switch <id>` — Bind this session to an existing agent',
+        '`agent create <id> [--model <model>]` — Create a new agent',
         '`bot list` — List available bots',
         '`bot set <id|name>` — Set chatbot for this session',
         '`bot info` — Show current chatbot settings',
@@ -3509,6 +3704,132 @@ export async function handleGatewayCommand(
       return infoCommand('HybridClaw Commands', help.join('\n'));
     }
 
+    case 'agent': {
+      const sub = (req.args[1] || '').toLowerCase();
+      if (!sub || sub === 'info' || sub === 'current') {
+        const agent = resolveAgentConfig(session.agent_id);
+        const runtime = resolveAgentForRequest({ session });
+        return infoCommand(
+          'Agent',
+          [
+            `Current agent: ${agent.id}`,
+            ...(agent.name ? [`Name: ${agent.name}`] : []),
+            `Model: ${runtime.model}`,
+            `Chatbot: ${runtime.chatbotId || '(none)'}`,
+            `Workspace: ${path.resolve(agentWorkspaceDir(agent.id))}`,
+          ].join('\n'),
+        );
+      }
+
+      if (sub === 'list') {
+        const currentAgentId = resolveSessionAgentId(session);
+        const entries = listAgents();
+        const lines = entries.map((agent) => {
+          const label =
+            agent.id === currentAgentId ? `${agent.id} (current)` : agent.id;
+          const model = resolveAgentModel(agent) || HYBRIDAI_MODEL;
+          return agent.name
+            ? `${label} — ${agent.name} · ${model}`
+            : `${label} — ${model}`;
+        });
+        return infoCommand(
+          'Agents',
+          lines.length > 0 ? lines.join('\n') : 'No agents configured.',
+        );
+      }
+
+      if (sub === 'switch') {
+        const targetAgentId = String(req.args[2] || '').trim();
+        if (!targetAgentId) {
+          return badCommand('Usage', 'Usage: `agent switch <id>`');
+        }
+        const targetAgent = findAgentConfig(targetAgentId);
+        if (!targetAgent) {
+          return badCommand(
+            'Not Found',
+            `Agent \`${targetAgentId}\` was not found.`,
+          );
+        }
+        updateSessionAgent(session.id, targetAgent.id);
+        const model = resolveAgentModel(targetAgent) || HYBRIDAI_MODEL;
+        return plainCommand(
+          `Session agent set to \`${targetAgent.id}\` (model: \`${model}\`).`,
+        );
+      }
+
+      if (sub === 'create') {
+        const newAgentId = String(req.args[2] || '').trim();
+        if (!newAgentId) {
+          return badCommand(
+            'Usage',
+            'Usage: `agent create <id> [--model <model>]`',
+          );
+        }
+        if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(newAgentId)) {
+          return badCommand(
+            'Invalid Agent Id',
+            'Agent ids must start with a letter or number and only use letters, numbers, `_`, or `-`.',
+          );
+        }
+        if (findAgentConfig(newAgentId)) {
+          return badCommand(
+            'Already Exists',
+            `Agent \`${newAgentId}\` already exists.`,
+          );
+        }
+
+        let modelName: string | undefined;
+        const trailingArgs = req.args.slice(3);
+        if (trailingArgs.length > 0) {
+          if (
+            trailingArgs.length !== 2 ||
+            trailingArgs[0] !== '--model' ||
+            !String(trailingArgs[1] || '').trim()
+          ) {
+            return badCommand(
+              'Usage',
+              'Usage: `agent create <id> [--model <model>]`',
+            );
+          }
+          modelName = String(trailingArgs[1]).trim();
+          const availableModels = getAvailableModelList();
+          if (availableModels.length === 0) {
+            logger.warn(
+              {
+                sessionId: req.sessionId,
+                agentId: newAgentId,
+                model: modelName,
+              },
+              'Skipping agent model validation because no available models are configured',
+            );
+          } else if (!availableModels.includes(modelName)) {
+            return badCommand(
+              'Unknown Model',
+              `\`${modelName}\` is not in the available models list.`,
+            );
+          }
+        }
+
+        const created = upsertRegisteredAgent({
+          id: newAgentId,
+          ...(modelName ? { model: modelName } : {}),
+        });
+        return infoCommand(
+          'Agent Created',
+          [
+            `Agent: ${created.id}`,
+            `Model: ${resolveAgentModel(created) || HYBRIDAI_MODEL}`,
+            `Workspace: ${path.resolve(agentWorkspaceDir(created.id))}`,
+          ].join('\n'),
+        );
+      }
+
+      return badCommand(
+        'Usage',
+        'Usage: `agent|agent list|agent switch <id>|agent create <id> [--model <model>]`',
+      );
+    }
+
     case 'bot': {
       const sub = req.args[1]?.toLowerCase();
       if (sub === 'list') {
@@ -3550,7 +3871,8 @@ export async function handleGatewayCommand(
       }
 
       if (sub === 'info') {
-        const botId = session.chatbot_id || HYBRIDAI_CHATBOT_ID || 'Not set';
+        const runtime = resolveAgentForRequest({ session });
+        const botId = runtime.chatbotId || 'Not set';
         let botLabel = botId;
         try {
           const bots = await fetchHybridAIBots({ cacheTtlMs: BOT_CACHE_TTL });
@@ -3559,11 +3881,10 @@ export async function handleGatewayCommand(
         } catch {
           // keep ID fallback
         }
-        const model = session.model || HYBRIDAI_MODEL;
         const ragStatus = session.enable_rag ? 'Enabled' : 'Disabled';
         return infoCommand(
           'Bot Info',
-          `Chatbot: ${botLabel}\nModel: ${model}\nRAG: ${ragStatus}`,
+          `Chatbot: ${botLabel}\nModel: ${runtime.model}\nRAG: ${ragStatus}`,
         );
       }
 
@@ -3572,9 +3893,10 @@ export async function handleGatewayCommand(
 
     case 'model': {
       const availableModels = getAvailableModelList();
+      const runtime = resolveAgentForRequest({ session });
       const sub = req.args[1]?.toLowerCase();
       if (sub === 'list') {
-        const current = session.model || HYBRIDAI_MODEL;
+        const current = runtime.model;
         const list = availableModels
           .map((m) => (m === current ? `${m} (current)` : m))
           .join('\n');
@@ -3627,10 +3949,9 @@ export async function handleGatewayCommand(
       }
 
       if (sub === 'info') {
-        const current = session.model || HYBRIDAI_MODEL;
         return infoCommand(
           'Model Info',
-          `Current model: ${current}\nDefault model: ${HYBRIDAI_MODEL}`,
+          `Current model: ${runtime.model}\nDefault model: ${HYBRIDAI_MODEL}`,
         );
       }
 
@@ -4085,7 +4406,8 @@ export async function handleGatewayCommand(
       const status = getGatewayStatus();
       const delegationStatus = delegationQueueStatus();
       const commitShort = resolveGitCommitShort();
-      const sessionModel = session.model || HYBRIDAI_MODEL;
+      const runtime = resolveAgentForRequest({ session });
+      const sessionModel = runtime.model;
       const modelContextWindowTokens =
         resolveLocalModelContextWindow(sessionModel) ??
         resolveModelContextWindowFallback(sessionModel);
@@ -4117,6 +4439,7 @@ export async function handleGatewayCommand(
         `📚 Context: ${contextLabel} · 🧹 Compactions: ${session.compaction_count}`,
         `📊 Usage: uptime ${formatUptime(status.uptime)} · sessions ${status.sessions} · sandbox ${sandboxLabel}`,
         `🧵 Session: ${session.id} • updated ${formatRelativeTime(session.last_active)}`,
+        `🤖 Agent: ${runtime.agentId}`,
         `⚙️ Runtime: ${status.sandbox?.mode || 'container'} · RAG: ${session.enable_rag ? 'on' : 'off'} · Ralph: ${formatRalphIterations(resolveSessionRalphIterations(session))}`,
         `🤖 Full-auto: ${fullAutoLabel}`,
         `👥 Activation: ${resolveActivationModeLabel()} · 🪢 Queue: ${queueLabel} · 📬 Proactive queued: ${proactiveQueued}`,
@@ -4186,18 +4509,18 @@ export async function handleGatewayCommand(
 
       const currentAgentId = resolveSessionAgentId(session);
       const daily = getUsageTotals({
-        agentId: currentAgentId || undefined,
+        agentId: currentAgentId,
         window: 'daily',
       });
       const monthly = getUsageTotals({
-        agentId: currentAgentId || undefined,
+        agentId: currentAgentId,
         window: 'monthly',
       });
       const topModels = listUsageByModel({
-        agentId: currentAgentId || undefined,
+        agentId: currentAgentId,
         window: 'monthly',
       }).slice(0, 5);
-      const scopeLabel = currentAgentId || 'all agents';
+      const scopeLabel = currentAgentId;
       const lines = [
         `Scope: ${scopeLabel}`,
         `Today: ${formatCompactNumber(daily.total_tokens)} tokens · ${daily.call_count} calls · ${formatUsd(daily.total_cost_usd)}`,
@@ -4231,14 +4554,7 @@ export async function handleGatewayCommand(
           `Session \`${targetSessionId}\` was not found.`,
         );
       }
-      const exportAgentId =
-        resolveSessionAgentId(targetSession) || resolveSessionAgentId(session);
-      if (!exportAgentId) {
-        return badCommand(
-          'Missing Agent',
-          'Cannot export session: no agent/chatbot is configured for the target session.',
-        );
-      }
+      const exportAgentId = resolveSessionAgentId(targetSession);
       const messages = memoryService.getRecentMessages(targetSessionId);
       const exported = exportSessionSnapshotJsonl({
         agentId: exportAgentId,

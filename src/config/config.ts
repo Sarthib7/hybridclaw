@@ -87,7 +87,6 @@ export function refreshRuntimeSecretsFromEnv(): void {
 export let DISCORD_PREFIX = '!claw';
 export let DISCORD_GUILD_MEMBERS_INTENT = false;
 export let DISCORD_PRESENCE_INTENT = false;
-export let DISCORD_RESPOND_TO_ALL_MESSAGES = false;
 export let DISCORD_COMMANDS_ONLY = false;
 export let DISCORD_COMMAND_MODE: RuntimeConfig['discord']['commandMode'] =
   'public';
@@ -340,7 +339,6 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   DISCORD_PREFIX = config.discord.prefix;
   DISCORD_GUILD_MEMBERS_INTENT = config.discord.guildMembersIntent;
   DISCORD_PRESENCE_INTENT = config.discord.presenceIntent;
-  DISCORD_RESPOND_TO_ALL_MESSAGES = config.discord.respondToAllMessages;
   DISCORD_COMMANDS_ONLY = config.discord.commandsOnly;
   DISCORD_COMMAND_MODE = config.discord.commandMode;
   DISCORD_COMMAND_ALLOWED_USER_IDS = [...config.discord.commandAllowedUserIds];

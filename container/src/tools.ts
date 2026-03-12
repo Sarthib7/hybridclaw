@@ -161,6 +161,7 @@ const MESSAGE_TOOL_ACTION_LIST =
 const MESSAGE_TOOL_DESCRIPTION_BASE =
   'Send messages, DMs, upload local files, read channel history, and look up member info in Discord. Use this when asked to send/post/DM/notify someone, post a local file/image, read messages, or look up users.';
 let gatewayConfiguredChannels: string[] = [];
+const DISCORD_SNOWFLAKE_RE = /^\d{16,22}$/;
 
 function normalizeConfiguredChannelList(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -177,10 +178,18 @@ function normalizeConfiguredChannelList(value: unknown): string[] {
   return out;
 }
 
+function resolveGatewayDiscordChannelFallback(): string {
+  const normalized = normalizeDiscordMessageTarget(gatewayChannelId);
+  if (!normalized || !DISCORD_SNOWFLAKE_RE.test(normalized)) return '';
+  return normalized;
+}
+
 export function getMessageToolDescription(channelId?: string): string {
-  const explicitChannelId = readStringValue(channelId);
+  const explicitChannelId = normalizeDiscordMessageTarget(channelId);
   const activeChannelId =
-    explicitChannelId || readStringValue(gatewayChannelId);
+    explicitChannelId && DISCORD_SNOWFLAKE_RE.test(explicitChannelId)
+      ? explicitChannelId
+      : resolveGatewayDiscordChannelFallback();
   const configuredChannels = normalizeConfiguredChannelList(
     gatewayConfiguredChannels,
   );
@@ -382,7 +391,7 @@ function resolveDiscordMessageChannelTarget(
     normalizeDiscordMessageTarget(args.channelId) ||
     normalizeDiscordMessageTarget(args.to) ||
     normalizeDiscordMessageTarget(args.target) ||
-    normalizeDiscordMessageTarget(gatewayChannelId);
+    resolveGatewayDiscordChannelFallback();
   return resolved || '';
 }
 
@@ -1966,7 +1975,7 @@ async function executeToolInternal(
           resolveDiscordMessageSendUserLookupTarget(args);
         const fallbackChannelId = userLookupTarget
           ? ''
-          : normalizeDiscordMessageTarget(gatewayChannelId);
+          : resolveGatewayDiscordChannelFallback();
         const channelId = explicitChannelId || fallbackChannelId;
         if (!channelId && !userLookupTarget) {
           return failTool(
@@ -2019,8 +2028,7 @@ async function executeToolInternal(
 
         const requestingUserId = resolveDiscordRequestingUserId(args);
         const guildId = resolveDiscordGuildId(args.guildId);
-        const contextChannelId =
-          normalizeDiscordMessageTarget(gatewayChannelId);
+        const contextChannelId = resolveGatewayDiscordChannelFallback();
         if (requestingUserId) payload.userId = requestingUserId;
         if (guildId) payload.guildId = guildId;
         if (contextChannelId) payload.contextChannelId = contextChannelId;
@@ -2791,7 +2799,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           resolveAmbiguous: {
             type: 'string',
             description:
-              'Ambiguity policy for member lookups in action="member-info" and user-target sends: "error" (default) returns candidates, "best" auto-picks top score.',
+              'Ambiguity policy for Discord name lookups. For action="member-info", user-target sends, and channel-name targets: "error" (default) returns an error/candidates, "best" auto-picks the top score.',
             enum: ['error', 'best'],
           },
           limit: {

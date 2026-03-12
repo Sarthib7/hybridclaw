@@ -79,4 +79,9 @@ test('resolves WhatsApp hints from explicit WhatsApp context', () => {
   expect(
     hints.some((entry) => entry.includes('`*bold*`, `_italic_`, `~strike~`')),
   ).toBe(true);
+  expect(
+    hints.some((entry) =>
+      entry.includes('always provide an explicit Discord `channelId`'),
+    ),
+  ).toBe(true);
 });

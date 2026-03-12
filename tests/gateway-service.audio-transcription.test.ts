@@ -15,6 +15,7 @@ vi.mock('../src/agent/agent.js', () => ({
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const ORIGINAL_GROQ_API_KEY = process.env.GROQ_API_KEY;
+const ORIGINAL_WHISPER_CPP_MODEL = process.env.WHISPER_CPP_MODEL;
 const ORIGINAL_PATH = process.env.PATH;
 const tempDirs: string[] = [];
 
@@ -40,6 +41,7 @@ afterEach(() => {
   restoreEnvVar('HOME', ORIGINAL_HOME);
   restoreEnvVar('OPENAI_API_KEY', ORIGINAL_OPENAI_API_KEY);
   restoreEnvVar('GROQ_API_KEY', ORIGINAL_GROQ_API_KEY);
+  restoreEnvVar('WHISPER_CPP_MODEL', ORIGINAL_WHISPER_CPP_MODEL);
   restoreEnvVar('PATH', ORIGINAL_PATH);
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop();
@@ -401,6 +403,114 @@ test('handleGatewayMessage transcribes with a local CLI when no provider key is 
     | undefined;
   const userMessage = request?.messages?.at(-1);
   expect(userMessage?.content).toContain('local-only transcript');
+});
+
+test('handleGatewayMessage transcribes managed WhatsApp temp audio with whisper-cli', async () => {
+  delete process.env.OPENAI_API_KEY;
+  delete process.env.GROQ_API_KEY;
+  const fetchMock = vi.fn();
+  vi.stubGlobal('fetch', fetchMock);
+
+  const binDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-whisper-cli-bin-'),
+  );
+  tempDirs.push(binDir);
+  const modelDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-whisper-cli-model-'),
+  );
+  tempDirs.push(modelDir);
+  const modelPath = path.join(modelDir, 'ggml-tiny.bin');
+  fs.writeFileSync(modelPath, 'fake-model', 'utf-8');
+  process.env.WHISPER_CPP_MODEL = modelPath;
+
+  const whisperCliPath = path.join(binDir, 'whisper-cli');
+  fs.writeFileSync(
+    whisperCliPath,
+    [
+      '#!/bin/sh',
+      'out_base=""',
+      'while [ "$#" -gt 0 ]; do',
+      '  case "$1" in',
+      '    -of)',
+      '      out_base="$2"',
+      '      shift 2',
+      '      ;;',
+      '    *)',
+      '      shift',
+      '      ;;',
+      '  esac',
+      'done',
+      'printf "whatsapp whisper transcript\\n" > "${out_base}.txt"',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+  fs.chmodSync(whisperCliPath, 0o755);
+  process.env.PATH = `${binDir}${path.delimiter}${ORIGINAL_PATH || ''}`;
+
+  const waTempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-wa-'));
+  tempDirs.push(waTempDir);
+  const waAudioPath = path.join(waTempDir, 'voice-note.ogg');
+  fs.writeFileSync(waAudioPath, 'voice-bytes', 'utf-8');
+
+  const fixture = await createGatewayAudioFixture();
+  const { clearAudioTranscriptionCachesForTests } = await import(
+    '../src/media/audio-transcription-backends.ts'
+  );
+  clearAudioTranscriptionCachesForTests();
+  fixture.updateRuntimeConfig((draft) => {
+    draft.media.audio.models = [
+      {
+        type: 'cli',
+        command: 'whisper-cli',
+        args: [
+          '-m',
+          modelPath,
+          '-otxt',
+          '-of',
+          '{{OutputBase}}',
+          '-np',
+          '-nt',
+          '{{MediaPath}}',
+        ],
+      },
+    ];
+  });
+  const sessionId = 'whatsapp:audio-transcription-whisper-cli';
+
+  const result = await fixture.handleGatewayMessage({
+    sessionId,
+    guildId: null,
+    channelId: '1061007917075@lid',
+    userId: '+491703330161',
+    username: 'Benedikt',
+    content: '',
+    model: 'openai-codex/gpt-5-codex',
+    chatbotId: '',
+    media: [
+      {
+        path: waAudioPath,
+        url: `file://${waAudioPath}`,
+        originalUrl: `file://${waAudioPath}`,
+        mimeType: 'audio/ogg; codecs=opus',
+        sizeBytes: 11,
+        filename: 'voice-note.ogg',
+      },
+    ],
+  });
+
+  expect(result.status).toBe('success');
+  expect(fetchMock).not.toHaveBeenCalled();
+  expect(runAgentMock).toHaveBeenCalledTimes(1);
+
+  const request = runAgentMock.mock.calls[0]?.[0] as
+    | {
+        messages?: Array<{ role: string; content: string }>;
+      }
+    | undefined;
+  const userMessage = request?.messages?.at(-1);
+  expect(userMessage?.content).toContain('[AudioTranscript]');
+  expect(userMessage?.content).toContain('whatsapp whisper transcript');
 });
 
 test('handleGatewayMessage falls back to the next configured provider when the first one fails', async () => {

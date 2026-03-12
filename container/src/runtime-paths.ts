@@ -1,7 +1,10 @@
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 export const WORKSPACE_ROOT_DISPLAY = '/workspace';
 export const DISCORD_MEDIA_CACHE_ROOT_DISPLAY = '/discord-media-cache';
+const MANAGED_TEMP_MEDIA_DIR_PREFIXES = ['hybridclaw-wa-'] as const;
 
 export const WORKSPACE_ROOT = path.resolve(
   process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT || WORKSPACE_ROOT_DISPLAY,
@@ -66,6 +69,38 @@ function isWithinRoot(candidate: string, root: string): boolean {
     resolvedCandidate === resolvedRoot ||
     resolvedCandidate.startsWith(`${resolvedRoot}${path.sep}`)
   );
+}
+
+function resolveCanonicalPath(rawPath: string): string {
+  try {
+    return fs.realpathSync.native(rawPath);
+  } catch {
+    try {
+      return fs.realpathSync(rawPath);
+    } catch {
+      return path.resolve(rawPath);
+    }
+  }
+}
+
+function resolveManagedTempMediaPath(rawPath: string): string | null {
+  const input = String(rawPath || '').trim();
+  if (!input || !path.isAbsolute(input)) return null;
+
+  const candidate = resolveCanonicalPath(input);
+  const tempRoot = resolveCanonicalPath(os.tmpdir());
+  if (!isWithinRoot(candidate, tempRoot)) return null;
+
+  const dirName = path.basename(path.dirname(candidate));
+  if (
+    !MANAGED_TEMP_MEDIA_DIR_PREFIXES.some((prefix) =>
+      dirName.startsWith(prefix),
+    )
+  ) {
+    return null;
+  }
+
+  return candidate;
 }
 
 function resolveDisplayAbsoluteToActual(
@@ -177,10 +212,13 @@ export function resolveWorkspaceGlobPattern(rawPattern: string): string | null {
 }
 
 export function resolveMediaPath(rawPath: string): string | null {
-  return resolveRootBoundPath(
+  return (
+    resolveManagedTempMediaPath(rawPath) ||
+    resolveRootBoundPath(
     rawPath,
     DISCORD_MEDIA_CACHE_ROOT,
     DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
+    )
   );
 }
 

@@ -223,6 +223,44 @@ describe.sequential('container message tool normalization', () => {
     expect(payload.contextChannelId).toBe(CHANNEL_ID);
   });
 
+  test('send requires an explicit Discord target from WhatsApp context', async () => {
+    const fetchMock = mockGatewayFetch({
+      ok: true,
+      action: 'send',
+      channelId: 'should-not-be-called',
+    });
+    setGatewayContext(
+      'http://gateway.local',
+      'token',
+      '491234567890@s.whatsapp.net',
+    );
+
+    const result = await executeTool(
+      'message',
+      JSON.stringify({
+        action: 'send',
+        content: 'hello',
+      }),
+    );
+
+    expect(result).toContain(
+      'channelId is required for message action "send" unless user/username is provided.',
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('message tool description does not treat WhatsApp chat as a Discord channel', () => {
+    setGatewayContext(
+      'http://gateway.local',
+      'token',
+      '491234567890@s.whatsapp.net',
+    );
+
+    const description = getMessageToolDescription();
+    expect(description).not.toContain('491234567890@s.whatsapp.net');
+    expect(description).toContain('Supports actions:');
+  });
+
   test('message tool description enumerates other configured channels', () => {
     const otherChannelId = '223456789012345679';
     setGatewayContext('http://gateway.local', 'token', CHANNEL_ID, [

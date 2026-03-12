@@ -1,6 +1,4 @@
-import fs from 'node:fs';
 import path from 'node:path';
-import { URL } from 'node:url';
 
 import { TrustedCoworkerApprovalRuntime } from './approval-policy.js';
 import { discoverArtifactsSince, inferArtifactMimeType } from './artifacts.js';
@@ -14,6 +12,11 @@ import { McpClientManager } from './mcp/client-manager.js';
 import { McpConfigWatcher } from './mcp/config-watcher.js';
 import { callHybridAI, callHybridAIStream } from './model-client.js';
 import {
+  injectNativeAudioContent,
+  injectNativeVisionContent,
+  shouldRetryWithoutNativeMedia,
+} from './native-media.js';
+import {
   isRetryableModelError,
   shouldDowngradeStreamToNonStreaming,
 } from './model-retry.js';
@@ -25,7 +28,6 @@ import {
 } from './ralph.js';
 import { injectRuntimeCapabilitiesMessage } from './runtime-capabilities.js';
 import {
-  resolveMediaPath,
   resolveWorkspacePath,
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
@@ -66,11 +68,9 @@ import {
 } from './tools.js';
 import type {
   ArtifactMetadata,
-  ChatContentPart,
   ChatMessage,
   ContainerInput,
   ContainerOutput,
-  MediaContextItem,
   ToolDefinition,
   ToolExecution,
 } from './types.js';
@@ -103,14 +103,6 @@ const DEFAULT_RALPH_MAX_EXTRA_ITERATIONS = Number.isFinite(
     ? -1
     : Math.max(0, Math.min(64, RAW_DEFAULT_RALPH_MAX_EXTRA_ITERATIONS))
   : 0;
-const NATIVE_VISION_MAX_IMAGES = 8;
-const NATIVE_VISION_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-const DISCORD_CDN_HOST_PATTERNS: RegExp[] = [
-  /^cdn\.discordapp\.com$/i,
-  /^media\.discordapp\.net$/i,
-  /^cdn\.discordapp\.net$/i,
-  /^images-ext-\d+\.discordapp\.net$/i,
-];
 const approvalRuntime = new TrustedCoworkerApprovalRuntime();
 let cachedSelectedSkillPath: string | null = null;
 
@@ -145,152 +137,6 @@ async function shutdownMcp(): Promise<void> {
 
 function normalizePathSlashes(raw: string): string {
   return raw.replace(/\\/g, '/');
-}
-
-function normalizeAllowedLocalImagePath(rawPath: string): string | null {
-  const trimmed = rawPath.trim();
-  if (!trimmed) return null;
-  return resolveWorkspacePath(trimmed) || resolveMediaPath(trimmed);
-}
-
-function inferImageMimeType(
-  filePath: string,
-  fallbackMime: string | null | undefined,
-): string {
-  const normalizedFallback = String(fallbackMime || '')
-    .trim()
-    .toLowerCase();
-  if (normalizedFallback.startsWith('image/')) return normalizedFallback;
-  const inferred = inferArtifactMimeType(filePath);
-  return inferred.startsWith('image/') ? inferred : 'image/png';
-}
-
-function isImageMediaItem(item: MediaContextItem): boolean {
-  const mimeType = String(item.mimeType || '')
-    .trim()
-    .toLowerCase();
-  if (mimeType.startsWith('image/')) return true;
-  return /\.(png|jpe?g|gif|webp|bmp|svg|tiff?)$/i.test(item.filename || '');
-}
-
-function isSafeDiscordCdnUrl(raw: string): boolean {
-  let parsed: URL;
-  try {
-    parsed = new URL(raw);
-  } catch {
-    return false;
-  }
-  if (parsed.protocol !== 'https:') return false;
-  return DISCORD_CDN_HOST_PATTERNS.some((pattern) =>
-    pattern.test(parsed.hostname),
-  );
-}
-
-function modelSupportsNativeVision(model: string): boolean {
-  const normalized = model.toLowerCase();
-  if (!normalized) return false;
-  if (
-    normalized.includes('gpt-5') ||
-    normalized.includes('gpt-4o') ||
-    normalized.includes('gpt-4.1') ||
-    normalized.includes('o1') ||
-    normalized.includes('o3') ||
-    normalized.includes('vision') ||
-    normalized.includes('multimodal') ||
-    normalized.includes('gemini') ||
-    normalized.includes('claude-3')
-  ) {
-    return true;
-  }
-  return false;
-}
-
-async function resolveMediaImagePartUrl(
-  item: MediaContextItem,
-): Promise<string | null> {
-  const localPath = item.path
-    ? normalizeAllowedLocalImagePath(item.path)
-    : null;
-  if (localPath) {
-    try {
-      const image = await fs.promises.readFile(localPath);
-      if (image.length > NATIVE_VISION_MAX_IMAGE_BYTES) {
-        console.error(
-          `[media] skipping ${localPath}: ${image.length}B exceeds native vision max`,
-        );
-      } else {
-        const mimeType = inferImageMimeType(localPath, item.mimeType);
-        const base64 = image.toString('base64');
-        return `data:${mimeType};base64,${base64}`;
-      }
-    } catch (err) {
-      console.error(
-        `[media] failed to read local media ${localPath}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-  }
-
-  const fallbackCandidates = [item.url, item.originalUrl]
-    .map((value) => String(value || '').trim())
-    .filter(Boolean);
-  for (const candidate of fallbackCandidates) {
-    if (!isSafeDiscordCdnUrl(candidate)) continue;
-    return candidate;
-  }
-  return null;
-}
-
-async function injectNativeVisionContent(
-  messages: ChatMessage[],
-  model: string,
-  media: MediaContextItem[] | undefined,
-): Promise<ChatMessage[]> {
-  if (!Array.isArray(media) || media.length === 0) return messages;
-  if (!modelSupportsNativeVision(model)) return messages;
-
-  const mediaSlice = media
-    .filter((item) => isImageMediaItem(item))
-    .slice(0, NATIVE_VISION_MAX_IMAGES);
-  const imageParts: ChatContentPart[] = [];
-  for (const item of mediaSlice) {
-    const url = await resolveMediaImagePartUrl(item);
-    if (!url) continue;
-    imageParts.push({ type: 'image_url', image_url: { url } });
-  }
-  if (imageParts.length === 0) return messages;
-
-  const latestUserIndex = (() => {
-    for (let i = messages.length - 1; i >= 0; i -= 1) {
-      if (messages[i].role === 'user') return i;
-    }
-    return -1;
-  })();
-  if (latestUserIndex < 0) return messages;
-
-  const cloned = messages.map((msg) => ({ ...msg }));
-  const existingText = normalizeMessageContentToText(
-    cloned[latestUserIndex].content,
-  );
-  const contentParts: ChatContentPart[] = [];
-  const nativeVisionHint =
-    '[NativeVision] Image parts are attached in this message. Analyze them directly and skip extra vision tool pre-analysis unless explicitly required.';
-  if (existingText) {
-    contentParts.push({
-      type: 'text',
-      text: `${existingText}\n\n${nativeVisionHint}`,
-    });
-  } else {
-    contentParts.push({ type: 'text', text: nativeVisionHint });
-  }
-  contentParts.push(...imageParts);
-  cloned[latestUserIndex] = {
-    ...cloned[latestUserIndex],
-    content: contentParts,
-  };
-  console.error(
-    `[media] injected ${imageParts.length} native vision image part(s) for model ${model}`,
-  );
-  return cloned;
 }
 
 function parseToolArgs(argsJson: string): Record<string, unknown> | null {
@@ -1116,19 +962,6 @@ function resolveTools(input: ContainerInput): ToolDefinition[] {
   return tools;
 }
 
-function shouldRetryWithoutNativeVision(error: string | undefined): boolean {
-  const normalized = String(error || '').toLowerCase();
-  if (!normalized) return false;
-  return (
-    normalized.includes('image_url') ||
-    normalized.includes('unsupported image') ||
-    normalized.includes('unsupported content') ||
-    normalized.includes('vision') ||
-    normalized.includes('multimodal') ||
-    normalized.includes('content part')
-  );
-}
-
 async function main(): Promise<void> {
   console.error(
     `[hybridclaw-agent] started, idle timeout ${IDLE_TIMEOUT_MS}ms`,
@@ -1164,11 +997,16 @@ async function main(): Promise<void> {
     storedRequestHeaders,
   );
   setMediaContext(firstInput.media);
-  const firstMessages = await injectNativeVisionContent(
-    firstInput.messages,
-    firstInput.model,
-    firstInput.media,
-  );
+  const firstVisionMessages = await injectNativeVisionContent({
+    messages: firstInput.messages,
+    model: firstInput.model,
+    media: firstInput.media,
+  });
+  const firstMessages = await injectNativeAudioContent({
+    messages: firstVisionMessages,
+    provider: firstInput.provider,
+    media: firstInput.media,
+  });
   const firstPrelude = approvalRuntime.handleApprovalResponse(firstMessages);
   const firstPromptOverride = firstPrelude?.replayPrompt;
   const firstPreparedMessages = firstPromptOverride
@@ -1211,10 +1049,10 @@ async function main(): Promise<void> {
     if (
       firstMessagesForRequest !== firstInput.messages &&
       firstOutput.status === 'error' &&
-      shouldRetryWithoutNativeVision(firstOutput.error)
+      shouldRetryWithoutNativeMedia(firstOutput.error)
     ) {
       console.error(
-        '[media] native vision injection rejected by model; retrying without image parts',
+        '[media] native media injection rejected by model; retrying without native media parts',
       );
       const firstRetryMessages = firstPromptOverride
         ? replaceLatestUserPrompt(firstInput.messages, firstPromptOverride)
@@ -1292,11 +1130,16 @@ async function main(): Promise<void> {
       requestHeaders,
     );
     setMediaContext(input.media);
-    const preparedMessages = await injectNativeVisionContent(
-      input.messages,
-      input.model,
-      input.media,
-    );
+    const visionPreparedMessages = await injectNativeVisionContent({
+      messages: input.messages,
+      model: input.model,
+      media: input.media,
+    });
+    const preparedMessages = await injectNativeAudioContent({
+      messages: visionPreparedMessages,
+      provider: input.provider,
+      media: input.media,
+    });
     approvalRuntime.setFullAutoOptions({
       enabled: input.fullAutoEnabled === true,
       neverApproveTools: input.fullAutoNeverApproveTools,
@@ -1343,10 +1186,10 @@ async function main(): Promise<void> {
     if (
       messagesForRequestWithSkillCache !== input.messages &&
       output.status === 'error' &&
-      shouldRetryWithoutNativeVision(output.error)
+      shouldRetryWithoutNativeMedia(output.error)
     ) {
       console.error(
-        '[media] native vision injection rejected by model; retrying without image parts',
+        '[media] native media injection rejected by model; retrying without native media parts',
       );
       const retryMessages = promptOverride
         ? replaceLatestUserPrompt(input.messages, promptOverride)

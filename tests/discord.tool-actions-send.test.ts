@@ -12,6 +12,7 @@ const REQUESTING_ROLE_ID = '444444444444444444';
 function createRunner(params?: {
   channel?: Record<string, unknown> | null;
   sendAllowed?: ResolveSendAllowedResult;
+  requireDiscordClientReady?: () => Client | Promise<Client>;
   resolveSendAttachments?: (
     request: Record<string, unknown>,
   ) => Promise<AttachmentBuilder[]>;
@@ -32,9 +33,11 @@ function createRunner(params?: {
     .mockReturnValue(params?.sendAllowed ?? { allowed: true });
   const resolveSendAttachments =
     params?.resolveSendAttachments ?? vi.fn(async () => []);
+  const requireDiscordClientReady =
+    params?.requireDiscordClientReady ?? (() => client);
 
   const runner = createDiscordToolActionRunner({
-    requireDiscordClientReady: () => client,
+    requireDiscordClientReady,
     getDiscordPresence: () => undefined,
     sendToChannel,
     resolveSendAttachments,
@@ -64,6 +67,37 @@ test('send action sends validated content to channel', async () => {
     requestingUserId: undefined,
     requestingRoleIds: undefined,
   });
+  expect(sendToChannel).toHaveBeenCalledWith(CHANNEL_ID, 'hello from tool');
+  expect(result).toMatchObject({
+    ok: true,
+    action: 'send',
+    channelId: CHANNEL_ID,
+  });
+});
+
+test('send action awaits async client readiness', async () => {
+  const requireDiscordClientReady = vi.fn(async () => {
+    await Promise.resolve();
+    return {
+      channels: {
+        fetch: vi.fn(async () => ({
+          id: CHANNEL_ID,
+          guildId: GUILD_ID,
+          send: vi.fn(),
+        })),
+        cache: new Map(),
+      },
+    } as unknown as Client;
+  });
+  const { runner, sendToChannel } = createRunner({ requireDiscordClientReady });
+
+  const result = await runner({
+    action: 'send',
+    channelId: CHANNEL_ID,
+    content: 'hello from tool',
+  });
+
+  expect(requireDiscordClientReady).toHaveBeenCalled();
   expect(sendToChannel).toHaveBeenCalledWith(CHANNEL_ID, 'hello from tool');
   expect(result).toMatchObject({
     ok: true,

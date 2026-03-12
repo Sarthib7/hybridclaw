@@ -34,6 +34,8 @@ const NOOP_WA_LOGGER = {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.doUnmock('../src/channels/whatsapp/phone.ts');
+  vi.doUnmock('@whiskeysockets/baileys');
   vi.resetModules();
 });
 
@@ -46,7 +48,7 @@ describe('whatsapp inbound policy filtering', () => {
       groupAllowFrom: [],
       chatJid: '4915123456789@s.whatsapp.net',
       senderJid: '4915123456789@s.whatsapp.net',
-      selfJid: '4915123456789:1@s.whatsapp.net',
+      selfJids: ['4915123456789:1@s.whatsapp.net'],
       fromMe: true,
     });
 
@@ -63,7 +65,7 @@ describe('whatsapp inbound policy filtering', () => {
       groupAllowFrom: [],
       chatJid: '4915123456789@s.whatsapp.net',
       senderJid: '498912345678@s.whatsapp.net',
-      selfJid: '4915123456789@s.whatsapp.net',
+      selfJids: ['4915123456789@s.whatsapp.net'],
       fromMe: false,
     });
 
@@ -79,7 +81,7 @@ describe('whatsapp inbound policy filtering', () => {
       groupAllowFrom: [],
       chatJid: '120363401234567890@g.us',
       senderJid: '4915123456789@s.whatsapp.net',
-      selfJid: '4915000000000@s.whatsapp.net',
+      selfJids: ['4915000000000@s.whatsapp.net'],
       fromMe: false,
     });
     const allowed = evaluateWhatsAppAccessPolicy({
@@ -89,7 +91,7 @@ describe('whatsapp inbound policy filtering', () => {
       groupAllowFrom: ['+4915123456789'],
       chatJid: '120363401234567890@g.us',
       senderJid: '4915123456789@s.whatsapp.net',
-      selfJid: '4915000000000@s.whatsapp.net',
+      selfJids: ['4915000000000@s.whatsapp.net'],
       fromMe: false,
     });
 
@@ -107,11 +109,17 @@ describe('whatsapp inbound policy filtering', () => {
       return phone ? `+${phone.split(':')[0]}` : null;
     });
 
-    vi.doMock('../src/channels/whatsapp/phone.ts', () => ({
-      isGroupJid: (jid: string) => jid.endsWith('@g.us'),
-      jidToPhone,
-      normalizePhoneNumber,
-    }));
+    vi.doMock('../src/channels/whatsapp/phone.ts', async () => {
+      const actual = await vi.importActual<
+        typeof import('../src/channels/whatsapp/phone.ts')
+      >('../src/channels/whatsapp/phone.ts');
+      return {
+        ...actual,
+        isGroupJid: (jid: string) => jid.endsWith('@g.us'),
+        jidToPhone,
+        normalizePhoneNumber,
+      };
+    });
 
     const { evaluateWhatsAppAccessPolicy: evaluatePolicy } = await import(
       '../src/channels/whatsapp/inbound.ts'
@@ -125,13 +133,29 @@ describe('whatsapp inbound policy filtering', () => {
       groupAllowFrom: [],
       chatJid: '4915000000000@s.whatsapp.net',
       senderJid: '4915123456789@s.whatsapp.net',
-      selfJid: '4915000000000@s.whatsapp.net',
+      selfJids: ['4915000000000@s.whatsapp.net'],
       fromMe: false,
     };
 
     expect(evaluatePolicy(params).allowed).toBe(true);
     expect(evaluatePolicy(params).allowed).toBe(true);
     expect(normalizePhoneNumber).toHaveBeenCalledTimes(1);
+  });
+
+  test('treats linked-device lid messages as self-chat when the runtime exposes self lid identity', () => {
+    const result = evaluateWhatsAppAccessPolicy({
+      dmPolicy: 'pairing',
+      groupPolicy: 'disabled',
+      allowFrom: [],
+      groupAllowFrom: [],
+      chatJid: '1061007917075@lid',
+      senderJid: '1061007917075:14@lid',
+      selfJids: ['491703330161:18@s.whatsapp.net', '1061007917075:18@lid'],
+      fromMe: true,
+    });
+
+    expect(result.allowed).toBe(true);
+    expect(result.isSelfChat).toBe(true);
   });
 
   test('ignores inbound events without text or media payload', async () => {
@@ -149,7 +173,7 @@ describe('whatsapp inbound policy filtering', () => {
         logger: NOOP_WA_LOGGER,
       },
       config: BASE_WHATSAPP_CONFIG,
-      selfJid: '4915123456789:1@s.whatsapp.net',
+      selfJids: ['4915123456789:1@s.whatsapp.net'],
     });
 
     expect(result).toBeNull();
@@ -194,7 +218,7 @@ describe('whatsapp inbound policy filtering', () => {
         ...BASE_WHATSAPP_CONFIG,
         dmPolicy: 'open',
       },
-      selfJid: '4915999999999:1@s.whatsapp.net',
+      selfJids: ['4915999999999:1@s.whatsapp.net'],
     });
 
     expect(result).not.toBeNull();
@@ -204,6 +228,33 @@ describe('whatsapp inbound policy filtering', () => {
     if (result) {
       await cleanupWhatsAppInboundMedia(result.media);
     }
+  });
+
+  test('canonicalizes self-chat sessions to the primary phone jid when inbound arrives on lid', async () => {
+    const result = await processInboundWhatsAppMessage({
+      message: {
+        key: {
+          id: 'msg-self-lid-1',
+          fromMe: true,
+          remoteJid: '1061007917075@lid',
+          participant: '1061007917075:14@lid',
+        },
+        message: {
+          conversation: 'hello from my macbook',
+        },
+      },
+      sock: {
+        updateMediaMessage: async () => undefined,
+        logger: NOOP_WA_LOGGER,
+      },
+      config: BASE_WHATSAPP_CONFIG,
+      selfJids: ['491703330161@s.whatsapp.net', '1061007917075:18@lid'],
+    });
+
+    expect(result).not.toBeNull();
+    expect(result?.sessionId).toBe('wa:491703330161@s.whatsapp.net');
+    expect(result?.channelId).toBe('1061007917075@lid');
+    expect(result?.userId).toBe('+491703330161');
   });
 
   test('cleanupWhatsAppInboundMedia removes managed WhatsApp temp dirs only', async () => {

@@ -47,6 +47,7 @@ import { logger } from '../../logger.js';
 import { getSessionById } from '../../memory/db.js';
 import { getAvailableModelChoices } from '../../providers/model-catalog.js';
 import type { MediaContextItem } from '../../types.js';
+import { sleep } from '../../utils/sleep.js';
 import {
   buildApprovalActionRow,
   disableApprovalButtons,
@@ -540,14 +541,29 @@ interface DiscordErrorLike {
   };
 }
 
-function requireDiscordClientReady(): Client {
+const DISCORD_READY_WAIT_TIMEOUT_MS = 10_000;
+const DISCORD_READY_WAIT_INTERVAL_MS = 100;
+
+async function requireDiscordClientReady(): Promise<Client> {
   if (!client) {
     throw new Error('Discord client is not initialized.');
   }
-  if (!client.isReady()) {
-    throw new Error('Discord client is not ready yet.');
+  if (client.isReady()) {
+    return client;
   }
-  return client;
+
+  const deadline = Date.now() + DISCORD_READY_WAIT_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    await sleep(DISCORD_READY_WAIT_INTERVAL_MS);
+    if (!client) {
+      throw new Error('Discord client is not initialized.');
+    }
+    if (client.isReady()) {
+      return client;
+    }
+  }
+
+  throw new Error('Discord client is not ready yet.');
 }
 
 const DISCORD_MEDIA_CACHE_HOST_DIR = path.resolve(
@@ -2515,10 +2531,8 @@ export async function sendToChannel(
   text: string,
   files?: AttachmentBuilder[],
 ): Promise<void> {
-  if (!client || !client.isReady()) {
-    throw new Error('Discord client is not ready yet.');
-  }
-  const channel = await client.channels.fetch(channelId);
+  const activeClient = await requireDiscordClientReady();
+  const channel = await activeClient.channels.fetch(channelId);
   if (!channel || !('send' in channel)) {
     throw new Error(`Channel ${channelId} does not support sending messages.`);
   }

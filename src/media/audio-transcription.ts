@@ -23,6 +23,7 @@ const DISCORD_MEDIA_CACHE_ROOT_DISPLAY = '/discord-media-cache';
 const DISCORD_MEDIA_CACHE_ROOT = path.resolve(
   path.join(DATA_DIR, 'discord-media-cache'),
 );
+const MANAGED_TEMP_MEDIA_DIR_PREFIXES = ['hybridclaw-wa-'] as const;
 const AUDIO_FILE_EXTENSION_RE =
   /\.(aac|aif|aiff|alac|flac|m4a|mp3|mp4|mpeg|mpga|oga|ogg|opus|wav|webm|wma)$/i;
 
@@ -74,6 +75,19 @@ function isWithinRoot(candidate: string, root: string): boolean {
   return (
     resolvedCandidate === resolvedRoot ||
     resolvedCandidate.startsWith(`${resolvedRoot}${path.sep}`)
+  );
+}
+
+async function isManagedTempMediaPath(candidate: string): Promise<boolean> {
+  const resolvedCandidate = path.resolve(candidate);
+  const tempRoot = await resolveCanonicalPath(os.tmpdir());
+  if (!isWithinRoot(resolvedCandidate, tempRoot)) {
+    return false;
+  }
+
+  const dirName = path.basename(path.dirname(resolvedCandidate));
+  return MANAGED_TEMP_MEDIA_DIR_PREFIXES.some((prefix) =>
+    dirName.startsWith(prefix),
   );
 }
 
@@ -190,7 +204,10 @@ async function resolveAllowedHostMediaPath(params: {
   );
 
   if (!allowedRoots.some((root) => isWithinRoot(canonical, root))) {
-    if (!(CONTAINER_SANDBOX_MODE === 'host' && explicitAbsoluteInput)) {
+    if (
+      !(await isManagedTempMediaPath(canonical)) &&
+      !(CONTAINER_SANDBOX_MODE === 'host' && explicitAbsoluteInput)
+    ) {
       return null;
     }
   }
@@ -305,6 +322,16 @@ export async function prependAudioTranscriptionsToUserContent(params: {
       if (maxChars <= 0) break;
       const normalized = clampText(transcript.text, maxChars).trim();
       if (!normalized) continue;
+
+      logger.debug(
+        {
+          backend: transcript.backend,
+          filename: item.filename || path.basename(resolvedPath),
+          mediaPath: item.path || resolvedPath,
+          transcriptChars: normalized.length,
+        },
+        'Audio transcription completed',
+      );
 
       transcripts.push({
         filename: item.filename || path.basename(resolvedPath),

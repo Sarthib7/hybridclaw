@@ -69,6 +69,10 @@ function normalizeContentText(content: ChatMessage['content']): string {
     }
     if (part?.type === 'image_url' && part.image_url?.url) {
       chunks.push('[image]');
+      continue;
+    }
+    if (part?.type === 'audio_url' && part.audio_url?.url) {
+      chunks.push('[audio]');
     }
   }
   return chunks.join('\n');

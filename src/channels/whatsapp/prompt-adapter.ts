@@ -14,11 +14,12 @@ export const whatsappAgentPromptAdapter: ChannelAgentPromptAdapter = {
       '- WhatsApp formatting uses `*bold*`, `_italic_`, `~strike~`, and triple-backtick code fences.',
       '- Keep each WhatsApp message chunk concise and under roughly 4,000 characters.',
       '- Avoid Discord-specific syntax like `<@userId>` or `<#channelId>` in WhatsApp replies.',
+      '- For Discord `message` actions from WhatsApp, always provide an explicit Discord `channelId`, `to`, or `user` target.',
     ];
 
     if (channelId) {
       hints.unshift(
-        `- Current WhatsApp chat: \`${channelId}\`. Omit an explicit target when replying to this chat.`,
+        `- Current WhatsApp chat: \`${channelId}\`. Normal assistant replies go back here automatically; do not reuse this WhatsApp JID as a Discord target.`,
       );
     }
     hints.push(

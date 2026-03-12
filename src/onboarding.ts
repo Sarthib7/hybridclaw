@@ -562,15 +562,6 @@ async function ensureSecurityTrustAcceptance(
   return true;
 }
 
-export async function ensureHybridAICredentials(
-  options: OnboardingOptions = {},
-): Promise<void> {
-  await ensureRuntimeCredentials({
-    ...options,
-    preferredAuth: 'hybridai',
-  });
-}
-
 async function runHybridAIApiKeyOnboarding(params: {
   rl: readline.Interface;
   baseUrl: string;

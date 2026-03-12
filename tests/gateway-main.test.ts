@@ -535,6 +535,41 @@ describe('gateway bootstrap', () => {
     );
   });
 
+  test('replies with a retry prompt when a WhatsApp turn times out before a reply', async () => {
+    const state = await importFreshGatewayMain({ whatsappLinked: true });
+    state.handleGatewayMessage.mockResolvedValue({
+      status: 'error',
+      result: null,
+      toolsUsed: [],
+      artifacts: [],
+      error: 'Timeout waiting for agent output after 300000ms',
+    });
+    const reply = vi.fn(async () => {});
+
+    await state.whatsappMessageHandler?.(
+      'wa:491701234567@s.whatsapp.net',
+      null,
+      '491701234567@s.whatsapp.net',
+      '+491701234567',
+      'alice',
+      'Von wem ist das?',
+      [],
+      reply,
+      {
+        abortSignal: new AbortController().signal,
+        batchedMessages: [],
+        chatJid: '491701234567@s.whatsapp.net',
+        isGroup: false,
+        rawMessage: {},
+        senderJid: '491701234567@s.whatsapp.net',
+      },
+    );
+
+    expect(reply).toHaveBeenCalledWith(
+      'The request was interrupted before I could reply. Please send it again.',
+    );
+  });
+
   test('omits the Discord tool footer when the session show mode hides tools', async () => {
     const state = await importFreshGatewayMain();
     state.currentSession.show_mode = 'thinking';

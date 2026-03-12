@@ -72,6 +72,7 @@ import {
 import type { ArtifactMetadata } from '../types.js';
 import { buildApprovalConfirmationComponents } from './approval-confirmation.js';
 import { normalizePlaceholderToolReply } from './chat-result.js';
+import { classifyGatewayError } from './gateway-error-utils.js';
 import {
   type GatewayChatResult,
   getGatewayStatus,
@@ -108,6 +109,10 @@ let memoryConsolidationTimer: ReturnType<typeof setInterval> | null = null;
 
 const MAX_QUEUED_PROACTIVE_MESSAGES = 100;
 const APPROVAL_PROMPT_DEFAULT_TTL_MS = 120_000;
+const WHATSAPP_INTERRUPTED_REPLY =
+  'The request was interrupted before I could reply. Please send it again.';
+const WHATSAPP_TRANSIENT_FAILURE_REPLY =
+  'The model request failed before I could reply. Please try again.';
 
 function buildArtifactAttachments(
   artifacts?: ArtifactMetadata[],
@@ -184,6 +189,21 @@ function simplifyImageAttachmentNarration(
     .trim();
   if (cleaned) return cleaned;
   return imageArtifacts.length === 1 ? 'Here it is.' : 'Here they are.';
+}
+
+function formatWhatsAppGatewayFailure(error: string | null | undefined): string {
+  const detail = String(error || '').trim();
+  if (
+    /interrupted by user|timed out|timeout waiting for agent output|terminated|abort/i.test(
+      detail,
+    )
+  ) {
+    return WHATSAPP_INTERRUPTED_REPLY;
+  }
+  if (detail && classifyGatewayError(detail) === 'transient') {
+    return WHATSAPP_TRANSIENT_FAILURE_REPLY;
+  }
+  return formatError('Agent Error', detail || 'Unknown error');
 }
 
 function findPendingApprovalMetadata(
@@ -852,9 +872,7 @@ async function startWhatsAppIntegration(): Promise<boolean> {
           }),
         );
         if (result.status === 'error') {
-          await reply(
-            formatError('Agent Error', result.error || 'Unknown error'),
-          );
+          await reply(formatWhatsAppGatewayFailure(result.error));
           return;
         }
 
@@ -898,7 +916,7 @@ async function startWhatsAppIntegration(): Promise<boolean> {
           { error, sessionId, channelId },
           'WhatsApp message handling failed',
         );
-        await reply(formatError('Gateway Error', text));
+        await reply(formatWhatsAppGatewayFailure(text));
       }
     },
   );

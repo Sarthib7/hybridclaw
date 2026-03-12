@@ -4,6 +4,14 @@ import path from 'node:path';
 
 import { afterEach, expect, test, vi } from 'vitest';
 
+const { runAgentMock } = vi.hoisted(() => ({
+  runAgentMock: vi.fn(),
+}));
+
+vi.mock('../src/agent/agent.js', () => ({
+  runAgent: runAgentMock,
+}));
+
 const ORIGINAL_HOME = process.env.HOME;
 
 function makeTempHome(): string {
@@ -19,6 +27,7 @@ function restoreEnvVar(name: string, value: string | undefined): void {
 }
 
 afterEach(() => {
+  runAgentMock.mockReset();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.resetModules();
@@ -109,5 +118,68 @@ test('admin tools exposes recent tool error summaries', async () => {
     toolName: 'read',
     isError: true,
     summary: 'File not found: notes.txt',
+  });
+});
+
+test('handleGatewayMessage records agent handoff before agent-side timeouts', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  runAgentMock.mockResolvedValue({
+    status: 'error',
+    result: null,
+    toolsUsed: [],
+    toolExecutions: [],
+    error: 'Timeout waiting for agent output after 300000ms',
+  });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getAuditWirePath } = await import('../src/audit/audit-trail.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const sessionId = 'wa:491701234567@s.whatsapp.net';
+  const result = await handleGatewayMessage({
+    sessionId,
+    guildId: null,
+    channelId: '491701234567@s.whatsapp.net',
+    userId: '+491701234567',
+    username: 'alice',
+    content: 'Von wem ist das?',
+    model: 'vllm/Qwen/Qwen3.5-27B-FP8',
+    chatbotId: 'bot-1',
+  });
+
+  expect(result.status).toBe('error');
+
+  const raw = fs.readFileSync(getAuditWirePath(sessionId), 'utf-8');
+  const records = raw
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as { event?: Record<string, unknown> })
+    .filter((record) => record.event);
+  const eventTypes = records.map((record) => String(record.event?.type));
+
+  expect(eventTypes).toContain('context.optimization');
+  expect(eventTypes).toContain('agent.start');
+
+  const agentStartIndex = eventTypes.indexOf('agent.start');
+  const contextOptimizationIndex = eventTypes.indexOf('context.optimization');
+  const errorIndex = eventTypes.indexOf('error');
+  expect(agentStartIndex).toBeGreaterThan(contextOptimizationIndex);
+  expect(errorIndex).toBeGreaterThan(agentStartIndex);
+
+  expect(records[agentStartIndex]?.event).toMatchObject({
+    type: 'agent.start',
+    model: 'vllm/Qwen/Qwen3.5-27B-FP8',
+  });
+  expect(records[errorIndex]?.event).toMatchObject({
+    type: 'error',
+    errorType: 'agent',
+    stage: 'processing-agent-output',
   });
 });

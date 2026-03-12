@@ -153,6 +153,10 @@ import {
 import { mapAgentCard } from './gateway-agent-cards.js';
 import { parseAuditPayload } from './gateway-audit-utils.js';
 import {
+  abbreviateForUser,
+  formatCompactNumber,
+} from './gateway-formatting.js';
+import {
   interruptGatewaySessionExecution,
   registerActiveGatewayRequest,
 } from './gateway-request-runtime.js';
@@ -662,24 +666,6 @@ function formatHybridAIBotFetchError(error: unknown): string {
   }
 
   return `Failed to fetch bots: ${message}`;
-}
-
-function formatCompactNumber(value: number | null): string {
-  if (value == null) return 'n/a';
-  const abs = Math.abs(value);
-  if (abs >= 1_000_000) {
-    const scaled =
-      abs >= 10_000_000
-        ? (value / 1_000_000).toFixed(0)
-        : (value / 1_000_000).toFixed(1);
-    return `${scaled.replace(/\.0$/, '')}M`;
-  }
-  if (abs >= 1_000) {
-    const scaled =
-      abs >= 10_000 ? (value / 1_000).toFixed(0) : (value / 1_000).toFixed(1);
-    return `${scaled.replace(/\.0$/, '')}k`;
-  }
-  return String(Math.round(value));
 }
 
 function formatPercent(value: number | null): string {
@@ -2283,15 +2269,6 @@ function formatDurationMs(ms: number): string {
   return `${(ms / 1_000).toFixed(1)}s`;
 }
 
-function abbreviateForUser(
-  text: string,
-  maxChars = MAX_DELEGATION_USER_CHARS,
-): string {
-  const normalized = text.replace(/\s+/g, ' ').trim();
-  if (normalized.length <= maxChars) return normalized;
-  return `${normalized.slice(0, Math.max(0, maxChars - 3)).trimEnd()}...`;
-}
-
 function classifyDelegationError(errorText: string): DelegationErrorClass {
   if (
     PERMANENT_DELEGATION_ERROR_PATTERNS.some((pattern) =>
@@ -2585,11 +2562,11 @@ function formatDelegationCompletion(params: {
   for (const entry of entries) {
     if (entry.run.status === 'completed') {
       userLines.push(
-        `- ${entry.title}: ${abbreviateForUser(entry.run.result || '')}`,
+        `- ${entry.title}: ${abbreviateForUser(entry.run.result || '', MAX_DELEGATION_USER_CHARS)}`,
       );
     } else {
       userLines.push(
-        `- ${entry.title}: ${entry.run.status} (${abbreviateForUser(entry.run.error || 'Unknown error')})`,
+        `- ${entry.title}: ${entry.run.status} (${abbreviateForUser(entry.run.error || 'Unknown error', MAX_DELEGATION_USER_CHARS)})`,
       );
     }
   }
@@ -2633,7 +2610,7 @@ function formatDelegationCompletion(params: {
   }
 
   return {
-    forUser: abbreviateForUser(userLines.join('\n')),
+    forUser: abbreviateForUser(userLines.join('\n'), MAX_DELEGATION_USER_CHARS),
     forLLM: llmLines.join('\n').trimEnd(),
     ...(artifacts.length > 0 ? { artifacts } : {}),
   };

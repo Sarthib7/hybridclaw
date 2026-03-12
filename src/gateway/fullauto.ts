@@ -45,6 +45,10 @@ import type {
 } from '../types.js';
 import { sleep } from '../utils/sleep.js';
 import {
+  abbreviateForUser,
+  formatCompactNumber,
+} from './gateway-formatting.js';
+import {
   interruptGatewaySessionExecution,
   registerActiveGatewayRequest,
 } from './gateway-request-runtime.js';
@@ -173,37 +177,10 @@ function requireFullAutoHost(): FullAutoRuntimeHost {
   throw new Error('Full-auto runtime host has not been configured.');
 }
 
-function formatCompactNumber(value: number | null): string {
-  if (value == null) return 'n/a';
-  const abs = Math.abs(value);
-  if (abs >= 1_000_000) {
-    const scaled =
-      abs >= 10_000_000
-        ? (value / 1_000_000).toFixed(0)
-        : (value / 1_000_000).toFixed(1);
-    return `${scaled.replace(/\.0$/, '')}M`;
-  }
-  if (abs >= 1_000) {
-    const scaled =
-      abs >= 10_000 ? (value / 1_000).toFixed(0) : (value / 1_000).toFixed(1);
-    return `${scaled.replace(/\.0$/, '')}k`;
-  }
-  return String(Math.round(value));
-}
-
 function formatRalphIterations(value: number): string {
   if (value === -1) return 'unlimited';
   if (value <= 0) return 'off';
   return `${value} extra iteration${value === 1 ? '' : 's'}`;
-}
-
-function abbreviateForUser(
-  text: string,
-  maxChars = FULLAUTO_STATUS_PROMPT_MAX_CHARS,
-): string {
-  const normalized = text.replace(/\s+/g, ' ').trim();
-  if (normalized.length <= maxChars) return normalized;
-  return `${normalized.slice(0, Math.max(0, maxChars - 3)).trimEnd()}...`;
 }
 
 function getOrCreateFullAutoRuntimeState(
@@ -1187,7 +1164,7 @@ export function buildFullAutoStatusLines(session: Session): string[] {
   return [
     `Enabled: ${isFullAutoEnabled(session) ? 'yes' : 'no'}`,
     `State: ${describeFullAutoRuntimeState(session.id)}`,
-    `Prompt: ${abbreviateForUser(prompt)}`,
+    `Prompt: ${abbreviateForUser(prompt, FULLAUTO_STATUS_PROMPT_MAX_CHARS)}`,
     `Started: ${session.full_auto_started_at || 'n/a'}`,
     `Turns: ${state?.turns ?? 0}/${FULLAUTO_MAX_CONSECUTIVE_TURNS}`,
     `Consecutive errors: ${state?.consecutiveErrors ?? 0}/${FULLAUTO_MAX_CONSECUTIVE_ERRORS}`,

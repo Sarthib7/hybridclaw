@@ -136,7 +136,7 @@ Classify changes by blast radius. When uncertain, classify higher.
 
 | Tier   | Paths                                                                       |
 |--------|-----------------------------------------------------------------------------|
-| High   | `src/security/`, `src/gateway/`, `src/infra/`, `src/audit/`, `container/src/approval-policy.ts`, `container/src/extensions.ts`, `.claude/policy.yaml` |
+| High   | `src/security/`, `src/gateway/`, `src/infra/`, `src/audit/`, `container/src/approval-policy.ts`, `container/src/extensions.ts`, `.hybridclaw/policy.yaml` |
 | Medium | `src/agent/`, `src/providers/`, `src/session/`, `src/memory/`, `src/skills/`, `container/src/`, `templates/` |
 | Low    | `docs/`, `skills/` (bundled SKILL.md), test additions, comments, formatting |
 

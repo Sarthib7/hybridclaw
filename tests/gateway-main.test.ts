@@ -24,6 +24,9 @@ async function importFreshGatewayMain() {
       observability: { enabled: false, botId: '', agentId: '' },
       scheduler: { jobs: [] as unknown[] },
     },
+    currentSession: {
+      show_mode: 'all',
+    },
     buildResponseText: vi.fn((text: string, toolsUsed?: string[]) =>
       toolsUsed && toolsUsed.length > 0
         ? `${text}\n*Tools: ${toolsUsed.join(', ')}*`
@@ -168,6 +171,7 @@ async function importFreshGatewayMain() {
   vi.doMock('../src/memory/memory-service.js', () => ({
     memoryService: {
       consolidateMemories: state.memoryServiceConsolidate,
+      getSessionById: vi.fn(() => state.currentSession),
     },
   }));
   vi.doMock('../src/agents/agent-registry.js', () => ({
@@ -346,6 +350,39 @@ describe('gateway bootstrap', () => {
       [],
     );
     expect(stream.fail).not.toHaveBeenCalled();
+  });
+
+  test('omits the Discord tool footer when the session show mode hides tools', async () => {
+    const state = await importFreshGatewayMain();
+    state.currentSession.show_mode = 'thinking';
+    const stream = {
+      append: vi.fn(async () => {}),
+      discard: vi.fn(async () => {}),
+      fail: vi.fn(async () => {}),
+      finalize: vi.fn(async () => {}),
+    };
+    const context = {
+      abortSignal: new AbortController().signal,
+      batchedMessages: [],
+      emitLifecyclePhase: vi.fn(),
+      mentionLookup: { byAlias: new Map() },
+      sourceMessage: {},
+      stream,
+    };
+
+    await state.messageHandler?.(
+      'session',
+      null,
+      'channel',
+      'user',
+      'alice',
+      'hello',
+      [],
+      vi.fn(async () => {}),
+      context,
+    );
+
+    expect(stream.finalize).toHaveBeenCalledWith('Hello from gateway', []);
   });
 
   test('restarts dependent services when config changes affect gateway runtime', async () => {

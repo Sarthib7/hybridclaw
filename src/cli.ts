@@ -295,6 +295,7 @@ Commands:
   hybridclaw gateway status
   hybridclaw gateway sessions
   hybridclaw gateway bot info
+  hybridclaw gateway show [all|thinking|tools|none]
   hybridclaw gateway reset [yes|no]
   hybridclaw gateway <discord-style command ...>`);
 }
@@ -307,6 +308,7 @@ If gateway is not running, it is started in backend mode automatically.
 
 Interactive slash commands inside TUI:
   /help   /status   /approve [view|yes|session|agent|no] [approval_id]
+  /show [all|thinking|tools|none]
   /agent [list|switch|create]   /bots   /bot [info|list|set <id|name>]
   /model [name]   /model info|list|default [name]
   /channel-mode <off|mention|free>   /channel-policy <open|allowlist|disabled>

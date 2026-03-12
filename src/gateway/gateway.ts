@@ -82,6 +82,10 @@ import {
   resolveHeartbeatDeliveryChannelId,
   shouldDropQueuedProactiveMessage,
 } from './proactive-delivery.js';
+import {
+  normalizeSessionShowMode,
+  sessionShowModeShowsTools,
+} from './show-mode.js';
 
 let detachConfigListener: (() => void) | null = null;
 let proactiveFlushTimer: ReturnType<typeof setInterval> | null = null;
@@ -597,7 +601,13 @@ async function startDiscordIntegration(): Promise<void> {
           context.sourceMessage,
           context.mentionLookup,
         );
-        const responseText = buildResponseText(renderedText, result.toolsUsed);
+        const showMode = normalizeSessionShowMode(
+          memoryService.getSessionById(sessionId)?.show_mode,
+        );
+        const responseText = buildResponseText(
+          renderedText,
+          sessionShowModeShowsTools(showMode) ? result.toolsUsed : undefined,
+        );
         const pendingApproval = findPendingApprovalMetadata(result);
         if (pendingApproval) {
           let cleanup: { disableButtons: () => Promise<void> } | null = null;

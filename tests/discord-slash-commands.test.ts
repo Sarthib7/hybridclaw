@@ -35,6 +35,7 @@ test('buildSlashCommandDefinitions includes the expanded Discord command set', (
   expect(names).toEqual(
     new Set([
       'status',
+      'show',
       'approve',
       'compact',
       'channel-mode',
@@ -158,6 +159,17 @@ test('parseSlashInteractionArgs maps model list, set, and default interactions',
   expect(setArgs).toEqual(['model', 'set', 'lmstudio/qwen/qwen3.5-9b']);
   expect(defaultArgs).toEqual(['model', 'default']);
   expect(infoArgs).toEqual(['model', 'info']);
+});
+
+test('parseSlashInteractionArgs maps show interactions to command args', () => {
+  const args = parseSlashInteractionArgs(
+    makeInteraction({
+      commandName: 'show',
+      subcommand: 'tools',
+    }) as never,
+  );
+
+  expect(args).toEqual(['show', 'tools']);
 });
 
 test('parseSlashInteractionArgs preserves quoted schedule add specs', () => {

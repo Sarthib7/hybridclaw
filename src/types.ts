@@ -213,6 +213,8 @@ export interface DelegationSideEffect {
 
 // --- Database types ---
 
+export type SessionShowMode = 'all' | 'thinking' | 'tools' | 'none';
+
 export interface Session {
   id: string;
   guild_id: string | null;
@@ -229,6 +231,7 @@ export interface Session {
   full_auto_enabled: number;
   full_auto_prompt: string | null;
   full_auto_started_at: string | null;
+  show_mode: SessionShowMode;
   created_at: string;
   last_active: string;
 }

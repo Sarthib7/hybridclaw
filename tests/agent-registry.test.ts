@@ -99,6 +99,7 @@ test('resolveAgentForRequest prefers request, then session, then main agent defa
     full_auto_enabled: 0,
     full_auto_prompt: null,
     full_auto_started_at: null,
+    show_mode: 'all',
     created_at: '2026-03-12T00:00:00.000Z',
     last_active: '2026-03-12T00:00:00.000Z',
   } as const;

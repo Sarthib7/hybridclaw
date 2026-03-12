@@ -155,6 +155,7 @@ async function importFreshHealth(options?: {
     { role: 'user', content: 'hello' },
     { role: 'assistant', content: 'world' },
   ]);
+  const getSessionById = vi.fn(() => ({ show_mode: 'all' }));
   const handleGatewayMessage = vi.fn(async () => ({
     status: 'success' as const,
     result: '__MESSAGE_SEND_HANDLED__',
@@ -497,6 +498,7 @@ async function importFreshHealth(options?: {
   }));
   vi.doMock('../src/memory/db.js', () => ({
     claimQueuedProactiveMessages,
+    getSessionById,
   }));
   vi.doMock('../src/gateway/gateway-service.js', () => ({
     createGatewayAdminAgent,
@@ -565,6 +567,7 @@ async function importFreshHealth(options?: {
     setGatewayAdminSkillEnabled,
     handleGatewayMessage,
     handleGatewayCommand,
+    getSessionById,
     runDiscordToolAction,
     normalizeDiscordToolAction,
     claimQueuedProactiveMessages,
@@ -891,6 +894,47 @@ describe('gateway health server', () => {
     expect(JSON.parse(res.body)).toMatchObject({
       status: 'success',
       result: 'Message sent.',
+    });
+  });
+
+  test('filters tool visibility from web chat responses when show mode hides tools', async () => {
+    const state = await importFreshHealth();
+    state.getSessionById.mockReturnValue({ show_mode: 'thinking' });
+    state.handleGatewayMessage.mockResolvedValue({
+      status: 'success',
+      result: 'Visible answer',
+      toolsUsed: ['search'],
+      toolExecutions: [
+        {
+          name: 'search',
+          arguments: '{"q":"hi"}',
+          result: 'ok',
+          durationMs: 12,
+        },
+      ],
+      artifacts: [],
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: { content: 'hello' },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(JSON.parse(res.body)).toMatchObject({
+      status: 'success',
+      result: 'Visible answer',
+      toolsUsed: [],
+      toolExecutions: [
+        {
+          name: '',
+          arguments: '',
+          result: '',
+        },
+      ],
     });
   });
 

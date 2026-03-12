@@ -93,6 +93,7 @@ import {
   updateSessionChatbot,
   updateSessionModel,
   updateSessionRag,
+  updateSessionShowMode,
 } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
 import {
@@ -170,6 +171,14 @@ import {
   formatCompactNumber,
   formatRalphIterations,
 } from './gateway-formatting.js';
+import {
+  DEFAULT_SESSION_SHOW_MODE,
+  describeSessionShowMode,
+  isSessionShowMode,
+  normalizeSessionShowMode,
+  sessionShowModeShowsThinking,
+  sessionShowModeShowsTools,
+} from './show-mode.js';
 import {
   interruptGatewaySessionExecution,
   registerActiveGatewayRequest,
@@ -3005,6 +3014,9 @@ export async function handleGatewayMessage(
       agentId,
     );
   }
+  const showMode = normalizeSessionShowMode(session.show_mode);
+  const shouldEmitThinking = sessionShowModeShowsThinking(showMode);
+  const shouldEmitTools = sessionShowModeShowsTools(showMode);
   const enableRag = req.enableRag ?? session.enable_rag === 1;
   const provider = resolveModelProvider(model);
   const media = normalizeMediaContextItems(req.media);
@@ -3308,6 +3320,7 @@ export async function handleGatewayMessage(
           'Gateway chat emitted first text delta',
         );
       }
+      if (!shouldEmitThinking) return;
       req.onTextDelta?.(delta);
     };
     const onToolProgress = (event: ToolProgressEvent): void => {
@@ -3321,6 +3334,7 @@ export async function handleGatewayMessage(
         },
         'Gateway tool progress',
       );
+      if (!shouldEmitTools) return;
       req.onToolProgress?.(event);
     };
     logger.debug(
@@ -3673,6 +3687,7 @@ export async function handleGatewayCommand(
         '`channel policy [open|allowlist|disabled]` — Set or inspect guild channel policy',
         '`ralph [on|off|set <n>|info]` — Configure Ralph loop (0 off, -1 unlimited)',
         '`fullauto [status|off|on [prompt]|<prompt>]` — Enable/inspect/disable session full-auto mode',
+        '`show [all|thinking|tools|none]` — Control visible thinking/tool activity for this session',
         '`mcp list` — List configured MCP servers',
         '`mcp add <name> <json>` — Add or update an MCP server config',
         '`mcp remove <name>` — Remove an MCP server config',
@@ -3683,6 +3698,7 @@ export async function handleGatewayCommand(
         '`/compact` — Archive older history, summarize it, and retain recent context',
         '`/status` — Show runtime status (Discord slash command, private to caller)',
         '`/approve [view|yes|session|agent|no] [approval_id]` — View/respond to pending approvals privately',
+        '`/show <all|thinking|tools|none>` — Control visible thinking/tool activity for this session',
         '`stop` — Abort the current session run and disable full-auto mode',
         '`/channel-mode <off|mention|free>` — Set this Discord channel response mode',
         '`/channel-policy <open|allowlist|disabled>` — Set Discord guild channel policy',
@@ -4173,6 +4189,38 @@ export async function handleGatewayCommand(
       });
     }
 
+    case 'show': {
+      const currentMode = normalizeSessionShowMode(session.show_mode);
+      const nextMode = (req.args[1] || '').trim().toLowerCase();
+
+      if (!nextMode || nextMode === 'info' || nextMode === 'status') {
+        return infoCommand(
+          'Show Mode',
+          [
+            `Current: ${currentMode}`,
+            describeSessionShowMode(currentMode),
+            'Modes: `show all`, `show thinking`, `show tools`, `show none`',
+          ].join('\n'),
+        );
+      }
+
+      if (!isSessionShowMode(nextMode)) {
+        return badCommand(
+          'Usage',
+          'Usage: `show [all|thinking|tools|none]`',
+        );
+      }
+
+      updateSessionShowMode(session.id, nextMode);
+      return infoCommand(
+        'Show Mode',
+        [
+          `Current: ${nextMode}`,
+          describeSessionShowMode(nextMode),
+        ].join('\n'),
+      );
+    }
+
     case 'stop':
     case 'abort': {
       await disableFullAutoSession({ sessionId: session.id });
@@ -4331,6 +4379,7 @@ export async function handleGatewayCommand(
         updateSessionChatbot(session.id, null);
         updateSessionModel(session.id, null);
         updateSessionRag(session.id, HYBRIDAI_ENABLE_RAG);
+        updateSessionShowMode(session.id, DEFAULT_SESSION_SHOW_MODE);
         const workspaceReset = resetWorkspace(pending.agentId);
         const workspaceLine = workspaceReset.removed
           ? `Removed workspace: ${workspaceReset.workspacePath}`
@@ -4339,7 +4388,7 @@ export async function handleGatewayCommand(
           'Session Reset',
           [
             `Deleted ${deleted} messages.`,
-            `Session model/chatbot settings reset to defaults. RAG default is now ${HYBRIDAI_ENABLE_RAG ? 'enabled' : 'disabled'}.`,
+            `Session model/chatbot/show settings reset to defaults. RAG default is now ${HYBRIDAI_ENABLE_RAG ? 'enabled' : 'disabled'}.`,
             workspaceLine,
           ].join('\n'),
         );
@@ -4363,7 +4412,7 @@ export async function handleGatewayCommand(
       return infoCommand(
         'Confirm Reset',
         [
-          `This will delete this session's history, reset per-session model/bot settings, and remove the current agent workspace.`,
+          `This will delete this session's history, reset per-session model/bot/show settings, and remove the current agent workspace.`,
           `Model: ${runtime.model}`,
           `Agent workspace: ${runtime.workspacePath}`,
           resetComponents
@@ -4429,6 +4478,7 @@ export async function handleGatewayCommand(
       const fullAutoLabel = isFullAutoEnabled(session)
         ? `on (${fullAutoState?.turns ?? 0} turns, ${fullAutoState?.consecutiveErrors ?? 0} errors)`
         : 'off';
+      const showMode = normalizeSessionShowMode(session.show_mode);
       const lines = [
         `🦞 HybridClaw v${status.version}${commitShort ? ` (${commitShort})` : ''}`,
         `🧠 Model: ${sessionModel}`,
@@ -4440,7 +4490,7 @@ export async function handleGatewayCommand(
         `📊 Usage: uptime ${formatUptime(status.uptime)} · sessions ${status.sessions} · sandbox ${sandboxLabel}`,
         `🧵 Session: ${session.id} • updated ${formatRelativeTime(session.last_active)}`,
         `🤖 Agent: ${runtime.agentId}`,
-        `⚙️ Runtime: ${status.sandbox?.mode || 'container'} · RAG: ${session.enable_rag ? 'on' : 'off'} · Ralph: ${formatRalphIterations(resolveSessionRalphIterations(session))}`,
+        `⚙️ Runtime: ${status.sandbox?.mode || 'container'} · RAG: ${session.enable_rag ? 'on' : 'off'} · Ralph: ${formatRalphIterations(resolveSessionRalphIterations(session))} · Show: ${showMode}`,
         `🤖 Full-auto: ${fullAutoLabel}`,
         `👥 Activation: ${resolveActivationModeLabel()} · 🪢 Queue: ${queueLabel} · 📬 Proactive queued: ${proactiveQueued}`,
       ];

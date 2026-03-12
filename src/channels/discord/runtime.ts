@@ -62,6 +62,10 @@ import {
   sendChunkedInteractionReply as sendChunkedInteractionReplyFromDelivery,
   sendChunkedReply as sendChunkedReplyFromDelivery,
 } from './delivery.js';
+import {
+  normalizeSessionShowMode,
+  sessionShowModeShowsThinking,
+} from '../../gateway/show-mode.js';
 import type { HumanDelayConfig } from './human-delay.js';
 import {
   buildSessionIdFromContext as buildSessionIdFromContextInbound,
@@ -1893,7 +1897,12 @@ export function initDiscord(
         return;
       }
       activeConversationRuns += 1;
-      emitLifecyclePhase('thinking');
+      const showMode = normalizeSessionShowMode(
+        getSessionById(sessionId)?.show_mode,
+      );
+      if (sessionShowModeShowsThinking(showMode)) {
+        emitLifecyclePhase('thinking');
+      }
       await messageHandler(
         sessionId,
         guildId,

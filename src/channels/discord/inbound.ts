@@ -1,3 +1,5 @@
+import { isRegisteredTextCommandName } from '../../command-registry.js';
+
 export interface ParsedCommand {
   isCommand: boolean;
   command: string;
@@ -6,26 +8,6 @@ export interface ParsedCommand {
 
 export type DiscordGuildMessageMode = 'off' | 'mention' | 'free';
 export type DiscordCommandAccessMode = 'public' | 'restricted';
-const KNOWN_SUBCOMMANDS = new Set([
-  'agent',
-  'bot',
-  'rag',
-  'model',
-  'status',
-  'approve',
-  'usage',
-  'export',
-  'sessions',
-  'audit',
-  'schedule',
-  'channel',
-  'ralph',
-  'mcp',
-  'clear',
-  'reset',
-  'compact',
-  'help',
-]);
 
 const GREETING_ONLY_RE =
   /^(hi|hey|hello|yo|sup|thanks|thank you|thx|ok|okay|got it|roger|cool)[!. ]*$/i;
@@ -115,7 +97,7 @@ export function hasSlashCommandInvocation(
   if (!text.startsWith('/')) return false;
   const token = text.slice(1).split(/\s+/)[0]?.toLowerCase() || '';
   if (!token) return false;
-  return KNOWN_SUBCOMMANDS.has(token);
+  return isRegisteredTextCommandName(token);
 }
 
 export function buildSessionIdFromContext(
@@ -139,7 +121,10 @@ export function parseCommand(
   }
 
   const parts = text.split(/\s+/);
-  if (parts.length > 0 && KNOWN_SUBCOMMANDS.has(parts[0].toLowerCase())) {
+  if (
+    parts.length > 0 &&
+    isRegisteredTextCommandName(parts[0]?.toLowerCase() || '')
+  ) {
     return {
       isCommand: true,
       command: parts[0].toLowerCase(),

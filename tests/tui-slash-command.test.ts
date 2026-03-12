@@ -49,6 +49,10 @@ test('defaults bare /mcp to the mcp command', () => {
 
 test('maps Discord-style slash commands to gateway command args', () => {
   expect(mapTuiSlashCommandToGatewayArgs(['status'])).toEqual(['status']);
+  expect(mapTuiSlashCommandToGatewayArgs(['show', 'tools'])).toEqual([
+    'show',
+    'tools',
+  ]);
   expect(mapTuiSlashCommandToGatewayArgs(['channel-mode', 'free'])).toEqual([
     'channel',
     'mode',

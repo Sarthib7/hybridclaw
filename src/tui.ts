@@ -22,6 +22,13 @@ import {
   gatewayStatus,
   renderGatewayCommand,
 } from './gateway/gateway-client.js';
+import {
+  DEFAULT_SESSION_SHOW_MODE,
+  isSessionShowMode,
+  normalizeSessionShowMode,
+  sessionShowModeShowsThinking,
+  sessionShowModeShowsTools,
+} from './gateway/show-mode.js';
 import { logger } from './logger.js';
 import {
   normalizeModelCandidates,
@@ -42,6 +49,7 @@ import {
   parseTuiSlashCommand,
 } from './tui-slash-command.js';
 import { appendThinkingPreview } from './tui-thinking.js';
+import type { SessionShowMode } from './types.js';
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
@@ -134,6 +142,7 @@ let proactivePollInFlight = false;
 let tuiFullAutoState: TuiFullAutoState = DEFAULT_TUI_FULLAUTO_STATE;
 let fullAutoSteeringInFlight = false;
 let tuiPendingApproval: { requestId: string; prompt: string } | null = null;
+let tuiShowMode: SessionShowMode = DEFAULT_SESSION_SHOW_MODE;
 
 function findPendingApprovalRequestId(
   result: GatewayChatResult,
@@ -301,6 +310,9 @@ function printHelp(): void {
   console.log(`  ${TEAL}/ralph [on|off|set n]${RESET} Configure Ralph loop`);
   console.log(`  ${TEAL}/status${RESET}           Show runtime status`);
   console.log(
+    `  ${TEAL}/show [all|thinking|tools|none]${RESET} Control visible thinking/tool activity`,
+  );
+  console.log(
     `  ${TEAL}/approve [view|yes|session|agent|no] [approval_id]${RESET} View/respond to pending approvals`,
   );
   console.log(
@@ -396,6 +408,17 @@ function spinner(): {
   addTextDelta: (delta: string) => void;
   clearTools: () => void;
 } {
+  const showThinking = sessionShowModeShowsThinking(tuiShowMode);
+  const showTools = sessionShowModeShowsTools(tuiShowMode);
+  if (!showThinking && !showTools) {
+    return {
+      stop: () => {},
+      addTool: () => {},
+      addTextDelta: () => {},
+      clearTools: () => {},
+    };
+  }
+
   const dots = ['   ', '.  ', '.. ', '...'];
   let i = 0;
   let transientToolLines = 0;
@@ -413,23 +436,25 @@ function spinner(): {
     }
     i++;
   };
-  const interval = setInterval(render, 350);
-  render();
+  const interval = showThinking ? setInterval(render, 350) : null;
+  if (showThinking) render();
   return {
     stop: () => {
-      clearInterval(interval);
-      clearLine();
+      if (interval) clearInterval(interval);
+      if (showThinking) clearLine();
     },
     addTool: (toolName: string, preview?: string) => {
+      if (!showTools) return;
       clearLine();
       const previewText = preview ? ` ${MUTED}${preview}${RESET}` : '';
       process.stdout.write(
         `  ${JELLYFISH} ${TEAL}${toolName}${RESET}${previewText}\n`,
       );
       transientToolLines++;
-      render();
+      if (showThinking) render();
     },
     addTextDelta: (delta: string) => {
+      if (!showThinking) return;
       thinkingPreview = appendThinkingPreview(
         thinkingPreview,
         delta,
@@ -522,6 +547,20 @@ function refreshPrompt(rl: readline.Interface): void {
   rl.setPrompt(buildPromptText());
 }
 
+function parseShowModeFromResult(result: GatewayCommandResult): SessionShowMode {
+  const match = result.text.match(/^Current:\s*(all|thinking|tools|none)\b/im);
+  return normalizeSessionShowMode(match?.[1]);
+}
+
+async function fetchInitialShowMode(): Promise<SessionShowMode> {
+  try {
+    const result = await requestGatewayCommand(['show']);
+    return parseShowModeFromResult(result);
+  } catch {
+    return DEFAULT_SESSION_SHOW_MODE;
+  }
+}
+
 async function fetchInitialFullAutoState(): Promise<TuiFullAutoState> {
   try {
     const result = await requestGatewayCommand(['fullauto', 'status']);
@@ -554,6 +593,11 @@ async function runGatewayCommand(
     printGatewayCommandResult(result);
     const normalizedCommand = (args[0] || '').trim().toLowerCase();
     const normalizedSubcommand = (args[1] || '').trim().toLowerCase();
+    if (normalizedCommand === 'show') {
+      tuiShowMode = isSessionShowMode(normalizedSubcommand)
+        ? normalizedSubcommand
+        : parseShowModeFromResult(result);
+    }
     const nextFullAutoState = deriveTuiFullAutoState({
       current: tuiFullAutoState,
       args,
@@ -786,6 +830,7 @@ async function processMessage(
     return;
   }
 
+  tuiShowMode = await fetchInitialShowMode();
   const s = spinner();
   const abortController = new AbortController();
   activeRunAbortController = abortController;
@@ -967,6 +1012,7 @@ async function main(): Promise<void> {
   const status = await gatewayStatus();
   const modelInfo = await fetchSessionAndDefaultModel();
   tuiFullAutoState = await fetchInitialFullAutoState();
+  tuiShowMode = await fetchInitialShowMode();
   printBanner(modelInfo, status.sandbox?.mode || 'container');
 
   const rl = readline.createInterface({

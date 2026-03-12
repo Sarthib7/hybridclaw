@@ -44,6 +44,7 @@ async function seedSessionFixture() {
     updateSessionChatbot,
     updateSessionModel,
     updateSessionRag,
+    updateSessionShowMode,
   } = await import('../src/memory/db.ts');
   const { memoryService } = await import('../src/memory/memory-service.ts');
   const { DEFAULT_AGENT_ID } = await import('../src/agents/agent-types.ts');
@@ -59,6 +60,7 @@ async function seedSessionFixture() {
   updateSessionModel(session.id, 'openai-codex/gpt-5-codex');
   updateSessionChatbot(session.id, 'bot-reset');
   updateSessionRag(session.id, !HYBRIDAI_ENABLE_RAG);
+  updateSessionShowMode(session.id, 'tools');
   memoryService.storeMessage({
     sessionId,
     userId: 'user-1',
@@ -203,6 +205,7 @@ test('reset yes clears history, resets session defaults, and removes the workspa
   expect(result.title).toBe('Session Reset');
   expect(result.text).toContain('Deleted 2 messages');
   expect(result.text).toContain('Removed workspace');
+  expect(result.text).toContain('model/chatbot/show settings reset');
 
   expect(
     fixture.memoryService.getConversationHistory(fixture.sessionId, 10),
@@ -215,4 +218,5 @@ test('reset yes clears history, resets session defaults, and removes the workspa
   expect(session?.model).toBeNull();
   expect(session?.chatbot_id).toBeNull();
   expect(session?.enable_rag).toBe(fixture.HYBRIDAI_ENABLE_RAG ? 1 : 0);
+  expect(session?.show_mode).toBe('all');
 });

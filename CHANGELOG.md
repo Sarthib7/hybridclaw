@@ -19,6 +19,9 @@
   IDs, so switching from one backend or model family to another keeps the same
   workspace and memory unless the session is explicitly rebound to another
   agent.
+- **Session visibility control**: Added `show all|thinking|tools|none` across
+  gateway, TUI, Discord, and web chat so each session can suppress thinking
+  previews and tool activity independently.
 - **Runtime status visibility**: Shared `status` output in TUI and Discord now
   includes the current session agent alongside the effective model and sandbox
   state.

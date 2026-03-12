@@ -188,6 +188,15 @@ test('parseCommand recognizes slash-text agent command namespace', () => {
   });
 });
 
+test('parseCommand recognizes slash-text show command namespace', () => {
+  const parsed = parseCommand('/show none', null, '!claw');
+  expect(parsed).toEqual({
+    isCommand: true,
+    command: 'show',
+    args: ['none'],
+  });
+});
+
 test('isTrigger commands-only allows slash-text commands', () => {
   const shouldTrigger = isTrigger({
     content: '/status',

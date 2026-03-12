@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
-import { isSilentReply, stripSilentToken } from '../agent/silent-reply.js';
 import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
 import { runDiscordToolAction } from '../channels/discord/runtime.js';
 import {
@@ -23,6 +22,11 @@ import { resolveInstallPath } from '../infra/install-root.js';
 import { logger } from '../logger.js';
 import { claimQueuedProactiveMessages } from '../memory/db.js';
 import type { ToolProgressEvent } from '../types.js';
+import {
+  filterChatResultForSession,
+  hasMessageSendToolExecution,
+  normalizeSilentMessageSendReply,
+} from './chat-result.js';
 import {
   createGatewayAdminAgent,
   deleteGatewayAdminAgent,
@@ -103,106 +107,12 @@ const SAFE_INLINE_ARTIFACT_MIME_TYPES: Record<string, string> = {
 type ApiChatRequestBody = GatewayChatRequestBody & { stream?: boolean };
 type ApiDiscordActionRequestBody = Partial<DiscordToolActionRequest>;
 
-function parseJsonObject(raw: unknown): Record<string, unknown> | null {
-  if (typeof raw !== 'string') return null;
-  const text = raw.trim();
-  if (!text) return null;
-  try {
-    const parsed = JSON.parse(text) as unknown;
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
-      return null;
-    return parsed as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-}
-
 function isRuntimeDiscordChannelConfig(
   value: unknown,
 ): value is RuntimeDiscordChannelConfig {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const mode = (value as { mode?: unknown }).mode;
   return mode === 'off' || mode === 'mention' || mode === 'free';
-}
-
-function isMessageSendAction(rawAction: unknown): boolean {
-  if (typeof rawAction !== 'string') return false;
-  const compact = rawAction
-    .trim()
-    .toLowerCase()
-    .replace(/[\s_-]+/g, '');
-  return (
-    compact === 'send' ||
-    compact === 'sendmessage' ||
-    compact === 'dm' ||
-    compact === 'post' ||
-    compact === 'reply' ||
-    compact === 'respond'
-  );
-}
-
-function hasMessageSendToolExecution(
-  result: Awaited<ReturnType<typeof handleGatewayMessage>>,
-): boolean {
-  if (!Array.isArray(result.toolExecutions)) return false;
-  for (const execution of result.toolExecutions) {
-    if (
-      String(execution.name || '')
-        .trim()
-        .toLowerCase() !== 'message'
-    )
-      continue;
-
-    const argsObj = parseJsonObject(execution.arguments);
-    if (argsObj && isMessageSendAction(argsObj.action)) return true;
-
-    const resultObj = parseJsonObject(execution.result);
-    if (resultObj && isMessageSendAction(resultObj.action)) return true;
-  }
-  return false;
-}
-
-function fallbackResultFromTools(
-  result: Awaited<ReturnType<typeof handleGatewayMessage>>,
-): string {
-  const executions = Array.isArray(result.toolExecutions)
-    ? result.toolExecutions
-    : [];
-  for (let i = executions.length - 1; i >= 0; i -= 1) {
-    const execution = executions[i];
-    if (execution.isError) continue;
-    const text = String(execution.result || '').trim();
-    if (!text) continue;
-    return text;
-  }
-  return 'Done.';
-}
-
-function normalizeSilentMessageSendReply(
-  result: Awaited<ReturnType<typeof handleGatewayMessage>>,
-): Awaited<ReturnType<typeof handleGatewayMessage>> {
-  if (result.status !== 'success') return result;
-  const sentByMessageTool = hasMessageSendToolExecution(result);
-  const rawResult = result.result || '';
-  if (isSilentReply(rawResult)) {
-    return {
-      ...result,
-      result: sentByMessageTool
-        ? 'Message sent.'
-        : fallbackResultFromTools(result),
-    };
-  }
-  const cleanedResult = stripSilentToken(rawResult);
-  if (cleanedResult === rawResult) return result;
-  const nextResult = cleanedResult.trim()
-    ? cleanedResult
-    : sentByMessageTool
-      ? 'Message sent.'
-      : fallbackResultFromTools(result);
-  return {
-    ...result,
-    result: nextResult,
-  };
 }
 
 function isLoopbackAddress(address: string | undefined): boolean {
@@ -409,8 +319,9 @@ async function handleApiChat(
     return;
   }
 
-  const result = normalizeSilentMessageSendReply(
-    await handleGatewayMessage(chatRequest),
+  const result = filterChatResultForSession(
+    chatRequest.sessionId,
+    normalizeSilentMessageSendReply(await handleGatewayMessage(chatRequest)),
   );
   sendJson(res, result.status === 'success' ? 200 : 500, result);
 }
@@ -474,7 +385,10 @@ async function handleApiChatStream(
         };
       }
     }
-    sendEvent({ type: 'result', result });
+    sendEvent({
+      type: 'result',
+      result: filterChatResultForSession(chatRequest.sessionId, result),
+    });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     sendEvent({

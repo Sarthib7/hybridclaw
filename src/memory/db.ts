@@ -21,6 +21,7 @@ import type {
   ScheduledTask,
   SemanticMemoryEntry,
   Session,
+  SessionShowMode,
   StoredMessage,
   StructuredAuditEntry,
   UsageAgentAggregate,
@@ -35,7 +36,7 @@ import { KnowledgeEntityType, KnowledgeRelationType } from '../types.js';
 let db: Database.Database;
 let databaseInitialized = false;
 
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 
 interface InitDatabaseOptions {
   quiet?: boolean;
@@ -144,6 +145,7 @@ function migrateV1(database: Database.Database): void {
       full_auto_enabled INTEGER NOT NULL DEFAULT 0,
       full_auto_prompt TEXT,
       full_auto_started_at TEXT,
+      show_mode TEXT NOT NULL DEFAULT 'all',
       created_at TEXT DEFAULT (datetime('now')),
       last_active TEXT DEFAULT (datetime('now'))
     );
@@ -795,6 +797,32 @@ function migrateV6(
   })();
 }
 
+function migrateV7(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  const quiet = opts?.quiet === true;
+  addColumnIfMissing({
+    database,
+    table: 'sessions',
+    column: 'show_mode',
+    ddl: "show_mode TEXT NOT NULL DEFAULT 'all'",
+    quiet,
+  });
+  if (columnExists(database, 'sessions', 'show_mode')) {
+    database
+      .prepare(
+        `UPDATE sessions
+         SET show_mode = 'all'
+         WHERE show_mode IS NULL
+            OR TRIM(show_mode) = ''
+            OR LOWER(TRIM(show_mode)) NOT IN ('all', 'thinking', 'tools', 'none')`,
+      )
+      .run();
+  }
+  recordMigration(database, 7, 'Add per-session show mode column');
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -817,6 +845,7 @@ function runMigrations(
   if (currentVersion < 4) migrateV4(database);
   if (currentVersion < 5) migrateV5(database, opts);
   if (currentVersion < 6) migrateV6(database, opts);
+  if (currentVersion < 7) migrateV7(database, opts);
 
   setSchemaVersion(database, SCHEMA_VERSION);
   if (!quiet && currentVersion < SCHEMA_VERSION) {
@@ -2238,6 +2267,16 @@ export function updateSessionFullAuto(
     params.enabled ? 1 : 0,
     normalizedPrompt,
     normalizedStartedAt,
+    sessionId,
+  );
+}
+
+export function updateSessionShowMode(
+  sessionId: string,
+  showMode: SessionShowMode,
+): void {
+  db.prepare('UPDATE sessions SET show_mode = ? WHERE id = ?').run(
+    showMode,
     sessionId,
   );
 }

@@ -27,6 +27,7 @@ function makeSession(partial?: Partial<Session>): Session {
     full_auto_enabled: 0,
     full_auto_prompt: null,
     full_auto_started_at: null,
+    show_mode: 'all',
     created_at: new Date().toISOString(),
     last_active: new Date().toISOString(),
     ...(partial || {}),

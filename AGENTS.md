@@ -82,13 +82,13 @@ User message → Gateway (HTTP/Discord) → ContainerInput (JSON)
 
 ### Extension Points
 
-| Extension     | Interface / Registration                          | Playbook |
-|---------------|---------------------------------------------------|----------|
-| Skill         | `skills/<name>/SKILL.md` frontmatter              | §7.1     |
-| Provider      | `src/providers/<name>.ts` + factory                | §7.2     |
-| MCP Server    | `config.json` → merged into tool namespace         | §7.3     |
-| Approval rule | `.hybridclaw/policy.yaml`                          | §7.4     |
-| Template      | `templates/<name>.md` + `src/workspace.ts`         | §7.5     |
+| Extension     | Interface / Registration                                     | Playbook |
+|---------------|--------------------------------------------------------------|----------|
+| Skill         | `skills/<name>/SKILL.md` frontmatter                         | §7.1     |
+| Provider      | `src/providers/<name>.ts` + factory                          | §7.2     |
+| MCP Server    | `~/.hybridclaw/config.json` (`mcpServers.*`) → tool namespace | §7.3     |
+| Approval rule | `.hybridclaw/policy.yaml`                                    | §7.4     |
+| Template      | `templates/<name>.md` + `src/workspace.ts`                   | §7.5     |
 
 ---
 

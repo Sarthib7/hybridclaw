@@ -215,9 +215,9 @@ export function resolveMediaPath(rawPath: string): string | null {
   return (
     resolveManagedTempMediaPath(rawPath) ||
     resolveRootBoundPath(
-    rawPath,
-    DISCORD_MEDIA_CACHE_ROOT,
-    DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
+      rawPath,
+      DISCORD_MEDIA_CACHE_ROOT,
+      DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
     )
   );
 }

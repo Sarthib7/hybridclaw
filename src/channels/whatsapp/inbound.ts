@@ -367,8 +367,8 @@ export async function processInboundWhatsAppMessage(params: {
       .map((jid) => jidToPhone(jid))
       .find((phone): phone is string => Boolean(phone)) ?? null;
   const userId = access.isSelfChat
-    ? preferredSelfPhone ?? jidToPhone(senderJid) ?? senderJid
-    : jidToPhone(senderJid) ?? senderJid;
+    ? (preferredSelfPhone ?? jidToPhone(senderJid) ?? senderJid)
+    : (jidToPhone(senderJid) ?? senderJid);
   const username = String(params.message.pushName || '').trim() || userId;
   const sessionChatJid = access.isSelfChat
     ? resolveCanonicalSelfChatSessionJid(params.selfJids, chatJid)

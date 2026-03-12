@@ -773,12 +773,12 @@ async function resolveDiscordSendTarget(
   }
 
   try {
-  const resolvedChannel = await resolveDiscordChannelIdFromLookup({
-    requireDiscordClientReady: deps.requireDiscordClientReady,
-    guildId: inferredGuildId,
-    rawChannel: rawTarget,
-    resolveAmbiguous: request.resolveAmbiguous,
-  });
+    const resolvedChannel = await resolveDiscordChannelIdFromLookup({
+      requireDiscordClientReady: deps.requireDiscordClientReady,
+      guildId: inferredGuildId,
+      rawChannel: rawTarget,
+      resolveAmbiguous: request.resolveAmbiguous,
+    });
     const resolvedChannelId = sanitizeDiscordId(
       resolvedChannel.channelId,
       'channelId',

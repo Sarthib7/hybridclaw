@@ -12,14 +12,14 @@ import { McpClientManager } from './mcp/client-manager.js';
 import { McpConfigWatcher } from './mcp/config-watcher.js';
 import { callHybridAI, callHybridAIStream } from './model-client.js';
 import {
+  isRetryableModelError,
+  shouldDowngradeStreamToNonStreaming,
+} from './model-retry.js';
+import {
   injectNativeAudioContent,
   injectNativeVisionContent,
   shouldRetryWithoutNativeMedia,
 } from './native-media.js';
-import {
-  isRetryableModelError,
-  shouldDowngradeStreamToNonStreaming,
-} from './model-retry.js';
 import {
   buildRalphPrompt,
   normalizeMessageContentToText,

@@ -4,10 +4,7 @@ import { URL } from 'node:url';
 
 import { inferArtifactMimeType } from './artifacts.js';
 import { normalizeMessageContentToText } from './ralph.js';
-import {
-  resolveMediaPath,
-  resolveWorkspacePath,
-} from './runtime-paths.js';
+import { resolveMediaPath, resolveWorkspacePath } from './runtime-paths.js';
 import type {
   ChatContentPart,
   ChatMessage,
@@ -263,9 +260,7 @@ function appendNativePartsToLatestUserMessage(params: {
   const contentParts: ChatContentPart[] = [
     {
       type: 'text',
-      text: existingText
-        ? `${existingText}\n\n${params.hint}`
-        : params.hint,
+      text: existingText ? `${existingText}\n\n${params.hint}` : params.hint,
     },
     ...existingNonTextParts,
     ...params.parts,

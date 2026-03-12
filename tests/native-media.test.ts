@@ -24,7 +24,9 @@ describe('native media injection', () => {
       '../container/src/native-media.ts'
     );
 
-    const messages = [{ role: 'user' as const, content: 'please summarize this' }];
+    const messages = [
+      { role: 'user' as const, content: 'please summarize this' },
+    ];
     const prepared = await injectNativeAudioContent({
       messages,
       provider: 'vllm',
@@ -79,7 +81,8 @@ describe('native media injection', () => {
     const messages = [
       {
         role: 'user' as const,
-        content: '[AudioTranscript]\n1. voice-note.ogg:\nhello\n[/AudioTranscript]',
+        content:
+          '[AudioTranscript]\n1. voice-note.ogg:\nhello\n[/AudioTranscript]',
       },
     ];
     const prepared = await injectNativeAudioContent({

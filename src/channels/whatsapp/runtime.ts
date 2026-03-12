@@ -130,14 +130,13 @@ export function createWhatsAppRuntime(): WhatsAppRuntime {
 
   const resolveSelfJids = (socket: {
     user?: { id?: string; jid?: string; lid?: string };
-  }): string[] =>
-    [
-      ...new Set(
-        [socket.user?.jid, socket.user?.id, socket.user?.lid].filter(
-          (jid): jid is string => Boolean(jid),
-        ),
+  }): string[] => [
+    ...new Set(
+      [socket.user?.jid, socket.user?.id, socket.user?.lid].filter(
+        (jid): jid is string => Boolean(jid),
       ),
-    ];
+    ),
+  ];
 
   const dispatchInboundBatch = async (
     batch: WhatsAppInboundBatch,

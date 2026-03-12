@@ -235,7 +235,8 @@ export function buildCanonicalSlashCommandDefinitions(
     },
     {
       name: 'show',
-      description: 'Control visible thinking and tool activity for this session',
+      description:
+        'Control visible thinking and tool activity for this session',
       options: [
         {
           kind: 'subcommand',

@@ -172,14 +172,6 @@ import {
   formatRalphIterations,
 } from './gateway-formatting.js';
 import {
-  DEFAULT_SESSION_SHOW_MODE,
-  describeSessionShowMode,
-  isSessionShowMode,
-  normalizeSessionShowMode,
-  sessionShowModeShowsThinking,
-  sessionShowModeShowsTools,
-} from './show-mode.js';
-import {
   interruptGatewaySessionExecution,
   registerActiveGatewayRequest,
 } from './gateway-request-runtime.js';
@@ -217,6 +209,14 @@ import {
 } from './gateway-utils.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
 import { buildResetConfirmationComponents } from './reset-confirmation.js';
+import {
+  DEFAULT_SESSION_SHOW_MODE,
+  describeSessionShowMode,
+  isSessionShowMode,
+  normalizeSessionShowMode,
+  sessionShowModeShowsThinking,
+  sessionShowModeShowsTools,
+} from './show-mode.js';
 
 const BOT_CACHE_TTL = 300_000; // 5 minutes
 const MAX_HISTORY_MESSAGES = 40;
@@ -4205,19 +4205,13 @@ export async function handleGatewayCommand(
       }
 
       if (!isSessionShowMode(nextMode)) {
-        return badCommand(
-          'Usage',
-          'Usage: `show [all|thinking|tools|none]`',
-        );
+        return badCommand('Usage', 'Usage: `show [all|thinking|tools|none]`');
       }
 
       updateSessionShowMode(session.id, nextMode);
       return infoCommand(
         'Show Mode',
-        [
-          `Current: ${nextMode}`,
-          describeSessionShowMode(nextMode),
-        ].join('\n'),
+        [`Current: ${nextMode}`, describeSessionShowMode(nextMode)].join('\n'),
       );
     }
 

@@ -24,7 +24,9 @@ export function filterChatResultForSession(
   sessionId: string,
   result: GatewayChatResult,
 ): GatewayChatResult {
-  const showMode = normalizeSessionShowMode(getSessionById(sessionId)?.show_mode);
+  const showMode = normalizeSessionShowMode(
+    getSessionById(sessionId)?.show_mode,
+  );
   return filterGatewayChatResultForSessionShowMode(result, showMode);
 }
 
@@ -44,7 +46,9 @@ export function isMessageSendAction(rawAction: unknown): boolean {
   );
 }
 
-export function hasMessageSendToolExecution(result: GatewayChatResult): boolean {
+export function hasMessageSendToolExecution(
+  result: GatewayChatResult,
+): boolean {
   if (!Array.isArray(result.toolExecutions)) return false;
   for (const execution of result.toolExecutions) {
     if (
@@ -87,7 +91,9 @@ export function normalizeSilentMessageSendReply(
   if (isSilentReply(rawResult)) {
     return {
       ...result,
-      result: sentByMessageTool ? 'Message sent.' : fallbackResultFromTools(result),
+      result: sentByMessageTool
+        ? 'Message sent.'
+        : fallbackResultFromTools(result),
     };
   }
   const cleanedResult = stripSilentToken(rawResult);

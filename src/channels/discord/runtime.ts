@@ -38,6 +38,10 @@ import {
 } from '../../config/config.js';
 import { claimPendingApprovalByApprovalId } from '../../gateway/pending-approvals.js';
 import { parseResetConfirmationCustomId } from '../../gateway/reset-confirmation.js';
+import {
+  normalizeSessionShowMode,
+  sessionShowModeShowsThinking,
+} from '../../gateway/show-mode.js';
 import { agentWorkspaceDir } from '../../infra/ipc.js';
 import { logger } from '../../logger.js';
 import { getSessionById } from '../../memory/db.js';
@@ -62,10 +66,6 @@ import {
   sendChunkedInteractionReply as sendChunkedInteractionReplyFromDelivery,
   sendChunkedReply as sendChunkedReplyFromDelivery,
 } from './delivery.js';
-import {
-  normalizeSessionShowMode,
-  sessionShowModeShowsThinking,
-} from '../../gateway/show-mode.js';
 import type { HumanDelayConfig } from './human-delay.js';
 import {
   buildSessionIdFromContext as buildSessionIdFromContextInbound,

@@ -6,10 +6,10 @@ import {
 } from 'discord.js';
 import {
   buildCanonicalSlashCommandDefinitions,
-  parseCanonicalSlashCommandArgs,
   type CanonicalSlashCommandDefinition,
   type CanonicalSlashCommandOptionDefinition,
   type CanonicalSlashStringOptionDefinition,
+  parseCanonicalSlashCommandArgs,
 } from '../../command-registry.js';
 
 export interface SlashCommandDefinition {

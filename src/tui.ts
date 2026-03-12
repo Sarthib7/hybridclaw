@@ -547,7 +547,9 @@ function refreshPrompt(rl: readline.Interface): void {
   rl.setPrompt(buildPromptText());
 }
 
-function parseShowModeFromResult(result: GatewayCommandResult): SessionShowMode {
+function parseShowModeFromResult(
+  result: GatewayCommandResult,
+): SessionShowMode {
   const match = result.text.match(/^Current:\s*(all|thinking|tools|none)\b/im);
   return normalizeSessionShowMode(match?.[1]);
 }

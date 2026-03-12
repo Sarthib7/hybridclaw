@@ -18,14 +18,10 @@ export function normalizeSessionShowMode(
   value: string | null | undefined,
 ): SessionShowMode {
   const normalized = value?.trim().toLowerCase();
-  return isSessionShowMode(normalized)
-    ? normalized
-    : DEFAULT_SESSION_SHOW_MODE;
+  return isSessionShowMode(normalized) ? normalized : DEFAULT_SESSION_SHOW_MODE;
 }
 
-export function sessionShowModeShowsThinking(
-  mode: SessionShowMode,
-): boolean {
+export function sessionShowModeShowsThinking(mode: SessionShowMode): boolean {
   return mode === 'all' || mode === 'thinking';
 }
 

@@ -2,11 +2,11 @@ import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
 import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
-import { runMessageToolAction } from '../channels/message/tool-actions.js';
 import {
   type DiscordToolActionRequest,
   normalizeDiscordToolAction,
 } from '../channels/discord/tool-actions.js';
+import { runMessageToolAction } from '../channels/message/tool-actions.js';
 import {
   DATA_DIR,
   GATEWAY_API_TOKEN,

@@ -37,7 +37,11 @@ function normalizeToolErrorText(raw: string): string | null {
   if (/econnrefused|connection refused/i.test(normalized)) {
     return 'connection was refused';
   }
-  if (/enotfound|getaddrinfo|could not resolve|could not be reached/i.test(normalized)) {
+  if (
+    /enotfound|getaddrinfo|could not resolve|could not be reached/i.test(
+      normalized,
+    )
+  ) {
     return 'host could not be reached';
   }
   if (/timed out|timeout|deadline exceeded/i.test(normalized)) {
@@ -51,7 +55,9 @@ function normalizeToolErrorText(raw: string): string | null {
   if (!stripped || /^npm warn /i.test(stripped)) {
     return 'tool execution failed';
   }
-  return stripped.length > 160 ? `${stripped.slice(0, 159).trimEnd()}…` : stripped;
+  return stripped.length > 160
+    ? `${stripped.slice(0, 159).trimEnd()}…`
+    : stripped;
 }
 
 function extractToolFailureText(

@@ -130,9 +130,7 @@ const GOLD = PALETTE.gold;
 const GREEN = PALETTE.green;
 const RED = PALETTE.red;
 const THINKING_PREVIEW_COLOR =
-  THEME === 'light'
-    ? '\x1b[38;2;145;154;170m'
-    : '\x1b[38;2;116;129;148m';
+  THEME === 'light' ? '\x1b[38;2;145;154;170m' : '\x1b[38;2;116;129;148m';
 const JELLYFISH_PULSE_FRAMES =
   THEME === 'light'
     ? ([

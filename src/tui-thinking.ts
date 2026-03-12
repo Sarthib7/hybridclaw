@@ -105,7 +105,9 @@ function isProtectedIndex(
   return ranges.some(([start, end]) => index >= start && index < end);
 }
 
-function extractThinkingBlocks(rawContent: string | null): ThinkingExtractionResult {
+function extractThinkingBlocks(
+  rawContent: string | null,
+): ThinkingExtractionResult {
   if (rawContent == null) {
     return { thinking: null, content: null, thinkingOnly: false };
   }

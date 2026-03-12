@@ -157,9 +157,9 @@ describe('whatsapp inbound policy filtering', () => {
 
   test('keeps media-only inbound messages instead of dropping them on the empty-content guard', async () => {
     vi.doMock('@whiskeysockets/baileys', async () => {
-      const actual = await vi.importActual<typeof import('@whiskeysockets/baileys')>(
-        '@whiskeysockets/baileys',
-      );
+      const actual = await vi.importActual<
+        typeof import('@whiskeysockets/baileys')
+      >('@whiskeysockets/baileys');
       return {
         ...actual,
         downloadMediaMessage: vi.fn(async () => Buffer.from('image-bytes')),

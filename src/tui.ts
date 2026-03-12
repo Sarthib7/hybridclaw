@@ -282,7 +282,7 @@ function printHelp(): void {
   console.log(`  ${TEAL}/rag [on|off]${RESET}     Toggle or set RAG`);
   console.log(`  ${TEAL}/ralph [on|off|set n]${RESET} Configure Ralph loop`);
   console.log(
-    `  ${TEAL}/fullauto [status|off|prompt]${RESET} Enable or inspect session full-auto mode`,
+    `  ${TEAL}/fullauto [status|off|on [prompt]|prompt]${RESET} Enable or inspect session full-auto mode`,
   );
   console.log(`  ${TEAL}/mcp list${RESET}         List configured MCP servers`);
   console.log(

@@ -151,10 +151,14 @@ import {
   syncFullAutoRuntimeContext,
 } from './fullauto.js';
 import { mapAgentCard } from './gateway-agent-cards.js';
-import { parseAuditPayload } from './gateway-audit-utils.js';
+import {
+  classifyGatewayError,
+  type GatewayErrorClass,
+} from './gateway-error-utils.js';
 import {
   abbreviateForUser,
   formatCompactNumber,
+  formatRalphIterations,
 } from './gateway-formatting.js';
 import {
   interruptGatewaySessionExecution,
@@ -187,7 +191,11 @@ import {
   type GatewayStatus,
   renderGatewayCommand,
 } from './gateway-types.js';
-import { firstNumber, numberFromUnknown } from './gateway-utils.js';
+import {
+  firstNumber,
+  numberFromUnknown,
+  parseAuditPayload,
+} from './gateway-utils.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
 import { buildResetConfirmationComponents } from './reset-confirmation.js';
 
@@ -237,35 +245,11 @@ const IMAGE_QUESTION_RE =
   /(what(?:'s| is)? on (?:the )?(?:image|picture|photo|screenshot)|describe (?:this|the) (?:image|picture|photo)|image|picture|photo|screenshot|ocr|diagram|chart|grafik|bild|foto|was steht|was ist auf dem bild)/i;
 const BROWSER_TAB_RE =
   /(browser|tab|current tab|web page|website|seite im browser|aktuellen tab)/i;
-const TRANSIENT_DELEGATION_ERROR_PATTERNS: RegExp[] = [
-  /econnreset/i,
-  /etimedout/i,
-  /429/i,
-  /5\d\d/i,
-  /network/i,
-  /socket/i,
-  /fetch failed/i,
-  /temporar/i,
-  /rate limit/i,
-  /unavailable/i,
-  /abort/i,
-  /interrupt/i,
-  /killed/i,
-];
-const PERMANENT_DELEGATION_ERROR_PATTERNS: RegExp[] = [
-  /forbidden/i,
-  /permission denied/i,
-  /unauthorized/i,
-  /not found/i,
-  /invalid api key/i,
-  /blocked by security hook/i,
-];
 let cachedGitCommitShort: string | null | undefined;
 const pendingSessionResets = new Map<string, PendingSessionReset>();
 
 type DelegationMode = 'single' | 'parallel' | 'chain';
 type DelegationRunStatus = 'completed' | 'failed' | 'timeout';
-type DelegationErrorClass = 'transient' | 'permanent' | 'unknown';
 
 interface PendingSessionReset {
   requestedAt: number;
@@ -333,7 +317,6 @@ export interface GatewayChatRequest {
   ) => void | Promise<void>;
   abortSignal?: AbortSignal;
   source?: string;
-  fullAutoRunToken?: number | null;
 }
 
 export type {
@@ -350,7 +333,13 @@ export type {
 export { renderGatewayCommand };
 export { resumeEnabledFullAutoSessions } from './fullauto.js';
 
-configureFullAutoRuntime({ handleGatewayMessage });
+let gatewayServiceInitialized = false;
+
+export function initGatewayService(): void {
+  if (gatewayServiceInitialized) return;
+  configureFullAutoRuntime({ handleGatewayMessage });
+  gatewayServiceInitialized = true;
+}
 
 function formatUptime(seconds: number): string {
   const d = Math.floor(seconds / 86400);
@@ -968,12 +957,6 @@ function normalizeRalphIterations(value: number): number {
   return Math.min(MAX_RALPH_ITERATIONS, truncated);
 }
 
-function formatRalphIterations(value: number): string {
-  if (value === -1) return 'unlimited';
-  if (value <= 0) return 'off';
-  return `${value} extra iteration${value === 1 ? '' : 's'}`;
-}
-
 function badCommand(title: string, text: string): GatewayCommandResult {
   return { kind: 'error', title, text };
 }
@@ -993,6 +976,23 @@ function infoCommand(
 
 function plainCommand(text: string): GatewayCommandResult {
   return { kind: 'plain', text };
+}
+
+function enableFullAutoCommand(params: {
+  session: Session;
+  req: GatewayCommandRequest;
+  prompt: string | null;
+}): GatewayCommandResult {
+  const { session: refreshed, seeded } = enableFullAutoSession(params);
+  return infoCommand(
+    'Full-Auto Enabled',
+    [
+      'Full-auto mode enabled. Agent will run indefinitely. Use `stop` or `fullauto off` to halt.',
+      `Prompt: ${resolveFullAutoPrompt(refreshed)}`,
+      describeFullAutoWorkspaceSummary(refreshed, seeded),
+      `Ralph: ${formatRalphIterations(resolveSessionRalphIterations(refreshed))}`,
+    ].join('\n'),
+  );
 }
 
 const MCP_SERVER_NAME_RE = /^[a-z0-9][a-z0-9_-]*$/;
@@ -2269,22 +2269,6 @@ function formatDurationMs(ms: number): string {
   return `${(ms / 1_000).toFixed(1)}s`;
 }
 
-function classifyDelegationError(errorText: string): DelegationErrorClass {
-  if (
-    PERMANENT_DELEGATION_ERROR_PATTERNS.some((pattern) =>
-      pattern.test(errorText),
-    )
-  )
-    return 'permanent';
-  if (
-    TRANSIENT_DELEGATION_ERROR_PATTERNS.some((pattern) =>
-      pattern.test(errorText),
-    )
-  )
-    return 'transient';
-  return 'unknown';
-}
-
 function inferDelegationStatus(errorText: string): DelegationRunStatus {
   return /timeout|timed out|deadline exceeded/i.test(errorText)
     ? 'timeout'
@@ -2433,9 +2417,9 @@ async function runDelegationTaskWithRetry(
     lastSessionId = sessionId;
     const startedAt = Date.now();
     try {
-      const output = await runAgent(
+      const output = await runAgent({
         sessionId,
-        [
+        messages: [
           {
             role: 'system',
             content: buildSubagentSystemPrompt({
@@ -2449,15 +2433,11 @@ async function runDelegationTaskWithRetry(
         ],
         chatbotId,
         enableRag,
-        task.model,
+        model: task.model,
         agentId,
         channelId,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
         allowedTools,
-      );
+      });
       const durationMs = Date.now() - startedAt;
       lastDuration = durationMs;
       lastToolsUsed = output.toolsUsed || [];
@@ -2479,7 +2459,7 @@ async function runDelegationTaskWithRetry(
       const errorText = output.error || 'Delegated run returned empty output.';
       lastError = errorText;
       lastStatus = inferDelegationStatus(errorText);
-      const classification = classifyDelegationError(errorText);
+      const classification: GatewayErrorClass = classifyGatewayError(errorText);
       const shouldRetry =
         classification === 'transient' && attempt < maxAttempts;
       if (!shouldRetry) break;
@@ -2503,7 +2483,7 @@ async function runDelegationTaskWithRetry(
       const errorText = err instanceof Error ? err.message : String(err);
       lastError = errorText;
       lastStatus = inferDelegationStatus(errorText);
-      const classification = classifyDelegationError(errorText);
+      const classification: GatewayErrorClass = classifyGatewayError(errorText);
       const shouldRetry =
         classification === 'transient' && attempt < maxAttempts;
       if (!shouldRetry) break;
@@ -3157,25 +3137,24 @@ export async function handleGatewayMessage(
       },
       'Gateway chat invoking agent',
     );
-    const output = await runAgent(
-      req.sessionId,
+    const output = await runAgent({
+      sessionId: req.sessionId,
       messages,
       chatbotId,
       enableRag,
       model,
       agentId,
-      req.channelId,
-      resolveSessionRalphIterations(session),
-      isFullAutoEnabled(session),
-      FULLAUTO_NEVER_APPROVE_TOOLS,
+      channelId: req.channelId,
+      ralphMaxIterations: resolveSessionRalphIterations(session),
+      fullAutoEnabled: isFullAutoEnabled(session),
+      fullAutoNeverApproveTools: FULLAUTO_NEVER_APPROVE_TOOLS,
       scheduledTasks,
-      undefined,
-      mediaPolicy.blockedTools,
+      blockedTools: mediaPolicy.blockedTools,
       onTextDelta,
       onToolProgress,
-      activeGatewayRequest.signal,
+      abortSignal: activeGatewayRequest.signal,
       media,
-    );
+    });
     const effectiveUserContent =
       typeof output.effectiveUserPrompt === 'string' &&
       output.effectiveUserPrompt.trim()
@@ -3498,7 +3477,7 @@ export async function handleGatewayCommand(
         '`channel mode [off|mention|free]` — Set or inspect this Discord channel response mode',
         '`channel policy [open|allowlist|disabled]` — Set or inspect guild channel policy',
         '`ralph [on|off|set <n>|info]` — Configure Ralph loop (0 off, -1 unlimited)',
-        '`fullauto [status|off|<prompt>]` — Enable/inspect/disable session full-auto mode',
+        '`fullauto [status|off|on [prompt]|<prompt>]` — Enable/inspect/disable session full-auto mode',
         '`mcp list` — List configured MCP servers',
         '`mcp add <name> <json>` — Add or update an MCP server config',
         '`mcp remove <name>` — Remove an MCP server config',
@@ -3827,22 +3806,21 @@ export async function handleGatewayCommand(
 
     case 'fullauto': {
       const sub = (req.args[1] || '').trim().toLowerCase();
-      if (!sub || sub === 'on') {
+      if (!sub) {
+        const refreshed = memoryService.getSessionById(session.id) ?? session;
+        return infoCommand(
+          'Full-Auto Status',
+          buildFullAutoStatusLines(refreshed).join('\n'),
+        );
+      }
+
+      if (sub === 'on') {
         const promptText = req.args.slice(2).join(' ').trim();
-        const { session: refreshed, seeded } = enableFullAutoSession({
+        return enableFullAutoCommand({
           session,
           req,
           prompt: promptText || null,
         });
-        return infoCommand(
-          'Full-Auto Enabled',
-          [
-            'Full-auto mode enabled. Agent will run indefinitely. Use `stop` or `fullauto off` to halt.',
-            `Prompt: ${resolveFullAutoPrompt(refreshed)}`,
-            describeFullAutoWorkspaceSummary(refreshed, seeded),
-            `Ralph: ${formatRalphIterations(resolveSessionRalphIterations(refreshed))}`,
-          ].join('\n'),
-        );
       }
 
       if (sub === 'off' || sub === 'disable' || sub === 'stop') {
@@ -3862,22 +3840,16 @@ export async function handleGatewayCommand(
 
       const prompt = req.args.slice(1).join(' ').trim();
       if (!prompt) {
-        return badCommand('Usage', 'Usage: `fullauto [status|off|<prompt>]`');
+        return badCommand(
+          'Usage',
+          'Usage: `fullauto [status|off|on [prompt]|<prompt>]`',
+        );
       }
-      const { session: refreshed, seeded } = enableFullAutoSession({
+      return enableFullAutoCommand({
         session,
         req,
         prompt,
       });
-      return infoCommand(
-        'Full-Auto Enabled',
-        [
-          'Full-auto mode enabled. Agent will run indefinitely. Use `stop` or `fullauto off` to halt.',
-          `Prompt: ${resolveFullAutoPrompt(refreshed)}`,
-          describeFullAutoWorkspaceSummary(refreshed, seeded),
-          `Ralph: ${formatRalphIterations(resolveSessionRalphIterations(refreshed))}`,
-        ].join('\n'),
-      );
     }
 
     case 'stop':

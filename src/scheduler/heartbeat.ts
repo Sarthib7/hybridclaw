@@ -181,20 +181,17 @@ export function startHeartbeat(
       });
 
       const scheduledTasks = getTasksForSession(sessionId);
-      const output = await runAgent(
+      const output = await runAgent({
         sessionId,
         messages,
         chatbotId,
-        HYBRIDAI_ENABLE_RAG,
-        HYBRIDAI_MODEL,
-        resolvedAgentId,
-        heartbeatChannelId,
-        undefined,
-        undefined,
-        undefined,
+        enableRag: HYBRIDAI_ENABLE_RAG,
+        model: HYBRIDAI_MODEL,
+        agentId: resolvedAgentId,
+        channelId: heartbeatChannelId,
         scheduledTasks,
-        HEARTBEAT_ALLOWED_TOOLS,
-      );
+        allowedTools: HEARTBEAT_ALLOWED_TOOLS,
+      });
       emitToolExecutionAuditEvents({
         sessionId,
         runId,

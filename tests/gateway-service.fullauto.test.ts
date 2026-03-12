@@ -189,11 +189,11 @@ test('fullauto command enables auto-turns, queues follow-up results, and can be 
     '../src/providers/factory.ts'
   );
   const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
-  const { getGatewayAgents, handleGatewayCommand } = await import(
-    '../src/gateway/gateway-service.ts'
-  );
+  const { getGatewayAgents, handleGatewayCommand, initGatewayService } =
+    await import('../src/gateway/gateway-service.ts');
 
   initDatabase({ quiet: true });
+  initGatewayService();
 
   const sessionId = 'session-fullauto';
   memoryService.getOrCreateSession(sessionId, null, 'tui');
@@ -224,9 +224,11 @@ test('fullauto command enables auto-turns, queues follow-up results, and can be 
 
   await vi.advanceTimersByTimeAsync(3_000);
   expect(runAgentMock).toHaveBeenCalledTimes(2);
-  const firstMessages = runAgentMock.mock.calls[0]?.[1] as
-    | Array<{ role: string; content: string }>
-    | undefined;
+  const firstMessages = (
+    runAgentMock.mock.calls[0]?.[0] as
+      | { messages?: Array<{ role: string; content: string }> }
+      | undefined
+  )?.messages;
   expect(firstMessages?.at(-1)?.content).toContain(
     'Write tests for untested functions',
   );
@@ -237,9 +239,11 @@ test('fullauto command enables auto-turns, queues follow-up results, and can be 
     'FULLAUTO mode is active for this session.',
   );
   expect(firstMessages?.[0]?.content).toContain('fullauto/LEARNING_');
-  const checkpointMessages = runAgentMock.mock.calls[1]?.[1] as
-    | Array<{ role: string; content: string }>
-    | undefined;
+  const checkpointMessages = (
+    runAgentMock.mock.calls[1]?.[0] as
+      | { messages?: Array<{ role: string; content: string }> }
+      | undefined
+  )?.messages;
   expect(checkpointMessages?.[0]?.content).toContain(
     'learning-writer subagent',
   );
@@ -248,9 +252,11 @@ test('fullauto command enables auto-turns, queues follow-up results, and can be 
 
   await vi.advanceTimersByTimeAsync(3_000);
   expect(runAgentMock).toHaveBeenCalledTimes(4);
-  const secondMessages = runAgentMock.mock.calls[2]?.[1] as
-    | Array<{ role: string; content: string }>
-    | undefined;
+  const secondMessages = (
+    runAgentMock.mock.calls[2]?.[0] as
+      | { messages?: Array<{ role: string; content: string }> }
+      | undefined
+  )?.messages;
   expect(secondMessages?.at(-1)?.content).toContain('Durable goal state:');
   expect(secondMessages?.at(-1)?.content).toContain('Current learning state:');
   expect(secondMessages?.at(-1)?.content).toContain(
@@ -345,6 +351,42 @@ test('fullauto command enables auto-turns, queues follow-up results, and can be 
   ).toBe(false);
 });
 
+test('bare fullauto shows status and does not enable background looping', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+  const { handleGatewayCommand, initGatewayService } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  initGatewayService();
+
+  const sessionId = 'session-fullauto-status-only';
+  memoryService.getOrCreateSession(sessionId, null, 'tui');
+
+  const result = await handleGatewayCommand({
+    sessionId,
+    guildId: null,
+    channelId: 'tui',
+    userId: 'tui-user',
+    username: 'user',
+    args: ['fullauto'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Full-Auto Status');
+  expect(result.text).toContain('Enabled: no');
+  expect(runAgentMock).not.toHaveBeenCalled();
+  expect(memoryService.getSessionById(sessionId)?.full_auto_enabled).toBe(0);
+});
+
 test('stop clears the full-auto running guard and ignores stale auto-turn completions', async () => {
   vi.useFakeTimers();
   const homeDir = makeTempHome();
@@ -357,7 +399,9 @@ test('stop clears the full-auto running guard and ignores stale auto-turn comple
     .mockImplementationOnce(
       (...args) =>
         new Promise((resolve) => {
-          firstAbortSignal = args[15] as AbortSignal | undefined;
+          firstAbortSignal = (
+            args[0] as { abortSignal?: AbortSignal } | undefined
+          )?.abortSignal;
           firstAbortSignal?.addEventListener(
             'abort',
             () => {
@@ -383,11 +427,11 @@ test('stop clears the full-auto running guard and ignores stale auto-turn comple
   const { initDatabase, listQueuedProactiveMessages, updateSessionChatbot } =
     await import('../src/memory/db.ts');
   const { memoryService } = await import('../src/memory/memory-service.ts');
-  const { handleGatewayCommand, handleGatewayMessage } = await import(
-    '../src/gateway/gateway-service.ts'
-  );
+  const { handleGatewayCommand, handleGatewayMessage, initGatewayService } =
+    await import('../src/gateway/gateway-service.ts');
 
   initDatabase({ quiet: true });
+  initGatewayService();
 
   const sessionId = 'session-fullauto-stop';
   memoryService.getOrCreateSession(sessionId, null, 'tui');
@@ -450,7 +494,9 @@ test('manual supervision preempts the active full-auto turn and keeps looping en
     .mockImplementationOnce(
       (...args) =>
         new Promise((resolve) => {
-          firstAbortSignal = args[15] as AbortSignal | undefined;
+          firstAbortSignal = (
+            args[0] as { abortSignal?: AbortSignal } | undefined
+          )?.abortSignal;
           firstAbortSignal?.addEventListener(
             'abort',
             () => {
@@ -500,11 +546,11 @@ test('manual supervision preempts the active full-auto turn and keeps looping en
   const { initDatabase, listQueuedProactiveMessages, updateSessionChatbot } =
     await import('../src/memory/db.ts');
   const { memoryService } = await import('../src/memory/memory-service.ts');
-  const { handleGatewayCommand, handleGatewayMessage } = await import(
-    '../src/gateway/gateway-service.ts'
-  );
+  const { handleGatewayCommand, handleGatewayMessage, initGatewayService } =
+    await import('../src/gateway/gateway-service.ts');
 
   initDatabase({ quiet: true });
+  initGatewayService();
 
   const sessionId = 'session-fullauto-supervise';
   memoryService.getOrCreateSession(sessionId, null, 'tui');
@@ -540,9 +586,11 @@ test('manual supervision preempts the active full-auto turn and keeps looping en
 
   await vi.advanceTimersByTimeAsync(3_000);
   expect(runAgentMock).toHaveBeenCalledTimes(4);
-  const supervisedLearningMessages = runAgentMock.mock.calls[3]?.[1] as
-    | Array<{ role: string; content: string }>
-    | undefined;
+  const supervisedLearningMessages = (
+    runAgentMock.mock.calls[3]?.[0] as
+      | { messages?: Array<{ role: string; content: string }> }
+      | undefined
+  )?.messages;
   expect(supervisedLearningMessages?.[1]?.content).toContain(
     'Recent supervised interventions:',
   );
@@ -604,17 +652,20 @@ test('persisted full-auto sessions resume on startup', async () => {
     '../src/memory/db.ts'
   );
   initDatabaseAfterRestart({ quiet: true });
-  const { resumeEnabledFullAutoSessions } = await import(
+  const { initGatewayService, resumeEnabledFullAutoSessions } = await import(
     '../src/gateway/gateway-service.ts'
   );
+  initGatewayService();
 
   expect(resumeEnabledFullAutoSessions()).toBe(1);
   await vi.advanceTimersByTimeAsync(3_000);
 
   expect(runAgentMock).toHaveBeenCalledTimes(2);
-  const resumedMessages = runAgentMock.mock.calls[0]?.[1] as
-    | Array<{ role: string; content: string }>
-    | undefined;
+  const resumedMessages = (
+    runAgentMock.mock.calls[0]?.[0] as
+      | { messages?: Array<{ role: string; content: string }> }
+      | undefined
+  )?.messages;
   expect(resumedMessages?.at(-1)?.content).toContain('Resume research');
   expect(resumedMessages?.at(-1)?.content).toContain(
     'FULLAUTO mode instructions:',
@@ -622,9 +673,11 @@ test('persisted full-auto sessions resume on startup', async () => {
   expect(resumedMessages?.[0]?.content).toContain(
     'FULLAUTO mode is active for this session.',
   );
-  const resumedCheckpointMessages = runAgentMock.mock.calls[1]?.[1] as
-    | Array<{ role: string; content: string }>
-    | undefined;
+  const resumedCheckpointMessages = (
+    runAgentMock.mock.calls[1]?.[0] as
+      | { messages?: Array<{ role: string; content: string }> }
+      | undefined
+  )?.messages;
   expect(resumedCheckpointMessages?.[0]?.content).toContain(
     'learning-writer subagent',
   );
@@ -686,11 +739,12 @@ test('watchdog interrupts stalled full-auto turns and retries after recovery del
   const { initDatabase, listQueuedProactiveMessages, updateSessionChatbot } =
     await import('../src/memory/db.ts');
   const { memoryService } = await import('../src/memory/memory-service.ts');
-  const { handleGatewayCommand } = await import(
+  const { handleGatewayCommand, initGatewayService } = await import(
     '../src/gateway/gateway-service.ts'
   );
 
   initDatabase({ quiet: true });
+  initGatewayService();
 
   const sessionId = 'session-fullauto-watchdog';
   memoryService.getOrCreateSession(sessionId, null, 'tui');

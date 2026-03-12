@@ -159,20 +159,16 @@ async function runPreCompactionMemoryFlush(params: {
   messages.push({ role: 'user', content: flushPrompt });
 
   try {
-    const output = await runAgent(
-      `memory-flush:${params.sessionId}:${Date.now()}`,
+    const output = await runAgent({
+      sessionId: `memory-flush:${params.sessionId}:${Date.now()}`,
       messages,
-      params.chatbotId,
-      params.enableRag,
-      params.model,
-      params.agentId,
-      params.channelId,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      ['memory'],
-    );
+      chatbotId: params.chatbotId,
+      enableRag: params.enableRag,
+      model: params.model,
+      agentId: params.agentId,
+      channelId: params.channelId,
+      allowedTools: ['memory'],
+    });
     if (output.status === 'error') {
       logger.warn(
         { sessionId: params.sessionId, error: output.error },
@@ -225,23 +221,19 @@ async function generateCompactionSummary(params: {
     'Return a single merged summary that should replace the existing summary.',
   ].join('\n');
 
-  const output = await runAgent(
-    `compact:${params.sessionId}:${Date.now()}`,
-    [
+  const output = await runAgent({
+    sessionId: `compact:${params.sessionId}:${Date.now()}`,
+    messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
     ],
-    params.chatbotId,
-    params.enableRag,
-    params.model,
-    params.agentId,
-    params.channelId,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    [],
-  );
+    chatbotId: params.chatbotId,
+    enableRag: params.enableRag,
+    model: params.model,
+    agentId: params.agentId,
+    channelId: params.channelId,
+    allowedTools: [],
+  });
 
   if (output.status === 'error' || !output.result) {
     logger.warn(

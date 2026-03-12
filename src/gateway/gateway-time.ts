@@ -9,6 +9,10 @@ export function parseTimestamp(raw: string | null | undefined): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+export function parseTimestampMs(raw: string | null | undefined): number {
+  return parseTimestamp(raw)?.getTime() ?? 0;
+}
+
 export function formatRelativeTimeFromMs(
   timestampMs: number | null | undefined,
 ): string {

@@ -1,16 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { DATA_DIR } from '../config/config.js';
+import { DATA_DIR, HYBRIDAI_MODEL } from '../config/config.js';
 import { injectPdfContextMessages } from '../media/pdf-context.js';
 import type {
   ChatMessage,
   ContainerOutput,
   MediaContextItem,
-  ScheduledTask,
-  ToolProgressEvent,
 } from '../types.js';
 import { getExecutor } from './executor.js';
+import type { ExecutorRequest } from './executor-types.js';
 
 /** Write full prompt context to data/last_prompt.jsonl for debugging (Pi-Mono style). */
 function dumpPrompt(
@@ -41,28 +40,20 @@ function dumpPrompt(
 }
 
 export async function runAgent(
-  sessionId: string,
-  messages: ChatMessage[],
-  chatbotId: string,
-  enableRag: boolean,
-  model: string,
-  agentId: string,
-  channelId: string,
-  ralphMaxIterations?: number | null,
-  fullAutoEnabled?: boolean,
-  fullAutoNeverApproveTools?: string[],
-  scheduledTasks?: ScheduledTask[],
-  allowedTools?: string[],
-  blockedTools?: string[],
-  onTextDelta?: (delta: string) => void,
-  onToolProgress?: (event: ToolProgressEvent) => void,
-  abortSignal?: AbortSignal,
-  media?: MediaContextItem[],
+  params: ExecutorRequest,
 ): Promise<ContainerOutput> {
+  const sessionId = params.sessionId;
+  const chatbotId = params.chatbotId;
+  const model = params.model || HYBRIDAI_MODEL;
+  const agentId = params.agentId || chatbotId;
+  const channelId = params.channelId || '';
+  const media = params.media;
+  const allowedTools = params.allowedTools;
+  const blockedTools = params.blockedTools;
   const workspaceRoot = getExecutor().getWorkspacePath(agentId);
   const preparedMessages = await injectPdfContextMessages({
     sessionId,
-    messages,
+    messages: params.messages,
     workspaceRoot,
     media,
   });
@@ -76,22 +67,13 @@ export async function runAgent(
     blockedTools,
   );
   return getExecutor().exec({
+    ...params,
     sessionId,
     messages: preparedMessages,
     chatbotId,
-    enableRag,
     model,
     agentId,
     channelId,
-    ralphMaxIterations,
-    fullAutoEnabled,
-    fullAutoNeverApproveTools,
-    scheduledTasks,
-    allowedTools,
-    blockedTools,
-    onTextDelta,
-    onToolProgress,
-    abortSignal,
     media,
   });
 }

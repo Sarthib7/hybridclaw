@@ -66,6 +66,7 @@ import {
   getGatewayStatus,
   handleGatewayCommand,
   handleGatewayMessage,
+  initGatewayService,
   renderGatewayCommand,
   resumeEnabledFullAutoSessions,
   runGatewayScheduledTask,
@@ -906,6 +907,7 @@ function startOrRestartMemoryConsolidationScheduler(): void {
 async function main(): Promise<void> {
   logger.info('Starting HybridClaw gateway');
   initDatabase();
+  initGatewayService();
   resumeEnabledFullAutoSessions();
   startHealthServer();
   setupShutdown();

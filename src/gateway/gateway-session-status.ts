@@ -1,6 +1,5 @@
 import { getRecentStructuredAuditForSession } from '../memory/db.js';
-import { parseAuditPayload } from './gateway-audit-utils.js';
-import { firstNumber } from './gateway-utils.js';
+import { firstNumber, parseAuditPayload } from './gateway-utils.js';
 
 export interface SessionStatusSnapshot {
   promptTokens: number | null;

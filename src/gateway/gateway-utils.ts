@@ -1,3 +1,5 @@
+import type { StructuredAuditEntry } from '../types.js';
+
 export function numberFromUnknown(value: unknown): number | null {
   if (
     typeof value !== 'number' ||
@@ -15,4 +17,16 @@ export function firstNumber(values: unknown[]): number | null {
     if (parsed != null) return parsed;
   }
   return null;
+}
+
+export function parseAuditPayload(
+  entry: StructuredAuditEntry,
+): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(entry.payload) as unknown;
+    if (!parsed || typeof parsed !== 'object') return null;
+    return parsed as Record<string, unknown>;
+  } catch {
+    return null;
+  }
 }

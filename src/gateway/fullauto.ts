@@ -45,13 +45,19 @@ import type {
 } from '../types.js';
 import { sleep } from '../utils/sleep.js';
 import {
+  classifyGatewayError,
+  type GatewayErrorClass,
+} from './gateway-error-utils.js';
+import {
   abbreviateForUser,
   formatCompactNumber,
+  formatRalphIterations,
 } from './gateway-formatting.js';
 import {
   interruptGatewaySessionExecution,
   registerActiveGatewayRequest,
 } from './gateway-request-runtime.js';
+import { parseTimestampMs } from './gateway-time.js';
 import type {
   GatewayChatResult,
   GatewayCommandRequest,
@@ -74,37 +80,6 @@ const FULLAUTO_LEARNING_RESULT_INPUT_MAX_CHARS = 4_000;
 const FULLAUTO_LEARNING_STATE_MAX_CHARS = 4_000;
 const FULLAUTO_RUN_LOG_RESULT_MAX_CHARS = 1_500;
 const FULLAUTO_STATUS_PROMPT_MAX_CHARS = 180;
-const TRANSIENT_FULLAUTO_ERROR_PATTERNS: RegExp[] = [
-  /econnreset/i,
-  /etimedout/i,
-  /429/i,
-  /5\d\d/i,
-  /socket/i,
-  /fetch failed/i,
-  /timeout/i,
-  /timed out/i,
-  /deadline exceeded/i,
-  /connection reset/i,
-  /network/i,
-  /temporar/i,
-  /try again/i,
-  /rate limit/i,
-  /unavailable/i,
-  /abort/i,
-  /interrupt/i,
-  /killed/i,
-];
-const PERMANENT_FULLAUTO_ERROR_PATTERNS: RegExp[] = [
-  /forbidden/i,
-  /permission denied/i,
-  /unauthorized/i,
-  /not found/i,
-  /invalid api key/i,
-  /blocked by security hook/i,
-];
-
-type DelegationErrorClass = 'transient' | 'permanent' | 'unknown';
-
 export interface ProactiveMessagePayload {
   text: string;
   artifacts?: ArtifactMetadata[];
@@ -121,7 +96,6 @@ export interface FullAutoRequestContext {
     message: ProactiveMessagePayload,
   ) => void | Promise<void>;
   source?: string;
-  fullAutoRunToken?: number | null;
 }
 
 interface FullAutoTurnRequest extends FullAutoRequestContext {
@@ -175,12 +149,6 @@ export function configureFullAutoRuntime(host: FullAutoRuntimeHost): void {
 function requireFullAutoHost(): FullAutoRuntimeHost {
   if (fullAutoHost) return fullAutoHost;
   throw new Error('Full-auto runtime host has not been configured.');
-}
-
-function formatRalphIterations(value: number): string {
-  if (value === -1) return 'unlimited';
-  if (value <= 0) return 'off';
-  return `${value} extra iteration${value === 1 ? '' : 's'}`;
 }
 
 function getOrCreateFullAutoRuntimeState(
@@ -288,17 +256,6 @@ function resolveFullAutoRunId(session: Session): string {
     if (normalized) return normalized;
   }
   return 'legacy';
-}
-
-function parseFullAutoTimestamp(raw: string | null | undefined): number {
-  const value = String(raw || '').trim();
-  if (!value) return 0;
-  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)) {
-    const parsed = Date.parse(`${value.replace(' ', 'T')}Z`);
-    return Number.isNaN(parsed) ? 0 : parsed;
-  }
-  const parsed = Date.parse(value);
-  return Number.isNaN(parsed) ? 0 : parsed;
 }
 
 function resolveFullAutoWorkspacePaths(session: Session): {
@@ -600,7 +557,7 @@ function readRecentFullAutoInterventionsFromRunLog(session: Session): string[] {
       const prompt = promptLine?.slice('- prompt: '.length).trim();
       if (!prompt) return null;
       const source = sourceLine?.slice('- source: '.length).trim();
-      const timestamp = parseFullAutoTimestamp(headingMatch[1]);
+      const timestamp = parseTimestampMs(headingMatch[1]);
       const label =
         timestamp > 0 ? new Date(timestamp).toISOString() : headingMatch[1];
       return `- ${label}${source ? ` (${source})` : ''}: ${prompt}`;
@@ -618,14 +575,14 @@ function readRecentFullAutoInterventions(session: Session): string {
     );
   }
 
-  const startedAtMs = parseFullAutoTimestamp(session.full_auto_started_at);
+  const startedAtMs = parseTimestampMs(session.full_auto_started_at);
   const historyEntries = memoryService
     .getRecentMessages(session.id, 40)
     .filter((message) => {
       if (message.role !== 'user') return false;
       if (
         startedAtMs > 0 &&
-        parseFullAutoTimestamp(message.created_at) < startedAtMs
+        parseTimestampMs(message.created_at) < startedAtMs
       ) {
         return false;
       }
@@ -635,7 +592,7 @@ function readRecentFullAutoInterventions(session: Session): string {
     })
     .slice(-FULLAUTO_RECENT_INTERVENTIONS)
     .map((message) => {
-      const timestamp = parseFullAutoTimestamp(message.created_at);
+      const timestamp = parseTimestampMs(message.created_at);
       const normalized = String(message.content || '')
         .replace(/\s+/g, ' ')
         .trim();
@@ -739,28 +696,25 @@ async function generateFullAutoLearningState(params: {
   markFullAutoProgress(sessionId, state, 'learning-subagent:start');
 
   try {
-    const output = await runAgent(
-      executionSessionId,
-      buildFullAutoLearningPrompt({ session, result, state }),
+    const output = await runAgent({
+      sessionId: executionSessionId,
+      messages: buildFullAutoLearningPrompt({ session, result, state }),
       chatbotId,
-      state.enableRag ?? session.enable_rag === 1,
+      enableRag: state.enableRag ?? session.enable_rag === 1,
       model,
       agentId,
-      session.channel_id,
-      0,
-      false,
-      undefined,
-      [],
-      [],
-      [],
-      (delta) => {
+      channelId: session.channel_id,
+      ralphMaxIterations: 0,
+      fullAutoEnabled: false,
+      scheduledTasks: [],
+      allowedTools: [],
+      blockedTools: [],
+      onTextDelta: (delta) => {
         if (!delta) return;
         markFullAutoProgress(sessionId, state, 'learning-subagent:text');
       },
-      undefined,
-      activeRequest.signal,
-      undefined,
-    );
+      abortSignal: activeRequest.signal,
+    });
     if (output.status !== 'success') {
       logger.warn(
         {
@@ -1110,20 +1064,6 @@ export async function disableFullAutoSession(params: {
   });
 }
 
-function classifyFullAutoError(errorText: string): DelegationErrorClass {
-  if (
-    PERMANENT_FULLAUTO_ERROR_PATTERNS.some((pattern) => pattern.test(errorText))
-  ) {
-    return 'permanent';
-  }
-  if (
-    TRANSIENT_FULLAUTO_ERROR_PATTERNS.some((pattern) => pattern.test(errorText))
-  ) {
-    return 'transient';
-  }
-  return 'unknown';
-}
-
 function isFullAutoCostCapExceeded(sessionId: string): {
   exceeded: boolean;
   reason?: string;
@@ -1381,7 +1321,7 @@ async function runFullAutoTurn(sessionId: string): Promise<void> {
   let attempt = 0;
   let delayMs = PROACTIVE_AUTO_RETRY_BASE_DELAY_MS;
   let lastError = 'Unknown full-auto error';
-  let lastClassification: DelegationErrorClass = 'unknown';
+  let lastClassification: GatewayErrorClass = 'unknown';
   const runToken = state.activeRunToken;
   const { handleGatewayMessage } = requireFullAutoHost();
 
@@ -1414,7 +1354,6 @@ async function runFullAutoTurn(sessionId: string): Promise<void> {
         },
         onProactiveMessage: state.onProactiveMessage ?? undefined,
         source: 'fullauto',
-        fullAutoRunToken: runToken,
       });
 
       if (!isCurrentFullAutoRuntimeState(sessionId, state)) {
@@ -1506,7 +1445,7 @@ async function runFullAutoTurn(sessionId: string): Promise<void> {
       }
 
       lastError = result.error || 'Unknown full-auto error';
-      lastClassification = classifyFullAutoError(lastError);
+      lastClassification = classifyGatewayError(lastError);
       if (lastClassification === 'transient' && attempt < maxAttempts) {
         await sleep(delayMs);
         if (!isCurrentFullAutoRuntimeState(sessionId, state)) {
@@ -1573,7 +1512,7 @@ async function runFullAutoTurn(sessionId: string): Promise<void> {
     }
     state.consecutiveErrors += 1;
     const shouldDisable =
-      classifyFullAutoError(errorText) === 'permanent' ||
+      classifyGatewayError(errorText) === 'permanent' ||
       state.consecutiveErrors >= FULLAUTO_MAX_CONSECUTIVE_ERRORS;
     if (shouldDisable) {
       const activeSession = session ?? memoryService.getSessionById(sessionId);

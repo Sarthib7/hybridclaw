@@ -679,23 +679,19 @@ export class MemoryService {
     const model = params.session.model || HYBRIDAI_MODEL;
     const chatbotId = params.session.chatbot_id || HYBRIDAI_CHATBOT_ID;
     const agentId = resolveAgentIdForModel(model, chatbotId);
-    const output = await runAgent(
-      `compact:${params.stageKind}:${params.session.id}:${params.stageIndex + 1}-of-${params.stageTotal}:${Date.now()}`,
-      [
+    const output = await runAgent({
+      sessionId: `compact:${params.stageKind}:${params.session.id}:${params.stageIndex + 1}-of-${params.stageTotal}:${Date.now()}`,
+      messages: [
         { role: 'system', content: params.systemPrompt },
         { role: 'user', content: params.userPrompt },
       ],
       chatbotId,
-      params.session.enable_rag !== 0,
+      enableRag: params.session.enable_rag !== 0,
       model,
       agentId,
-      params.session.channel_id,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      [],
-    );
+      channelId: params.session.channel_id,
+      allowedTools: [],
+    });
 
     if (output.status === 'error' || !output.result?.trim()) {
       throw new Error(output.error || 'Compaction prompt returned no summary.');

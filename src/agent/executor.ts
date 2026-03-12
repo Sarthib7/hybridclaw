@@ -16,42 +16,7 @@ import {
   parseBindSpecs,
   parseLegacyAdditionalMounts,
 } from '../security/mount-config.js';
-import type {
-  ChatMessage,
-  ContainerOutput,
-  MediaContextItem,
-  ScheduledTask,
-  ToolProgressEvent,
-} from '../types.js';
-
-export interface ExecutorRequest {
-  sessionId: string;
-  messages: ChatMessage[];
-  chatbotId: string;
-  enableRag: boolean;
-  model?: string;
-  agentId?: string;
-  channelId?: string;
-  ralphMaxIterations?: number | null;
-  fullAutoEnabled?: boolean;
-  fullAutoNeverApproveTools?: string[];
-  scheduledTasks?: ScheduledTask[];
-  allowedTools?: string[];
-  blockedTools?: string[];
-  onTextDelta?: (delta: string) => void;
-  onToolProgress?: (event: ToolProgressEvent) => void;
-  abortSignal?: AbortSignal;
-  media?: MediaContextItem[];
-}
-
-export interface Executor {
-  exec(request: ExecutorRequest): Promise<ContainerOutput>;
-  getWorkspacePath(agentId: string): string;
-  stopSession(sessionId: string): boolean;
-  stopAll(): void;
-  getActiveSessionCount(): number;
-  getActiveSessionIds(): string[];
-}
+import type { Executor } from './executor-types.js';
 
 export interface SandboxDiagnostics {
   mode: 'container' | 'host';

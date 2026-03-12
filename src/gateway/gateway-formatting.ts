@@ -21,3 +21,9 @@ export function abbreviateForUser(text: string, maxChars: number): string {
   if (normalized.length <= maxChars) return normalized;
   return `${normalized.slice(0, Math.max(0, maxChars - 3)).trimEnd()}...`;
 }
+
+export function formatRalphIterations(value: number): string {
+  if (value === -1) return 'unlimited';
+  if (value <= 0) return 'off';
+  return `${value} extra iteration${value === 1 ? '' : 's'}`;
+}

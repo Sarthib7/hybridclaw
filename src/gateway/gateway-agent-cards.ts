@@ -7,10 +7,9 @@ import {
 import { resolveAgentIdForModel } from '../providers/factory.js';
 import type { Session, StoredMessage, StructuredAuditEntry } from '../types.js';
 import { isFullAutoEnabled } from './fullauto.js';
-import { parseAuditPayload } from './gateway-audit-utils.js';
 import { formatRelativeTimeFromMs, parseTimestamp } from './gateway-time.js';
 import type { GatewayAgentsResponse } from './gateway-types.js';
-import { numberFromUnknown } from './gateway-utils.js';
+import { numberFromUnknown, parseAuditPayload } from './gateway-utils.js';
 
 export interface GatewaySessionUsageSummary {
   total_input_tokens: number;

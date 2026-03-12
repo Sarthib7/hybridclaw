@@ -10,13 +10,19 @@ import {
 
 describe.sequential('container tool runtime guards', () => {
   let workspaceRoot = '';
+  let tempImagePath = '';
 
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.restoreAllMocks();
     vi.resetModules();
     if (workspaceRoot) {
       fs.rmSync(workspaceRoot, { recursive: true, force: true });
       workspaceRoot = '';
+    }
+    if (tempImagePath) {
+      fs.rmSync(tempImagePath, { force: true });
+      tempImagePath = '';
     }
   });
 
@@ -58,6 +64,84 @@ describe.sequential('container tool runtime guards', () => {
 
     expect(result.isError).toBe(true);
     expect(result.output).toContain('File not found');
+  });
+
+  test('vision_analyze supports vllm without apiKey or chatbotId', async () => {
+    tempImagePath = path.join(
+      os.tmpdir(),
+      `hybridclaw-vision-${Date.now()}.jpg`,
+    );
+    fs.writeFileSync(tempImagePath, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: 'Detected test image.',
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { executeToolWithMetadata, setModelContext } = await import(
+      '../container/src/tools.js'
+    );
+    setModelContext(
+      'vllm',
+      'http://haigpu1:8000/v1',
+      '',
+      'vllm/Qwen/Qwen3.5-27B-FP8',
+      '',
+    );
+
+    const result = await executeToolWithMetadata(
+      'vision_analyze',
+      JSON.stringify({
+        image_url: tempImagePath,
+        question: 'What is in this image?',
+      }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://haigpu1:8000/v1/chat/completions',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.not.objectContaining({
+          Authorization: expect.any(String),
+        }),
+      }),
+    );
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(requestBody).toMatchObject({
+      model: 'Qwen/Qwen3.5-27B-FP8',
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'What is in this image?' },
+            {
+              type: 'image_url',
+              image_url: expect.objectContaining({
+                url: expect.stringMatching(/^data:image\/jpeg;base64,/),
+              }),
+            },
+          ],
+        },
+      ],
+    });
+    expect(result.output).toContain('"success": true');
+    expect(result.output).toContain('Detected test image.');
   });
 
   test('blocks repeated identical discovery calls with identical outcomes', () => {

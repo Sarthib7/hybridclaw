@@ -938,6 +938,41 @@ describe('gateway health server', () => {
     });
   });
 
+  test('uses analyzed vision text when the final chat result is only Done', async () => {
+    const state = await importFreshHealth();
+    state.handleGatewayMessage.mockResolvedValue({
+      status: 'success',
+      result: 'Done.',
+      toolsUsed: ['vision_analyze'],
+      toolExecutions: [
+        {
+          name: 'vision_analyze',
+          arguments: '{"file_path":"/tmp/image.jpg"}',
+          result: JSON.stringify({
+            success: true,
+            analysis: 'A basil plant on a windowsill.',
+          }),
+          durationMs: 43800,
+        },
+      ],
+      artifacts: [],
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: { content: 'what is in this image?' },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(JSON.parse(res.body)).toMatchObject({
+      status: 'success',
+      result: 'A basil plant on a windowsill.',
+    });
+  });
+
   test('normalizes Discord action payloads before dispatching tool actions', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({

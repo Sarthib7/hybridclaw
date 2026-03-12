@@ -771,13 +771,18 @@ async function readVisionImageFromUrl(
 }
 
 function visionModelContextError(): string | null {
-  if (!currentModelApiKey)
-    return 'vision_analyze is not configured: missing API key context.';
   if (!currentModelBaseUrl)
     return 'vision_analyze is not configured: missing base URL context.';
   if (!currentModelName)
     return 'vision_analyze is not configured: missing model context.';
-  if (currentModelProvider !== 'openai-codex' && !currentChatbotId)
+  if (
+    (currentModelProvider === 'hybridai' ||
+      currentModelProvider === 'openai-codex') &&
+    !currentModelApiKey
+  ) {
+    return 'vision_analyze is not configured: missing API key context.';
+  }
+  if (currentModelProvider === 'hybridai' && !currentChatbotId)
     return 'vision_analyze is not configured: missing chatbot_id context.';
   return null;
 }
@@ -788,12 +793,31 @@ function normalizeCodexModelName(model: string): string {
   return trimmed.slice('openai-codex/'.length) || trimmed;
 }
 
+function normalizeVisionBaseUrl(baseUrl: string): string {
+  return String(baseUrl || '')
+    .trim()
+    .replace(/\/+$/g, '');
+}
+
+function normalizeVisionLocalOpenAIModelName(
+  provider: 'lmstudio' | 'vllm',
+  model: string,
+): string {
+  const trimmed = String(model || '').trim();
+  const prefix = `${provider}/`;
+  if (!trimmed.toLowerCase().startsWith(prefix)) return trimmed;
+  return trimmed.slice(prefix.length) || trimmed;
+}
+
 function buildModelRequestHeaders(): Record<string, string> {
-  return {
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    Authorization: `Bearer ${currentModelApiKey}`,
     ...currentModelHeaders,
   };
+  if (currentModelApiKey) {
+    headers.Authorization = `Bearer ${currentModelApiKey}`;
+  }
+  return headers;
 }
 
 function extractCodexOutputText(payload: Record<string, unknown>): string {
@@ -830,45 +854,67 @@ async function callVisionModel(
   const contextError = visionModelContextError();
   if (contextError) throw new Error(contextError);
 
-  const response = await fetch(
+  const endpoint =
     currentModelProvider === 'openai-codex'
-      ? `${currentModelBaseUrl}/responses`
-      : `${currentModelBaseUrl}/v1/chat/completions`,
-    {
-      method: 'POST',
-      headers: buildModelRequestHeaders(),
-      body: JSON.stringify(
-        currentModelProvider === 'openai-codex'
-          ? {
-              model: normalizeCodexModelName(currentModelName),
-              instructions: CODEX_VISION_INSTRUCTIONS,
-              input: [
-                {
-                  role: 'user',
-                  content: [
-                    { type: 'input_text', text: question },
-                    { type: 'input_image', image_url: imageDataUrl },
-                  ],
-                },
-              ],
-            }
-          : {
-              model: currentModelName,
-              chatbot_id: currentChatbotId,
-              enable_rag: false,
-              messages: [
-                {
-                  role: 'user',
-                  content: [
-                    { type: 'text', text: question },
-                    { type: 'image_url', image_url: { url: imageDataUrl } },
-                  ],
-                },
+      ? `${normalizeVisionBaseUrl(currentModelBaseUrl)}/responses`
+      : currentModelProvider === 'hybridai'
+        ? `${normalizeVisionBaseUrl(currentModelBaseUrl)}/v1/chat/completions`
+        : `${normalizeVisionBaseUrl(currentModelBaseUrl)}/chat/completions`;
+  const body =
+    currentModelProvider === 'openai-codex'
+      ? {
+          model: normalizeCodexModelName(currentModelName),
+          instructions: CODEX_VISION_INSTRUCTIONS,
+          input: [
+            {
+              role: 'user',
+              content: [
+                { type: 'input_text', text: question },
+                { type: 'input_image', image_url: imageDataUrl },
               ],
             },
-      ),
-    },
-  );
+          ],
+        }
+      : currentModelProvider === 'hybridai'
+        ? {
+            model: currentModelName,
+            chatbot_id: currentChatbotId,
+            enable_rag: false,
+            messages: [
+              {
+                role: 'user',
+                content: [
+                  { type: 'text', text: question },
+                  { type: 'image_url', image_url: { url: imageDataUrl } },
+                ],
+              },
+            ],
+          }
+        : {
+            model:
+              currentModelProvider === 'lmstudio' ||
+              currentModelProvider === 'vllm'
+                ? normalizeVisionLocalOpenAIModelName(
+                    currentModelProvider,
+                    currentModelName,
+                  )
+                : currentModelName,
+            messages: [
+              {
+                role: 'user',
+                content: [
+                  { type: 'text', text: question },
+                  { type: 'image_url', image_url: { url: imageDataUrl } },
+                ],
+              },
+            ],
+          };
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: buildModelRequestHeaders(),
+    body: JSON.stringify(body),
+  });
 
   const rawText = await response.text();
   if (!response.ok) {

@@ -89,6 +89,8 @@ export type RuntimeWebSearchConcreteProvider = Exclude<
   RuntimeWebSearchProvider,
   'auto'
 >;
+export type WhatsAppDmPolicy = 'open' | 'pairing' | 'allowlist' | 'disabled';
+export type WhatsAppGroupPolicy = 'open' | 'allowlist' | 'disabled';
 
 export interface RuntimeDiscordHumanDelayConfig {
   mode: DiscordHumanDelayMode;
@@ -139,6 +141,18 @@ export interface RuntimeDiscordGuildConfig {
   channels: Record<string, RuntimeDiscordChannelConfig>;
   sendAllowedUserIds?: string[];
   sendAllowedRoleIds?: string[];
+}
+
+export interface RuntimeWhatsAppConfig {
+  dmPolicy: WhatsAppDmPolicy;
+  groupPolicy: WhatsAppGroupPolicy;
+  allowFrom: string[];
+  groupAllowFrom: string[];
+  textChunkLimit: number;
+  debounceMs: number;
+  sendReadReceipts: boolean;
+  ackReaction: string;
+  mediaMaxMb: number;
 }
 
 export interface RuntimeSchedulerJob {
@@ -201,6 +215,7 @@ export interface RuntimeConfig {
     maxConcurrentPerChannel: number;
     guilds: Record<string, RuntimeDiscordGuildConfig>;
   };
+  whatsapp: RuntimeWhatsAppConfig;
   hybridai: {
     baseUrl: string;
     defaultModel: string;
@@ -398,6 +413,17 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     suppressPatterns: ['/stop', '/pause', 'brb', 'afk'],
     maxConcurrentPerChannel: 2,
     guilds: {},
+  },
+  whatsapp: {
+    dmPolicy: 'pairing',
+    groupPolicy: 'disabled',
+    allowFrom: [],
+    groupAllowFrom: [],
+    textChunkLimit: 4_000,
+    debounceMs: 2_500,
+    sendReadReceipts: true,
+    ackReaction: '👀',
+    mediaMaxMb: 20,
   },
   hybridai: {
     baseUrl: 'https://hybridai.one',
@@ -926,6 +952,81 @@ function normalizeDiscordSendPolicy(
     return normalized;
   }
   return fallback;
+}
+
+function normalizeWhatsAppDmPolicy(
+  value: unknown,
+  fallback: WhatsAppDmPolicy,
+): WhatsAppDmPolicy {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'open' ||
+    normalized === 'pairing' ||
+    normalized === 'allowlist' ||
+    normalized === 'disabled'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeWhatsAppGroupPolicy(
+  value: unknown,
+  fallback: WhatsAppGroupPolicy,
+): WhatsAppGroupPolicy {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'open' ||
+    normalized === 'allowlist' ||
+    normalized === 'disabled'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeWhatsAppConfig(
+  value: unknown,
+  fallback: RuntimeWhatsAppConfig,
+): RuntimeWhatsAppConfig {
+  const raw = isRecord(value) ? value : {};
+  return {
+    dmPolicy: normalizeWhatsAppDmPolicy(raw.dmPolicy, fallback.dmPolicy),
+    groupPolicy: normalizeWhatsAppGroupPolicy(
+      raw.groupPolicy,
+      fallback.groupPolicy,
+    ),
+    allowFrom: normalizeStringArray(raw.allowFrom, fallback.allowFrom),
+    groupAllowFrom: normalizeStringArray(
+      raw.groupAllowFrom,
+      fallback.groupAllowFrom,
+    ),
+    textChunkLimit: normalizeInteger(
+      raw.textChunkLimit,
+      fallback.textChunkLimit,
+      {
+        min: 200,
+        max: 4_000,
+      },
+    ),
+    debounceMs: normalizeInteger(raw.debounceMs, fallback.debounceMs, {
+      min: 0,
+      max: 120_000,
+    }),
+    sendReadReceipts: normalizeBoolean(
+      raw.sendReadReceipts,
+      fallback.sendReadReceipts,
+    ),
+    ackReaction: normalizeString(raw.ackReaction, fallback.ackReaction, {
+      allowEmpty: true,
+    }),
+    mediaMaxMb: normalizeInteger(raw.mediaMaxMb, fallback.mediaMaxMb, {
+      min: 1,
+      max: 100,
+    }),
+  };
 }
 
 function normalizeDiscordCommandMode(
@@ -1536,6 +1637,7 @@ function normalizeRuntimeConfig(
   const rawAgents = isRecord(raw.agents) ? raw.agents : {};
   const rawSkills = isRecord(raw.skills) ? raw.skills : {};
   const rawDiscord = isRecord(raw.discord) ? raw.discord : {};
+  const rawWhatsApp = isRecord(raw.whatsapp) ? raw.whatsapp : {};
   const rawHybridAi = isRecord(raw.hybridai) ? raw.hybridai : {};
   const rawCodex = isRecord(raw.codex) ? raw.codex : {};
   const rawLocal = isRecord(raw.local) ? raw.local : {};
@@ -1790,6 +1892,10 @@ function normalizeRuntimeConfig(
         DEFAULT_RUNTIME_CONFIG.discord.guilds,
       ),
     },
+    whatsapp: normalizeWhatsAppConfig(
+      rawWhatsApp,
+      DEFAULT_RUNTIME_CONFIG.whatsapp,
+    ),
     hybridai: {
       baseUrl: hybridBaseUrl,
       defaultModel: normalizeString(

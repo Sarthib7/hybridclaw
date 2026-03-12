@@ -6,6 +6,8 @@ import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const tempDirs: string[] = [];
+const ORIGINAL_WHATSAPP_SETUP_SETTLE_MS =
+  process.env.HYBRIDCLAW_WHATSAPP_SETUP_SETTLE_MS;
 
 function createTempDir(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-cli-'));
@@ -31,6 +33,7 @@ async function importFreshCli(options?: {
   sandboxMode?: 'host' | 'container';
 }) {
   vi.resetModules();
+  process.env.HYBRIDCLAW_WHATSAPP_SETUP_SETTLE_MS = '0';
 
   const clearHybridAICredentials = vi.fn(() => '/tmp/credentials.json');
   const getHybridAIAuthStatus = vi.fn(
@@ -56,9 +59,42 @@ async function importFreshCli(options?: {
   const runUpdateCommand = vi.fn();
   const ensureRuntimeCredentials = vi.fn();
   const ensureContainerImageReady = vi.fn();
+  const saveRuntimeSecrets = vi.fn(() => '/tmp/credentials.json');
+  const whatsappStart = vi.fn(async () => {});
+  const whatsappStop = vi.fn(async () => {});
+  const whatsappWaitForSocket = vi.fn(async () => ({
+    user: { id: '12345@s.whatsapp.net' },
+  }));
+  const createWhatsAppConnectionManager = vi.fn(() => ({
+    getSocket: vi.fn(() => null),
+    start: whatsappStart,
+    stop: whatsappStop,
+    waitForSocket: whatsappWaitForSocket,
+  }));
   const ensureRuntimeConfigFile = vi.fn(() => false);
   const getRuntimeConfig = vi.fn(() => ({
+    discord: {
+      prefix: '!claw',
+      commandsOnly: false,
+      commandMode: 'public',
+      commandAllowedUserIds: [],
+      commandUserId: '',
+      groupPolicy: 'open',
+      freeResponseChannels: [],
+      guilds: {},
+    },
     hybridai: { defaultModel: 'gpt-5-nano' },
+    whatsapp: {
+      dmPolicy: 'pairing',
+      groupPolicy: 'disabled',
+      allowFrom: [],
+      groupAllowFrom: [],
+      textChunkLimit: 4000,
+      debounceMs: 2500,
+      sendReadReceipts: true,
+      ackReaction: '',
+      mediaMaxMb: 20,
+    },
     local: {
       backends: {
         ollama: { enabled: true, baseUrl: 'http://127.0.0.1:11434' },
@@ -169,6 +205,9 @@ async function importFreshCli(options?: {
   vi.doMock('../src/infra/container-setup.ts', () => ({
     ensureContainerImageReady,
   }));
+  vi.doMock('../src/channels/whatsapp/connection.ts', () => ({
+    createWhatsAppConnectionManager,
+  }));
   vi.doMock('../src/onboarding.ts', () => ({
     ensureRuntimeCredentials,
   }));
@@ -186,6 +225,7 @@ async function importFreshCli(options?: {
   }));
   vi.doMock('../src/security/runtime-secrets.ts', () => ({
     runtimeSecretsPath: vi.fn(() => '/tmp/credentials.json'),
+    saveRuntimeSecrets,
   }));
   vi.doMock('../src/tui.ts', () => {
     tuiModuleLoaded();
@@ -206,6 +246,11 @@ async function importFreshCli(options?: {
     runUpdateCommand,
     ensureRuntimeCredentials,
     ensureContainerImageReady,
+    createWhatsAppConnectionManager,
+    whatsappStart,
+    whatsappStop,
+    whatsappWaitForSocket,
+    saveRuntimeSecrets,
     ensureRuntimeConfigFile,
     getRuntimeConfig,
     runtimeConfigPath,
@@ -232,6 +277,12 @@ afterEach(() => {
   vi.doUnmock('../src/tui.ts');
   vi.doUnmock('../src/update.ts');
   vi.resetModules();
+  if (ORIGINAL_WHATSAPP_SETUP_SETTLE_MS === undefined) {
+    delete process.env.HYBRIDCLAW_WHATSAPP_SETUP_SETTLE_MS;
+  } else {
+    process.env.HYBRIDCLAW_WHATSAPP_SETUP_SETTLE_MS =
+      ORIGINAL_WHATSAPP_SETUP_SETTLE_MS;
+  }
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop();
     if (!dir) continue;
@@ -249,6 +300,58 @@ describe('CLI hybridai commands', () => {
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('Usage: hybridclaw hybridai <command>'),
     );
+  });
+
+  it('prints channels help', async () => {
+    const { cli } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['help', 'channels']);
+
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Usage: hybridclaw channels <channel> <command>'),
+    );
+  });
+
+  it('runs discord channel setup and stores token when provided', async () => {
+    const { cli, saveRuntimeSecrets, updateRuntimeConfig } =
+      await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main([
+      'channels',
+      'discord',
+      'setup',
+      '--token',
+      'discord-secret-token',
+      '--allow-user-id',
+      '123456789012345678',
+    ]);
+
+    expect(updateRuntimeConfig).toHaveBeenCalled();
+    expect(saveRuntimeSecrets).toHaveBeenCalledWith({
+      DISCORD_TOKEN: 'discord-secret-token',
+    });
+    expect(logSpy).toHaveBeenCalledWith('Discord mode: command-only');
+  });
+
+  it('runs whatsapp channel setup and waits for pairing', async () => {
+    const {
+      cli,
+      createWhatsAppConnectionManager,
+      whatsappStart,
+      whatsappStop,
+      whatsappWaitForSocket,
+    } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['channels', 'whatsapp', 'setup']);
+
+    expect(createWhatsAppConnectionManager).toHaveBeenCalled();
+    expect(whatsappStart).toHaveBeenCalled();
+    expect(whatsappWaitForSocket).toHaveBeenCalled();
+    expect(whatsappStop).toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith('Opening WhatsApp pairing session...');
   });
 
   it('prints hybridai usage for bare hybridai', async () => {

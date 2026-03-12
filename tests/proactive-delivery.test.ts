@@ -3,6 +3,7 @@ import { describe, expect, test } from 'vitest';
 import {
   hasQueuedProactiveDeliveryPath,
   isDiscordChannelId,
+  isSupportedProactiveChannelId,
   resolveHeartbeatDeliveryChannelId,
   shouldDropQueuedProactiveMessage,
 } from '../src/gateway/proactive-delivery.js';
@@ -14,27 +15,36 @@ describe('proactive delivery helpers', () => {
     expect(isDiscordChannelId('heartbeat')).toBe(false);
   });
 
-  test('heartbeat prefers explicit channel and otherwise uses last Discord channel', () => {
+  test('heartbeat prefers explicit channel and otherwise uses the last delivery channel', () => {
     expect(
       resolveHeartbeatDeliveryChannelId({
         explicitChannelId: '123456789012345678',
-        lastUsedDiscordChannelId: '987654321098765432',
+        lastUsedChannelId: '987654321098765432',
       }),
     ).toBe('123456789012345678');
 
     expect(
       resolveHeartbeatDeliveryChannelId({
         explicitChannelId: '   ',
-        lastUsedDiscordChannelId: '987654321098765432',
+        lastUsedChannelId: '987654321098765432',
       }),
     ).toBe('987654321098765432');
 
     expect(
       resolveHeartbeatDeliveryChannelId({
         explicitChannelId: '',
-        lastUsedDiscordChannelId: null,
+        lastUsedChannelId: null,
       }),
     ).toBeNull();
+  });
+
+  test('recognizes supported WhatsApp and local delivery ids', () => {
+    expect(isSupportedProactiveChannelId('491234567890@s.whatsapp.net')).toBe(
+      true,
+    );
+    expect(isSupportedProactiveChannelId('120363401234567890@g.us')).toBe(true);
+    expect(isSupportedProactiveChannelId('tui')).toBe(true);
+    expect(isSupportedProactiveChannelId('smoke')).toBe(false);
   });
 
   test('recognizes supported queued proactive delivery paths', () => {
@@ -47,6 +57,12 @@ describe('proactive delivery helpers', () => {
     expect(
       hasQueuedProactiveDeliveryPath({
         channel_id: 'tui',
+      }),
+    ).toBe(true);
+
+    expect(
+      hasQueuedProactiveDeliveryPath({
+        channel_id: '491234567890@s.whatsapp.net',
       }),
     ).toBe(true);
 

@@ -5,12 +5,15 @@ async function settle(): Promise<void> {
   await new Promise((resolve) => setImmediate(resolve));
 }
 
-async function importFreshGatewayMain() {
+async function importFreshGatewayMain(options?: { whatsappLinked?: boolean }) {
   vi.resetModules();
 
   const state = {
     commandHandler: null as null | ((...args: unknown[]) => Promise<void>),
     messageHandler: null as null | ((...args: unknown[]) => Promise<void>),
+    whatsappMessageHandler: null as
+      | null
+      | ((...args: unknown[]) => Promise<void>),
     configChangeListener: null as
       | null
       | ((
@@ -55,6 +58,7 @@ async function importFreshGatewayMain() {
     })),
     initDatabase: vi.fn(),
     initDiscord: vi.fn(),
+    initWhatsApp: vi.fn(),
     initGatewayService: vi.fn(),
     listQueuedProactiveMessages: vi.fn(() => []),
     memoryServiceConsolidate: vi.fn(() => ({
@@ -81,6 +85,7 @@ async function importFreshGatewayMain() {
     startHealthCheckLoop: vi.fn(),
     startObservabilityIngest: vi.fn(),
     startScheduler: vi.fn(),
+    whatsappLinked: options?.whatsappLinked === true,
   };
 
   state.getConfigSnapshot.mockImplementation(() => state.currentConfig);
@@ -98,6 +103,9 @@ async function importFreshGatewayMain() {
   state.initDiscord.mockImplementation((messageHandler, commandHandler) => {
     state.messageHandler = messageHandler;
     state.commandHandler = commandHandler;
+  });
+  state.initWhatsApp.mockImplementation((messageHandler) => {
+    state.whatsappMessageHandler = messageHandler;
   });
   state.startScheduler.mockImplementation((listener) => {
     void listener;
@@ -140,6 +148,18 @@ async function importFreshGatewayMain() {
     initDiscord: state.initDiscord,
     sendToChannel: vi.fn(),
     setDiscordMaintenancePresence: vi.fn(async () => {}),
+  }));
+  vi.doMock('../src/channels/whatsapp/runtime.js', () => ({
+    initWhatsApp: state.initWhatsApp,
+    sendToWhatsAppChat: vi.fn(async () => {}),
+    sendWhatsAppMediaToChat: vi.fn(async () => {}),
+    shutdownWhatsApp: vi.fn(async () => {}),
+  }));
+  vi.doMock('../src/channels/whatsapp/auth.js', () => ({
+    getWhatsAppAuthStatus: vi.fn(async () => ({
+      linked: state.whatsappLinked,
+      jid: state.whatsappLinked ? '491701234567:16@s.whatsapp.net' : null,
+    })),
   }));
   vi.doMock('../src/config/config.js', () => ({
     DISCORD_TOKEN: 'discord-token',
@@ -207,7 +227,9 @@ async function importFreshGatewayMain() {
     startHealthServer: state.startHealthServer,
   }));
   vi.doMock('../src/gateway/proactive-delivery.js', () => ({
+    hasQueuedProactiveDeliveryPath: vi.fn(() => true),
     isDiscordChannelId: vi.fn(() => true),
+    isSupportedProactiveChannelId: vi.fn(() => true),
     resolveHeartbeatDeliveryChannelId: vi.fn(() => '123456789012345678'),
     shouldDropQueuedProactiveMessage: vi.fn(() => false),
   }));
@@ -237,6 +259,8 @@ afterEach(() => {
   vi.doUnmock('../src/channels/discord/delivery.js');
   vi.doUnmock('../src/channels/discord/mentions.js');
   vi.doUnmock('../src/channels/discord/runtime.js');
+  vi.doUnmock('../src/channels/whatsapp/runtime.js');
+  vi.doUnmock('../src/channels/whatsapp/auth.js');
   vi.doUnmock('../src/config/config.js');
   vi.doUnmock('../src/logger.js');
   vi.doUnmock('../src/memory/db.js');
@@ -272,6 +296,13 @@ describe('gateway bootstrap', () => {
     expect(state.startScheduler).toHaveBeenCalledTimes(1);
     expect(state.onConfigChange).toHaveBeenCalledTimes(1);
     expect(state.setInterval).toHaveBeenCalled();
+  });
+
+  test('starts WhatsApp integration automatically when linked auth exists', async () => {
+    const state = await importFreshGatewayMain({ whatsappLinked: true });
+
+    expect(state.initWhatsApp).toHaveBeenCalledTimes(1);
+    expect(state.whatsappMessageHandler).not.toBeNull();
   });
 
   test('formats command replies based on gateway command result kind', async () => {
@@ -350,6 +381,158 @@ describe('gateway bootstrap', () => {
       [],
     );
     expect(stream.fail).not.toHaveBeenCalled();
+  });
+
+  test('routes WhatsApp slash commands through the gateway command handler', async () => {
+    const state = await importFreshGatewayMain({ whatsappLinked: true });
+    const reply = vi.fn(async () => {});
+
+    await state.whatsappMessageHandler?.(
+      'wa:491701234567@s.whatsapp.net',
+      null,
+      '491701234567@s.whatsapp.net',
+      '+491701234567',
+      'alice',
+      '/help',
+      [],
+      reply,
+      {
+        abortSignal: new AbortController().signal,
+        batchedMessages: [],
+        chatJid: '491701234567@s.whatsapp.net',
+        isGroup: false,
+        rawMessage: {},
+        senderJid: '491701234567@s.whatsapp.net',
+      },
+    );
+
+    expect(state.handleGatewayCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        args: ['help'],
+        channelId: '491701234567@s.whatsapp.net',
+        sessionId: 'wa:491701234567@s.whatsapp.net',
+      }),
+    );
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+    expect(reply).toHaveBeenCalledWith('rendered:plain output');
+  });
+
+  test('treats bare WhatsApp /model as model info', async () => {
+    const state = await importFreshGatewayMain({ whatsappLinked: true });
+
+    await state.whatsappMessageHandler?.(
+      'wa:491701234567@s.whatsapp.net',
+      null,
+      '491701234567@s.whatsapp.net',
+      '+491701234567',
+      'alice',
+      '/model',
+      [],
+      vi.fn(async () => {}),
+      {
+        abortSignal: new AbortController().signal,
+        batchedMessages: [],
+        chatJid: '491701234567@s.whatsapp.net',
+        isGroup: false,
+        rawMessage: {},
+        senderJid: '491701234567@s.whatsapp.net',
+      },
+    );
+
+    expect(state.handleGatewayCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        args: ['model', 'info'],
+      }),
+    );
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+  });
+
+  test('expands WhatsApp /info into the standard info command set', async () => {
+    const state = await importFreshGatewayMain({ whatsappLinked: true });
+
+    await state.whatsappMessageHandler?.(
+      'wa:491701234567@s.whatsapp.net',
+      null,
+      '491701234567@s.whatsapp.net',
+      '+491701234567',
+      'alice',
+      '/info',
+      [],
+      vi.fn(async () => {}),
+      {
+        abortSignal: new AbortController().signal,
+        batchedMessages: [],
+        chatJid: '491701234567@s.whatsapp.net',
+        isGroup: false,
+        rawMessage: {},
+        senderJid: '491701234567@s.whatsapp.net',
+      },
+    );
+
+    expect(state.handleGatewayCommand).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        args: ['bot', 'info'],
+      }),
+    );
+    expect(state.handleGatewayCommand).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        args: ['model', 'info'],
+      }),
+    );
+    expect(state.handleGatewayCommand).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({
+        args: ['status'],
+      }),
+    );
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+  });
+
+  test('uses the analyzed vision text when the model only returns Done in WhatsApp', async () => {
+    const state = await importFreshGatewayMain({ whatsappLinked: true });
+    state.handleGatewayMessage.mockResolvedValue({
+      status: 'success',
+      result: 'Done.',
+      toolsUsed: ['vision_analyze'],
+      toolExecutions: [
+        {
+          name: 'vision_analyze',
+          arguments: '{"file_path":"/tmp/image.jpg"}',
+          result: JSON.stringify({
+            success: true,
+            analysis: 'A basil plant on a windowsill.',
+          }),
+          durationMs: 43800,
+        },
+      ],
+      artifacts: [],
+    });
+    const reply = vi.fn(async () => {});
+
+    await state.whatsappMessageHandler?.(
+      'wa:491701234567@s.whatsapp.net',
+      null,
+      '491701234567@s.whatsapp.net',
+      '+491701234567',
+      'alice',
+      'what is in this image?',
+      [],
+      reply,
+      {
+        abortSignal: new AbortController().signal,
+        batchedMessages: [],
+        chatJid: '491701234567@s.whatsapp.net',
+        isGroup: false,
+        rawMessage: {},
+        senderJid: '491701234567@s.whatsapp.net',
+      },
+    );
+
+    expect(reply).toHaveBeenCalledWith(
+      'A basil plant on a windowsill.\n*Tools: vision_analyze*',
+    );
   });
 
   test('omits the Discord tool footer when the session show mode hides tools', async () => {

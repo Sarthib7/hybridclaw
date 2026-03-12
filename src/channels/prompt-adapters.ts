@@ -1,4 +1,6 @@
 import { discordAgentPromptAdapter } from './discord/prompt-adapter.js';
+import { isWhatsAppJid } from './whatsapp/phone.js';
+import { whatsappAgentPromptAdapter } from './whatsapp/prompt-adapter.js';
 
 const DISCORD_SNOWFLAKE_RE = /^\d{16,22}$/;
 
@@ -24,14 +26,20 @@ function normalizeValue(value: string | null | undefined): string {
   return String(value || '').trim();
 }
 
+function isWhatsAppContext(runtimeInfo?: ChannelPromptRuntimeInfo): boolean {
+  const channelType = normalizeLower(runtimeInfo?.channelType);
+  if (channelType) return channelType === 'whatsapp';
+
+  const channelId = normalizeValue(runtimeInfo?.channelId);
+  return isWhatsAppJid(channelId);
+}
+
 function isDiscordContext(runtimeInfo?: ChannelPromptRuntimeInfo): boolean {
   const channelType = normalizeLower(runtimeInfo?.channelType);
   if (channelType) return channelType === 'discord';
 
   const channelId = normalizeValue(runtimeInfo?.channelId);
   if (DISCORD_SNOWFLAKE_RE.test(channelId)) return true;
-
-  if (runtimeInfo?.guildId === null) return true;
   const guildId = normalizeValue(runtimeInfo?.guildId);
   return DISCORD_SNOWFLAKE_RE.test(guildId);
 }
@@ -39,6 +47,7 @@ function isDiscordContext(runtimeInfo?: ChannelPromptRuntimeInfo): boolean {
 function resolveChannelAgentPromptAdapter(params: {
   runtimeInfo?: ChannelPromptRuntimeInfo;
 }): ChannelAgentPromptAdapter | null {
+  if (isWhatsAppContext(params.runtimeInfo)) return whatsappAgentPromptAdapter;
   if (isDiscordContext(params.runtimeInfo)) return discordAgentPromptAdapter;
   return null;
 }

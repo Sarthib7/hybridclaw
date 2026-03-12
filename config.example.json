@@ -1,5 +1,5 @@
 {
-  "version": 9,
+  "version": 10,
   "security": {
     "trustModelAccepted": false,
     "trustModelAcceptedAt": "",
@@ -59,6 +59,17 @@
     "suppressPatterns": ["/stop", "/pause", "brb", "afk"],
     "maxConcurrentPerChannel": 2,
     "guilds": {}
+  },
+  "whatsapp": {
+    "dmPolicy": "pairing",
+    "groupPolicy": "disabled",
+    "allowFrom": [],
+    "groupAllowFrom": [],
+    "textChunkLimit": 4000,
+    "debounceMs": 2500,
+    "sendReadReceipts": true,
+    "ackReaction": "👀",
+    "mediaMaxMb": 20
   },
   "hybridai": {
     "baseUrl": "https://hybridai.one",

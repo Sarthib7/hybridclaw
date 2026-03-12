@@ -142,6 +142,17 @@ export let DISCORD_SUPPRESS_PATTERNS: string[] = [
 ];
 export let DISCORD_MAX_CONCURRENT_PER_CHANNEL = 2;
 export let DISCORD_GUILDS: RuntimeConfig['discord']['guilds'] = {};
+export let WHATSAPP_DM_POLICY: RuntimeConfig['whatsapp']['dmPolicy'] =
+  'pairing';
+export let WHATSAPP_GROUP_POLICY: RuntimeConfig['whatsapp']['groupPolicy'] =
+  'disabled';
+export let WHATSAPP_ALLOW_FROM: string[] = [];
+export let WHATSAPP_GROUP_ALLOW_FROM: string[] = [];
+export let WHATSAPP_TEXT_CHUNK_LIMIT = 4_000;
+export let WHATSAPP_DEBOUNCE_MS = 2_500;
+export let WHATSAPP_SEND_READ_RECEIPTS = true;
+export let WHATSAPP_ACK_REACTION = '';
+export let WHATSAPP_MEDIA_MAX_MB = 20;
 
 export let HYBRIDAI_BASE_URL = 'https://hybridai.one';
 export let HYBRIDAI_MODEL = 'gpt-5-nano';
@@ -379,6 +390,18 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   DISCORD_GUILDS = JSON.parse(
     JSON.stringify(config.discord.guilds),
   ) as RuntimeConfig['discord']['guilds'];
+  WHATSAPP_DM_POLICY = config.whatsapp.dmPolicy;
+  WHATSAPP_GROUP_POLICY = config.whatsapp.groupPolicy;
+  WHATSAPP_ALLOW_FROM = [...config.whatsapp.allowFrom];
+  WHATSAPP_GROUP_ALLOW_FROM = [...config.whatsapp.groupAllowFrom];
+  WHATSAPP_TEXT_CHUNK_LIMIT = Math.max(
+    200,
+    Math.min(4_000, config.whatsapp.textChunkLimit),
+  );
+  WHATSAPP_DEBOUNCE_MS = Math.max(0, config.whatsapp.debounceMs);
+  WHATSAPP_SEND_READ_RECEIPTS = config.whatsapp.sendReadReceipts;
+  WHATSAPP_ACK_REACTION = config.whatsapp.ackReaction;
+  WHATSAPP_MEDIA_MAX_MB = Math.max(1, config.whatsapp.mediaMaxMb);
 
   HYBRIDAI_BASE_URL = config.hybridai.baseUrl;
   HYBRIDAI_MODEL = config.hybridai.defaultModel;

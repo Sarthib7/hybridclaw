@@ -65,6 +65,36 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     expect(channelInfo.tier).toBe('green');
   });
 
+  test('vision analysis tools are green and do not wait for interruption', () => {
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const visionAnalyze = runtime.evaluateToolCall({
+      toolName: 'vision_analyze',
+      argsJson: JSON.stringify({
+        image_url: '/tmp/example.jpg',
+        question: 'What is in this image?',
+      }),
+      latestUserPrompt: 'Analyze the attached image',
+    });
+    const imageAlias = runtime.evaluateToolCall({
+      toolName: 'image',
+      argsJson: JSON.stringify({
+        image_url: '/tmp/example.jpg',
+        question: 'What is in this image?',
+      }),
+      latestUserPrompt: 'Analyze the attached image',
+    });
+
+    expect(visionAnalyze.tier).toBe('green');
+    expect(visionAnalyze.decision).toBe('auto');
+    expect(visionAnalyze.implicitDelayMs).toBeUndefined();
+    expect(imageAlias.tier).toBe('green');
+    expect(imageAlias.decision).toBe('auto');
+    expect(imageAlias.implicitDelayMs).toBeUndefined();
+  });
+
   test('read-like MCP tools are green', () => {
     const runtime = new TrustedCoworkerApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',

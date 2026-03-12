@@ -17,6 +17,12 @@ import {
   loginHybridAIInteractive,
 } from './auth/hybridai-auth.js';
 import {
+  resetWhatsAppAuthState,
+  WHATSAPP_AUTH_DIR,
+} from './channels/whatsapp/auth.js';
+import { createWhatsAppConnectionManager } from './channels/whatsapp/connection.js';
+import { normalizePhoneNumber } from './channels/whatsapp/phone.js';
+import {
   findUnsupportedGatewayLifecycleFlag,
   parseGatewayFlags,
   type SandboxModeOverride,
@@ -37,11 +43,24 @@ import {
 } from './config/runtime-config.js';
 import { ensureRuntimeCredentials } from './onboarding.js';
 import type { LocalBackendType } from './providers/local-types.js';
-import { runtimeSecretsPath } from './security/runtime-secrets.js';
+import {
+  runtimeSecretsPath,
+  saveRuntimeSecrets,
+} from './security/runtime-secrets.js';
 import { printUpdateUsage, runUpdateCommand } from './update.js';
 
 const PACKAGE_NAME = '@hybridaione/hybridclaw';
 let cachedInstallRoot: string | null = null;
+
+function resolveWhatsAppSetupSettleMs(): number {
+  const raw = String(
+    process.env.HYBRIDCLAW_WHATSAPP_SETUP_SETTLE_MS || '',
+  ).trim();
+  if (!raw) return 8_000;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0) return 8_000;
+  return Math.floor(parsed);
+}
 
 function resolveInstallRoot(): string {
   if (cachedInstallRoot) return cachedInstallRoot;
@@ -272,6 +291,7 @@ function printMainUsage(): void {
   gateway    Manage core runtime (start/stop/status) or run gateway commands
   tui        Start terminal adapter (starts gateway automatically when needed)
   onboarding Run interactive auth + trust-model onboarding
+  channels   Channel setup helpers (Discord, WhatsApp)
   local      Configure local model backends (Ollama, LM Studio, vLLM)
   hybridai   Manage HybridAI API-key login/logout/status
   codex      Manage OpenAI Codex OAuth login/logout/status
@@ -350,6 +370,25 @@ Notes:
     Use \`--no-default\` to leave the global default model unchanged.`);
 }
 
+function printChannelsUsage(): void {
+  console.log(`Usage: hybridclaw channels <channel> <command>
+
+Commands:
+  hybridclaw channels discord setup [--token <token>] [--allow-user-id <snowflake>]... [--prefix <prefix>]
+  hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...
+
+Notes:
+  - Discord setup stores a bot token only when \`--token\` is provided.
+  - Discord setup configures command-only mode and keeps guild access restricted by default.
+  - WhatsApp setup starts a temporary pairing session and prints the QR code here when needed.
+  - Use \`--reset\` to wipe stale WhatsApp auth files and force a fresh QR.
+  - Without \`--allow-from\`, setup configures WhatsApp for self-chat only.
+  - With one or more \`--allow-from\` values, setup enables only those DMs.
+  - Groups stay disabled by default.
+  - Discord activates automatically when \`DISCORD_TOKEN\` is configured.
+  - WhatsApp activates automatically once linked auth exists.`);
+}
+
 function printCodexUsage(): void {
   console.log(`Usage: hybridclaw codex <command>
 
@@ -405,6 +444,7 @@ Topics:
   gateway     Help for gateway lifecycle and passthrough commands
   tui         Help for terminal client
   onboarding  Help for onboarding flow
+  channels    Help for channel setup helpers
   local       Help for local model configuration commands
   hybridai    Help for HybridAI API-key auth commands
   codex       Help for OpenAI Codex auth commands
@@ -430,6 +470,9 @@ function printHelpTopic(topic: string): boolean {
       return true;
     case 'onboarding':
       printOnboardingUsage();
+      return true;
+    case 'channels':
+      printChannelsUsage();
       return true;
     case 'local':
       printLocalUsage();
@@ -625,6 +668,8 @@ async function runGatewayForeground(
   }
   if (debug) {
     process.env.HYBRIDCLAW_FORCE_LOG_LEVEL = 'debug';
+    const { forceLoggerLevel } = await import('./logger.js');
+    forceLoggerLevel('debug');
     console.log(`${commandName}: forcing gateway log level to debug.`);
   }
   ensureGatewayRunDir();
@@ -1231,6 +1276,293 @@ async function handleLocalCommand(args: string[]): Promise<void> {
   throw new Error(`Unknown local subcommand: ${sub}`);
 }
 
+function parseWhatsAppSetupArgs(args: string[]): {
+  allowFrom: string[];
+  reset: boolean;
+} {
+  const allowFrom: string[] = [];
+  let reset = false;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] || '';
+    if (arg === '--reset') {
+      reset = true;
+      continue;
+    }
+    if (arg === '--allow-from') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--allow-from`.');
+      const normalized = normalizePhoneNumber(next);
+      if (!normalized) {
+        throw new Error(
+          `Invalid WhatsApp phone number: ${next}. Use E.164 format like +491701234567.`,
+        );
+      }
+      allowFrom.push(normalized);
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--allow-from=')) {
+      const raw = arg.slice('--allow-from='.length);
+      const normalized = normalizePhoneNumber(raw);
+      if (!normalized) {
+        throw new Error(
+          `Invalid WhatsApp phone number: ${raw}. Use E.164 format like +491701234567.`,
+        );
+      }
+      allowFrom.push(normalized);
+      continue;
+    }
+    if (arg.startsWith('-')) {
+      throw new Error(`Unknown flag: ${arg}`);
+    }
+    throw new Error(
+      `Unexpected argument: ${arg}. Use \`hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...\`.`,
+    );
+  }
+
+  return {
+    allowFrom: [...new Set(allowFrom)],
+    reset,
+  };
+}
+
+function normalizeDiscordUserId(raw: string): string | null {
+  const trimmed = raw.trim();
+  const mentionMatch = trimmed.match(/^<@!?(\d{16,22})>$/);
+  if (mentionMatch) return mentionMatch[1];
+  const directMatch = trimmed.match(/^(?:user:|discord:)?(\d{16,22})$/i);
+  return directMatch ? directMatch[1] : null;
+}
+
+function parseDiscordSetupArgs(args: string[]): {
+  token: string | null;
+  allowUserIds: string[];
+  prefix: string | null;
+} {
+  let token: string | null = null;
+  let prefix: string | null = null;
+  const allowUserIds: string[] = [];
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] || '';
+    if (arg === '--token') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--token`.');
+      token = next.trim() || null;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--token=')) {
+      token = arg.slice('--token='.length).trim() || null;
+      continue;
+    }
+    if (arg === '--allow-user-id') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--allow-user-id`.');
+      const normalized = normalizeDiscordUserId(next);
+      if (!normalized) {
+        throw new Error(
+          `Invalid Discord user id: ${next}. Use a Discord snowflake like 123456789012345678.`,
+        );
+      }
+      allowUserIds.push(normalized);
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--allow-user-id=')) {
+      const raw = arg.slice('--allow-user-id='.length);
+      const normalized = normalizeDiscordUserId(raw);
+      if (!normalized) {
+        throw new Error(
+          `Invalid Discord user id: ${raw}. Use a Discord snowflake like 123456789012345678.`,
+        );
+      }
+      allowUserIds.push(normalized);
+      continue;
+    }
+    if (arg === '--prefix') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--prefix`.');
+      prefix = next.trim() || null;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--prefix=')) {
+      prefix = arg.slice('--prefix='.length).trim() || null;
+      continue;
+    }
+    if (arg.startsWith('-')) {
+      throw new Error(`Unknown flag: ${arg}`);
+    }
+    throw new Error(
+      `Unexpected argument: ${arg}. Use \`hybridclaw channels discord setup [--token <token>] [--allow-user-id <snowflake>]... [--prefix <prefix>]\`.`,
+    );
+  }
+
+  if (token === '') {
+    throw new Error('Discord token cannot be empty.');
+  }
+  if (prefix === '') {
+    throw new Error('Discord prefix cannot be empty.');
+  }
+
+  return {
+    token,
+    allowUserIds: [...new Set(allowUserIds)],
+    prefix,
+  };
+}
+
+function configureDiscordChannel(args: string[]): void {
+  ensureRuntimeConfigFile();
+  const parsed = parseDiscordSetupArgs(args);
+  const nextConfig = updateRuntimeConfig((draft) => {
+    draft.discord.commandsOnly = true;
+    draft.discord.commandMode = 'restricted';
+    draft.discord.commandAllowedUserIds = parsed.allowUserIds;
+    draft.discord.commandUserId = '';
+    draft.discord.groupPolicy = 'disabled';
+    draft.discord.freeResponseChannels = [];
+    draft.discord.guilds = {};
+    if (parsed.prefix) {
+      draft.discord.prefix = parsed.prefix;
+    }
+  });
+  const secretsPath = parsed.token
+    ? saveRuntimeSecrets({ DISCORD_TOKEN: parsed.token })
+    : runtimeSecretsPath();
+
+  console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
+  if (parsed.token) {
+    console.log(`Saved Discord token to ${secretsPath}.`);
+  } else {
+    console.log(`Discord token unchanged. Secrets path: ${secretsPath}`);
+  }
+  console.log('Discord mode: command-only');
+  console.log(`Discord prefix: ${nextConfig.discord.prefix}`);
+  console.log(`Guild command mode: ${nextConfig.discord.commandMode}`);
+  console.log(`Guild message policy: ${nextConfig.discord.groupPolicy}`);
+  if (nextConfig.discord.commandAllowedUserIds.length > 0) {
+    console.log(
+      `Allowed guild users: ${nextConfig.discord.commandAllowedUserIds.join(', ')}`,
+    );
+  } else {
+    console.log(
+      'Allowed guild users: none configured (guild commands stay locked down until you add one)',
+    );
+  }
+  console.log('Next:');
+  console.log('  If provider auth is not set up yet: hybridclaw onboarding');
+  if (!parsed.token) {
+    console.log(
+      `  Save DISCORD_TOKEN in ${secretsPath} or rerun with --token <token>`,
+    );
+  }
+  console.log('  Restart the gateway to pick up Discord settings:');
+  console.log('    hybridclaw gateway restart --foreground');
+  console.log('    hybridclaw gateway status');
+  console.log('  Invite the Discord bot to your server or open a DM with it');
+  if (nextConfig.discord.commandAllowedUserIds.length > 0) {
+    console.log(
+      `  Test with an allowlisted guild user id: ${nextConfig.discord.commandAllowedUserIds[0]}`,
+    );
+  } else {
+    console.log('  Use DMs first, or rerun with --allow-user-id <snowflake>');
+  }
+}
+
+async function pairWhatsAppChannel(): Promise<void> {
+  const settleMs = resolveWhatsAppSetupSettleMs();
+  const manager = createWhatsAppConnectionManager();
+  try {
+    console.log('Opening WhatsApp pairing session...');
+    console.log(
+      'Scan the QR code in WhatsApp: Settings > Linked Devices > Link a Device',
+    );
+    await manager.start();
+    const socket = await manager.waitForSocket();
+    console.log(`WhatsApp linked: ${socket.user?.id || 'connected'}`);
+    if (settleMs > 0) {
+      console.log(
+        `Keeping the temporary setup session open for ${Math.floor(settleMs / 1000)}s so WhatsApp can finish linking...`,
+      );
+      await sleep(settleMs);
+    }
+  } finally {
+    await manager.stop().catch(() => {});
+  }
+}
+
+async function configureWhatsAppChannel(args: string[]): Promise<void> {
+  ensureRuntimeConfigFile();
+  const parsed = parseWhatsAppSetupArgs(args);
+  const nextConfig = updateRuntimeConfig((draft) => {
+    draft.whatsapp.groupPolicy = 'disabled';
+    draft.whatsapp.groupAllowFrom = [];
+    draft.whatsapp.ackReaction = draft.whatsapp.ackReaction.trim() || '👀';
+    if (parsed.allowFrom.length > 0) {
+      draft.whatsapp.dmPolicy = 'allowlist';
+      draft.whatsapp.allowFrom = parsed.allowFrom;
+      return;
+    }
+    draft.whatsapp.dmPolicy = 'disabled';
+    draft.whatsapp.allowFrom = [];
+  });
+
+  console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
+  console.log(
+    `WhatsApp mode: ${parsed.allowFrom.length > 0 ? 'allowlisted DMs only' : 'self-chat only'}`,
+  );
+  console.log(`DM policy: ${nextConfig.whatsapp.dmPolicy}`);
+  if (nextConfig.whatsapp.allowFrom.length > 0) {
+    console.log(`Allowed senders: ${nextConfig.whatsapp.allowFrom.join(', ')}`);
+  }
+  console.log(`Group policy: ${nextConfig.whatsapp.groupPolicy}`);
+  console.log(
+    `Ack reaction: ${nextConfig.whatsapp.ackReaction.trim() || '(disabled)'}`,
+  );
+  console.log(`Auth directory: ${WHATSAPP_AUTH_DIR}`);
+  if (parsed.reset) {
+    await resetWhatsAppAuthState();
+    console.log(`Reset WhatsApp auth state at ${WHATSAPP_AUTH_DIR}`);
+  }
+  await pairWhatsAppChannel();
+}
+
+async function handleChannelsCommand(args: string[]): Promise<void> {
+  const normalized = args.map((arg) => arg.trim()).filter(Boolean);
+  if (normalized.length === 0 || isHelpRequest(normalized)) {
+    printChannelsUsage();
+    return;
+  }
+
+  const channel = normalized[0].toLowerCase();
+  if (channel !== 'whatsapp' && channel !== 'discord') {
+    throw new Error(
+      `Unknown channel "${normalized[0]}". Currently supported: \`discord\`, \`whatsapp\`.`,
+    );
+  }
+
+  const sub = (normalized[1] || '').toLowerCase();
+  if (!sub || isHelpRequest([sub])) {
+    printChannelsUsage();
+    return;
+  }
+  if (sub === 'setup') {
+    if (channel === 'discord') {
+      configureDiscordChannel(normalized.slice(2));
+      return;
+    }
+    await configureWhatsAppChannel(normalized.slice(2));
+    return;
+  }
+
+  throw new Error(
+    `Unknown channels subcommand: ${sub}. Use \`hybridclaw channels discord setup\` or \`hybridclaw channels whatsapp setup\`.`,
+  );
+}
+
 async function handleHybridAICommand(args: string[]): Promise<void> {
   const normalized = args.map((arg) => arg.trim()).filter(Boolean);
   if (normalized.length === 0 || isHelpRequest(normalized)) {
@@ -1403,6 +1735,9 @@ export async function main(
         commandName: 'hybridclaw onboarding',
       });
       await ensureRuntimeContainer('hybridclaw onboarding', false);
+      break;
+    case 'channels':
+      await handleChannelsCommand(subargs);
       break;
     case 'local':
       await handleLocalCommand(subargs);

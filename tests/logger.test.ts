@@ -107,4 +107,42 @@ describe('logger forced level override', () => {
 
     expect(logText).toContain('forced debug mirror test');
   });
+
+  it('can force debug level after the logger was already imported', async () => {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'hybridclaw-logger-'));
+    const logPath = path.join(tempDir, 'gateway.log');
+    process.env.HYBRIDCLAW_GATEWAY_LOG_FILE = logPath;
+    let listener:
+      | ((
+          next: { ops: { logLevel: string } },
+          prev: { ops: { logLevel: string } },
+        ) => void)
+      | null = null;
+
+    vi.doMock('../src/config/runtime-config.ts', () => ({
+      getRuntimeConfig: () => ({
+        ops: { logLevel: 'info' },
+      }),
+      onRuntimeConfigChange: vi.fn((cb) => {
+        listener = cb;
+      }),
+    }));
+
+    const { forceLoggerLevel, logger } = await import('../src/logger.ts');
+
+    expect(logger.level).toBe('info');
+    forceLoggerLevel('debug');
+    expect(logger.level).toBe('debug');
+
+    listener?.({ ops: { logLevel: 'error' } }, { ops: { logLevel: 'info' } });
+    expect(logger.level).toBe('debug');
+
+    logger.debug('late forced debug mirror test');
+
+    const logText = await waitForFileText(logPath, (text) =>
+      text.includes('late forced debug mirror test'),
+    );
+
+    expect(logText).toContain('late forced debug mirror test');
+  });
 });

@@ -34,7 +34,7 @@ function resolveForcedLogLevel():
   return raw as ReturnType<typeof getRuntimeConfig>['ops']['logLevel'];
 }
 
-const forcedLevel = resolveForcedLogLevel();
+let forcedLevel = resolveForcedLogLevel();
 const initialLevel = forcedLevel || getRuntimeConfig().ops.logLevel;
 const gatewayLogFile = String(
   process.env.HYBRIDCLAW_GATEWAY_LOG_FILE || '',
@@ -108,6 +108,17 @@ if (forcedLevel) {
     { forcedLevel },
     'Logger level forced by HYBRIDCLAW_FORCE_LOG_LEVEL',
   );
+}
+
+export function forceLoggerLevel(
+  level: ReturnType<typeof getRuntimeConfig>['ops']['logLevel'],
+): void {
+  if (!VALID_LOG_LEVELS.has(level)) {
+    throw new Error(`Invalid log level: ${level}`);
+  }
+  forcedLevel = level;
+  logger.level = level;
+  logger.debug({ forcedLevel: level }, 'Logger level forced programmatically');
 }
 
 onRuntimeConfigChange((next, prev) => {

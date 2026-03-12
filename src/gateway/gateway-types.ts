@@ -258,6 +258,7 @@ export interface GatewayAgentCard {
   task: string;
   lastQuestion: string | null;
   lastAnswer: string | null;
+  fullAutoEnabled: boolean;
   model: string;
   sessionId: string;
   channelId: string;

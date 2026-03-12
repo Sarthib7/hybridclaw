@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import {
+  hasQueuedProactiveDeliveryPath,
   isDiscordChannelId,
   resolveHeartbeatDeliveryChannelId,
   shouldDropQueuedProactiveMessage,
@@ -36,7 +37,27 @@ describe('proactive delivery helpers', () => {
     ).toBeNull();
   });
 
-  test('drops orphaned heartbeat queue rows but keeps other local queue entries', () => {
+  test('recognizes supported queued proactive delivery paths', () => {
+    expect(
+      hasQueuedProactiveDeliveryPath({
+        channel_id: '123456789012345678',
+      }),
+    ).toBe(true);
+
+    expect(
+      hasQueuedProactiveDeliveryPath({
+        channel_id: 'tui',
+      }),
+    ).toBe(true);
+
+    expect(
+      hasQueuedProactiveDeliveryPath({
+        channel_id: 'smoke',
+      }),
+    ).toBe(false);
+  });
+
+  test('drops undeliverable queue rows but keeps valid local queue entries', () => {
     expect(
       shouldDropQueuedProactiveMessage({
         channel_id: 'heartbeat',
@@ -56,6 +77,13 @@ describe('proactive delivery helpers', () => {
         channel_id: 'heartbeat',
         source: 'delegate',
       }),
-    ).toBe(false);
+    ).toBe(true);
+
+    expect(
+      shouldDropQueuedProactiveMessage({
+        channel_id: 'smoke',
+        source: 'fullauto',
+      }),
+    ).toBe(true);
   });
 });

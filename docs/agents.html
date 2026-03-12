@@ -1471,6 +1471,10 @@
       return agent.status;
     }
 
+    function isFullAuto(agent) {
+      return Boolean(agent.fullAutoEnabled);
+    }
+
     function statusLabel(agent) {
       if (agent.status === 'idle') return 'Idle';
       if (agent.status === 'stopped') return 'Stopped';
@@ -1696,7 +1700,7 @@
         const channel = channelMeta(agent);
 
         return `
-          <article class="card agent-card is-${statusClass(agent)}" id="${agent.id}" style="animation-delay:${index * 45}ms">
+          <article class="card agent-card is-${statusClass(agent)}${isFullAuto(agent) ? ' is-fullauto' : ''}" id="${agent.id}" style="animation-delay:${index * 45}ms">
             <div class="agent-card-header">
               <div>
                 <h2 class="agent-name">${escapeHtml(agent.name)}</h2>
@@ -1718,6 +1722,9 @@
                     </div>
                   `
                   : `<p class="agent-task">${escapeHtml(agent.task)}</p>`}
+                ${isFullAuto(agent)
+                  ? '<div class="fullauto-badge">Full-auto enabled</div>'
+                  : ''}
               </div>
               <span class="status-badge is-${statusClass(agent)}">
                 <span class="status-badge-dot" aria-hidden="true"></span>

@@ -27,7 +27,17 @@ import {
   normalizeModelCandidates,
   parseModelNamesFromListText,
 } from './model-selection.js';
+import {
+  DEFAULT_TUI_FULLAUTO_STATE,
+  deriveTuiFullAutoState,
+  formatTuiFullAutoPromptLabel,
+  parseFullAutoStatusText,
+  shouldRouteTuiInputToFullAuto,
+  type TuiFullAutoState,
+} from './tui-fullauto.js';
+import { proactiveBadgeLabel, proactiveSourceSuffix } from './tui-proactive.js';
 import { parseTuiSlashCommand } from './tui-slash-command.js';
+import { appendThinkingPreview } from './tui-thinking.js';
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
@@ -102,6 +112,8 @@ const RED = PALETTE.red;
 
 const SESSION_ID = 'tui:local';
 const CHANNEL_ID = 'tui';
+const TUI_USER_ID = 'tui-user';
+const TUI_USERNAME = 'user';
 const TUI_MULTILINE_PASTE_DEBOUNCE_MS = Math.max(
   20,
   parseInt(process.env.TUI_MULTILINE_PASTE_DEBOUNCE_MS || '90', 10) || 90,
@@ -111,9 +123,12 @@ const TUI_PROACTIVE_POLL_INTERVAL_MS = Math.max(
   parseInt(process.env.TUI_PROACTIVE_POLL_INTERVAL_MS || '2500', 10) || 2500,
 );
 const TOOL_PREVIEW_MAX_CHARS = 140;
+const THINKING_PREVIEW_MIN_CHARS = 48;
 
 let activeRunAbortController: AbortController | null = null;
 let proactivePollInFlight = false;
+let tuiFullAutoState: TuiFullAutoState = DEFAULT_TUI_FULLAUTO_STATE;
+let fullAutoSteeringInFlight = false;
 
 function findPendingApprovalRequestId(
   result: GatewayChatResult,
@@ -337,15 +352,24 @@ function printGatewayCommandResult(result: GatewayCommandResult): void {
 function spinner(): {
   stop: () => void;
   addTool: (toolName: string, preview?: string) => void;
+  addTextDelta: (delta: string) => void;
   clearTools: () => void;
 } {
   const dots = ['   ', '.  ', '.. ', '...'];
   let i = 0;
   let transientToolLines = 0;
+  let thinkingPreview = '';
   const clearLine = () => process.stdout.write('\r\x1b[2K');
+  const previewMaxChars = () =>
+    Math.max(THINKING_PREVIEW_MIN_CHARS, (process.stdout.columns || 120) - 18);
   const render = () => {
     clearLine();
-    process.stdout.write(`\r${TEAL}thinking${dots[i % dots.length]}${RESET}`);
+    const prefix = `${TEAL}thinking${dots[i % dots.length]}${RESET}`;
+    if (!thinkingPreview) {
+      process.stdout.write(`\r${prefix}`);
+    } else {
+      process.stdout.write(`\r${prefix} ${MUTED}${thinkingPreview}${RESET}`);
+    }
     i++;
   };
   const interval = setInterval(render, 350);
@@ -364,6 +388,14 @@ function spinner(): {
       transientToolLines++;
       render();
     },
+    addTextDelta: (delta: string) => {
+      thinkingPreview = appendThinkingPreview(
+        thinkingPreview,
+        delta,
+        previewMaxChars(),
+      );
+      render();
+    },
     clearTools: () => {
       if (transientToolLines <= 0) return;
       process.stdout.write(`\x1b[${transientToolLines}A`);
@@ -377,17 +409,129 @@ function spinner(): {
   };
 }
 
-async function runGatewayCommand(args: string[]): Promise<void> {
+function sessionGatewayContext(): {
+  sessionId: string;
+  guildId: null;
+  channelId: string;
+} {
+  return {
+    sessionId: SESSION_ID,
+    guildId: null,
+    channelId: CHANNEL_ID,
+  };
+}
+
+function buildGatewayChatRequest(content: string): {
+  sessionId: string;
+  guildId: null;
+  channelId: string;
+  userId: string;
+  username: string;
+  content: string;
+} {
+  return {
+    ...sessionGatewayContext(),
+    userId: TUI_USER_ID,
+    username: TUI_USERNAME,
+    content,
+  };
+}
+
+async function requestGatewayCommand(
+  args: string[],
+): Promise<GatewayCommandResult> {
+  return gatewayCommand({
+    ...sessionGatewayContext(),
+    args,
+    userId: TUI_USER_ID,
+    username: TUI_USERNAME,
+  });
+}
+
+function collectToolNames(result: GatewayChatResult): string[] {
+  const names = new Set<string>();
+
+  for (const execution of result.toolExecutions || []) {
+    if (execution.name) names.add(execution.name);
+  }
+
+  if (names.size === 0) {
+    for (const toolName of result.toolsUsed || []) {
+      if (toolName) names.add(toolName);
+    }
+  }
+
+  return Array.from(names);
+}
+
+function isInterruptedResult(result: GatewayChatResult): boolean {
+  const errorText = result.error || '';
+  return errorText.includes('aborted') || errorText.includes('Interrupted');
+}
+
+function buildPromptText(): string {
+  const fullAutoLabel = formatTuiFullAutoPromptLabel(tuiFullAutoState);
+  if (fullAutoLabel) {
+    return `${GOLD}[${fullAutoLabel}]${RESET} ${TEAL}>${RESET} `;
+  }
+  return `${TEAL}>${RESET} `;
+}
+
+function refreshPrompt(rl: readline.Interface): void {
+  rl.setPrompt(buildPromptText());
+}
+
+async function fetchInitialFullAutoState(): Promise<TuiFullAutoState> {
   try {
-    const result = await gatewayCommand({
-      sessionId: SESSION_ID,
-      guildId: null,
-      channelId: CHANNEL_ID,
-      args,
-      userId: 'tui-user',
-      username: 'user',
-    });
+    const result = await requestGatewayCommand(['fullauto', 'status']);
+    return parseFullAutoStatusText(result.text) || DEFAULT_TUI_FULLAUTO_STATE;
+  } catch {
+    return DEFAULT_TUI_FULLAUTO_STATE;
+  }
+}
+
+async function syncFullAutoStateFromGateway(
+  rl: readline.Interface,
+): Promise<TuiFullAutoState> {
+  const nextState = await fetchInitialFullAutoState();
+  const changed =
+    nextState.enabled !== tuiFullAutoState.enabled ||
+    nextState.runtimeState !== tuiFullAutoState.runtimeState;
+  tuiFullAutoState = nextState;
+  if (changed) {
+    refreshPrompt(rl);
+  }
+  return tuiFullAutoState;
+}
+
+async function runGatewayCommand(
+  args: string[],
+  rl: readline.Interface,
+): Promise<void> {
+  try {
+    const result = await requestGatewayCommand(args);
     printGatewayCommandResult(result);
+    const normalizedCommand = (args[0] || '').trim().toLowerCase();
+    const normalizedSubcommand = (args[1] || '').trim().toLowerCase();
+    const nextFullAutoState = deriveTuiFullAutoState({
+      current: tuiFullAutoState,
+      args,
+      result,
+    });
+    const fullAutoJustEnabled =
+      !tuiFullAutoState.enabled && nextFullAutoState.enabled;
+    tuiFullAutoState = nextFullAutoState;
+    refreshPrompt(rl);
+    if (
+      fullAutoJustEnabled &&
+      normalizedCommand === 'fullauto' &&
+      normalizedSubcommand !== 'status' &&
+      normalizedSubcommand !== 'info'
+    ) {
+      printInfo(
+        'Full-auto armed. First background turn starts in about 3 seconds.',
+      );
+    }
   } catch (err) {
     printError(err instanceof Error ? err.message : String(err));
   }
@@ -418,12 +562,7 @@ function parseModelInfoFromInfo(
 
 async function fetchCurrentSessionModel(): Promise<string | null> {
   try {
-    const result = await gatewayCommand({
-      sessionId: SESSION_ID,
-      guildId: null,
-      channelId: CHANNEL_ID,
-      args: ['model', 'info'],
-    });
+    const result = await requestGatewayCommand(['model', 'info']);
     if (result.kind === 'error') return null;
     return parseCurrentModelFromInfo(result);
   } catch {
@@ -434,12 +573,7 @@ async function fetchCurrentSessionModel(): Promise<string | null> {
 async function fetchSelectableModels(): Promise<string[]> {
   const fallback = normalizeModelCandidates(CONFIGURED_MODELS);
   try {
-    const result = await gatewayCommand({
-      sessionId: SESSION_ID,
-      guildId: null,
-      channelId: CHANNEL_ID,
-      args: ['model', 'list'],
-    });
+    const result = await requestGatewayCommand(['model', 'list']);
     if (result.kind === 'error') return fallback;
     const models = parseModelNamesFromListText(result.text || '');
     return models.length > 0 ? models : fallback;
@@ -454,12 +588,7 @@ async function fetchSessionAndDefaultModel(): Promise<{
 }> {
   const fallback = { current: HYBRIDAI_MODEL, defaultModel: HYBRIDAI_MODEL };
   try {
-    const result = await gatewayCommand({
-      sessionId: SESSION_ID,
-      guildId: null,
-      channelId: CHANNEL_ID,
-      args: ['model', 'info'],
-    });
+    const result = await requestGatewayCommand(['model', 'info']);
     if (result.kind === 'error') return fallback;
     return parseModelInfoFromInfo(result) || fallback;
   } catch {
@@ -525,81 +654,81 @@ async function handleSlashCommand(
       process.exit(0);
       return true;
     case 'bots':
-      await runGatewayCommand(['bot', 'list']);
+      await runGatewayCommand(['bot', 'list'], rl);
       return true;
     case 'bot':
       if (parts.length > 1) {
-        await runGatewayCommand(['bot', 'set', ...parts.slice(1)]);
+        await runGatewayCommand(['bot', 'set', ...parts.slice(1)], rl);
       } else {
-        await runGatewayCommand(['bot', 'info']);
+        await runGatewayCommand(['bot', 'info'], rl);
       }
       return true;
     case 'model':
       if (parts.length === 1 || parts[1] === 'select') {
         const selectedModel = await promptModelSelection(rl);
         if (selectedModel) {
-          await runGatewayCommand(['model', 'set', selectedModel]);
+          await runGatewayCommand(['model', 'set', selectedModel], rl);
         }
         return true;
       }
       if (parts[1] === 'default') {
         if (parts.length > 2) {
-          await runGatewayCommand(['model', 'default', ...parts.slice(2)]);
+          await runGatewayCommand(['model', 'default', ...parts.slice(2)], rl);
         } else {
-          await runGatewayCommand(['model', 'default']);
+          await runGatewayCommand(['model', 'default'], rl);
         }
         return true;
       }
       if (parts[1] === 'info' || parts[1] === 'list') {
-        await runGatewayCommand(['model', parts[1]]);
+        await runGatewayCommand(['model', parts[1]], rl);
         return true;
       }
-      await runGatewayCommand(['model', 'set', ...parts.slice(1)]);
+      await runGatewayCommand(['model', 'set', ...parts.slice(1)], rl);
       return true;
     case 'rag':
       if (parts.length > 1 && (parts[1] === 'on' || parts[1] === 'off')) {
-        await runGatewayCommand(['rag', parts[1]]);
+        await runGatewayCommand(['rag', parts[1]], rl);
       } else {
-        await runGatewayCommand(['rag']);
+        await runGatewayCommand(['rag'], rl);
       }
       return true;
     case 'ralph':
       if (parts.length > 1) {
-        await runGatewayCommand(['ralph', ...parts.slice(1)]);
+        await runGatewayCommand(['ralph', ...parts.slice(1)], rl);
       } else {
-        await runGatewayCommand(['ralph', 'info']);
+        await runGatewayCommand(['ralph', 'info'], rl);
       }
       return true;
     case 'mcp':
       if (parts.length > 1) {
-        await runGatewayCommand(['mcp', ...parts.slice(1)]);
+        await runGatewayCommand(['mcp', ...parts.slice(1)], rl);
       } else {
-        await runGatewayCommand(['mcp', 'list']);
+        await runGatewayCommand(['mcp', 'list'], rl);
       }
       return true;
     case 'fullauto':
       if (parts.length > 1) {
-        await runGatewayCommand(['fullauto', ...parts.slice(1)]);
+        await runGatewayCommand(['fullauto', ...parts.slice(1)], rl);
       } else {
-        await runGatewayCommand(['fullauto']);
+        await runGatewayCommand(['fullauto'], rl);
       }
       return true;
     case 'info':
-      await runGatewayCommand(['bot', 'info']);
-      await runGatewayCommand(['model', 'info']);
-      await runGatewayCommand(['status']);
+      await runGatewayCommand(['bot', 'info'], rl);
+      await runGatewayCommand(['model', 'info'], rl);
+      await runGatewayCommand(['status'], rl);
       return true;
     case 'compact':
-      await runGatewayCommand(['compact']);
+      await runGatewayCommand(['compact'], rl);
       return true;
     case 'clear':
-      await runGatewayCommand(['clear']);
+      await runGatewayCommand(['clear'], rl);
       return true;
     case 'reset':
       if (parts.length > 1) {
-        await runGatewayCommand(['reset', ...parts.slice(1)]);
+        await runGatewayCommand(['reset', ...parts.slice(1)], rl);
       } else {
-        await runGatewayCommand(['reset']);
+        await runGatewayCommand(['reset'], rl);
       }
       return true;
     case 'stop':
@@ -613,7 +742,7 @@ async function handleSlashCommand(
       } else {
         printInfo('No active foreground request. Disabling full-auto...');
       }
-      await runGatewayCommand(['stop']);
+      await runGatewayCommand(['stop'], rl);
       return true;
     default:
       return false;
@@ -624,27 +753,18 @@ async function processMessage(
   content: string,
   rl: readline.Interface,
 ): Promise<void> {
+  if (shouldRouteTuiInputToFullAuto(tuiFullAutoState)) {
+    await processFullAutoSteeringMessage(content, rl);
+    return;
+  }
+
   const s = spinner();
   const abortController = new AbortController();
   activeRunAbortController = abortController;
 
   try {
-    const request: {
-      sessionId: string;
-      guildId: null;
-      channelId: string;
-      userId: string;
-      username: string;
-      content: string;
-    } = {
-      sessionId: SESSION_ID,
-      guildId: null,
-      channelId: CHANNEL_ID,
-      userId: 'tui-user',
-      username: 'user',
-      content,
-    };
-    const toolNames = new Set<string>();
+    const request = buildGatewayChatRequest(content);
+    const streamedToolNames = new Set<string>();
     let result: GatewayChatResult;
 
     try {
@@ -654,6 +774,10 @@ async function processMessage(
           stream: true,
         },
         (event) => {
+          if (event.type === 'text') {
+            s.addTextDelta(event.delta);
+            return;
+          }
           if (
             event.type !== 'tool' ||
             event.phase !== 'start' ||
@@ -665,7 +789,7 @@ async function processMessage(
             preview.length > TOOL_PREVIEW_MAX_CHARS
               ? `${preview.slice(0, TOOL_PREVIEW_MAX_CHARS - 1)}…`
               : preview;
-          toolNames.add(event.toolName);
+          streamedToolNames.add(event.toolName);
           s.addTool(event.toolName, previewText || undefined);
         },
         abortController.signal,
@@ -677,29 +801,17 @@ async function processMessage(
       result = await gatewayChat(request, abortController.signal);
     }
 
-    for (const execution of result.toolExecutions || []) {
-      if (execution.name) {
-        toolNames.add(execution.name);
-      }
-    }
-    if (toolNames.size === 0) {
-      for (const toolName of result.toolsUsed || []) {
-        if (toolName) {
-          toolNames.add(toolName);
-        }
-      }
-    }
+    const toolNames = [
+      ...new Set([...streamedToolNames, ...collectToolNames(result)]),
+    ];
 
     s.stop();
-    if (toolNames.size > 0) {
+    if (toolNames.length > 0) {
       s.clearTools();
-      printToolUsage(Array.from(toolNames));
+      printToolUsage(toolNames);
     }
 
-    if (
-      (result.error || '').includes('aborted') ||
-      (result.error || '').includes('Interrupted')
-    ) {
+    if (isInterruptedResult(result)) {
       return;
     }
 
@@ -731,6 +843,61 @@ async function processMessage(
   }
 }
 
+async function processFullAutoSteeringMessage(
+  content: string,
+  rl: readline.Interface,
+): Promise<void> {
+  if (fullAutoSteeringInFlight) {
+    printInfo(
+      'Full-auto is already handling a steering note. Wait for the reply or use /stop to interrupt it.',
+    );
+    return;
+  }
+
+  const abortController = new AbortController();
+  activeRunAbortController = abortController;
+  fullAutoSteeringInFlight = true;
+  tuiFullAutoState = {
+    ...tuiFullAutoState,
+    runtimeState: 'steering',
+  };
+  refreshPrompt(rl);
+  printInfo('Sent guidance to full-auto. Reply will arrive asynchronously.');
+
+  void (async () => {
+    try {
+      const result = await gatewayChat(
+        buildGatewayChatRequest(content),
+        abortController.signal,
+      );
+      if (isInterruptedResult(result)) {
+        return;
+      }
+      if (result.status === 'error') {
+        printError(result.error || 'Unknown error');
+        return;
+      }
+      printResponse(result.result || 'No response.');
+    } catch (err) {
+      if (abortController.signal.aborted) return;
+      printError(err instanceof Error ? err.message : String(err));
+    } finally {
+      fullAutoSteeringInFlight = false;
+      if (activeRunAbortController === abortController) {
+        activeRunAbortController = null;
+      }
+      if (tuiFullAutoState.enabled) {
+        tuiFullAutoState = {
+          ...tuiFullAutoState,
+          runtimeState: 'running',
+        };
+      }
+      refreshPrompt(rl);
+      rl.prompt();
+    }
+  })();
+}
+
 async function pollProactiveMessages(rl: readline.Interface): Promise<void> {
   if (proactivePollInFlight) return;
   if (activeRunAbortController && !activeRunAbortController.signal.aborted)
@@ -743,10 +910,11 @@ async function pollProactiveMessages(rl: readline.Interface): Promise<void> {
 
     console.log();
     for (const message of result.messages) {
-      const sourceSuffix = message.source
-        ? ` ${MUTED}(${message.source})${RESET}`
-        : '';
-      console.log(`  ${GOLD}[reminder]${RESET} ${message.text}${sourceSuffix}`);
+      const suffix = proactiveSourceSuffix(message.source);
+      const sourceSuffix = suffix ? ` ${MUTED}${suffix}${RESET}` : '';
+      console.log(
+        `  ${GOLD}[${proactiveBadgeLabel(message.source)}]${RESET} ${message.text}${sourceSuffix}`,
+      );
     }
     console.log();
     rl.prompt();
@@ -764,14 +932,16 @@ async function main(): Promise<void> {
   logger.level = 'warn';
   const status = await gatewayStatus();
   const modelInfo = await fetchSessionAndDefaultModel();
+  tuiFullAutoState = await fetchInitialFullAutoState();
   printBanner(modelInfo, status.sandbox?.mode || 'container');
 
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
-    prompt: `${TEAL}>${RESET} `,
+    prompt: buildPromptText(),
     historySize: 100,
   });
+  refreshPrompt(rl);
 
   readline.emitKeypressEvents(process.stdin, rl);
   if (process.stdin.isTTY) process.stdin.setRawMode(true);
@@ -801,6 +971,19 @@ async function main(): Promise<void> {
             rl.prompt();
             return;
           }
+        }
+        if (shouldRouteTuiInputToFullAuto(tuiFullAutoState)) {
+          const liveFullAutoState = await syncFullAutoStateFromGateway(rl);
+          if (shouldRouteTuiInputToFullAuto(liveFullAutoState)) {
+            await processFullAutoSteeringMessage(input, rl);
+            rl.prompt();
+            return;
+          }
+        }
+        if (shouldRouteTuiInputToFullAuto(tuiFullAutoState)) {
+          await processFullAutoSteeringMessage(input, rl);
+          rl.prompt();
+          return;
         }
         await processMessage(input, rl);
         rl.prompt();

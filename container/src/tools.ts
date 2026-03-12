@@ -7,6 +7,7 @@ import {
   executeBrowserTool,
   setBrowserModelContext,
 } from './browser-tools.js';
+import { isSafeDiscordCdnUrl } from './discord-cdn.js';
 import type { McpClientManager } from './mcp/client-manager.js';
 import {
   DISCORD_MEDIA_CACHE_ROOT,
@@ -107,12 +108,6 @@ const VISION_LOCAL_SCRATCH_ROOTS = Array.from(
     ['/tmp', '/private/tmp', os.tmpdir()].map((entry) => path.resolve(entry)),
   ),
 );
-const DISCORD_CDN_HOST_PATTERNS: RegExp[] = [
-  /^cdn\.discordapp\.com$/i,
-  /^media\.discordapp\.net$/i,
-  /^cdn\.discordapp\.net$/i,
-  /^images-ext-\d+\.discordapp\.net$/i,
-];
 
 type DiscordMessageToolAction =
   | 'read'
@@ -612,19 +607,6 @@ function extractVisionTextContent(content: unknown): string {
     if (text.trim()) chunks.push(text.trim());
   }
   return chunks.join('\n').trim();
-}
-
-function isSafeDiscordCdnUrl(raw: string): boolean {
-  let parsed: URL;
-  try {
-    parsed = new URL(raw);
-  } catch {
-    return false;
-  }
-  if (parsed.protocol !== 'https:') return false;
-  return DISCORD_CDN_HOST_PATTERNS.some((pattern) =>
-    pattern.test(parsed.hostname),
-  );
 }
 
 function normalizeVisionLocalPath(rawPath: string): string | null {

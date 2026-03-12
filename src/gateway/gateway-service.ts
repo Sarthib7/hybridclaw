@@ -3410,6 +3410,7 @@ export async function handleGatewayMessage(
       onToolProgress,
       abortSignal: activeGatewayRequest.signal,
       media,
+      audioTranscriptsPrepended: audioPrelude.transcripts.length > 0,
     });
     agentStage = 'processing-agent-output';
     const effectiveUserContent =

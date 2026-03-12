@@ -149,6 +149,7 @@ test('handleGatewayMessage prepends audio transcripts and preserves media contex
     | {
         media?: Array<{ path: string | null }>;
         messages?: Array<{ role: string; content: string }>;
+        audioTranscriptsPrepended?: boolean;
       }
     | undefined;
   expect(request?.media).toEqual([
@@ -160,6 +161,7 @@ test('handleGatewayMessage prepends audio transcripts and preserves media contex
   const userMessage = request?.messages?.at(-1);
   expect(userMessage?.role).toBe('user');
   expect(userMessage?.content).toContain('[AudioTranscript]');
+  expect(request?.audioTranscriptsPrepended).toBe(true);
   expect(userMessage?.content).toContain('1. voice-note.ogg (audio/ogg):');
   expect(userMessage?.content).toContain('hello from the voice note');
   expect(userMessage?.content).toContain('please summarize this');
@@ -229,10 +231,12 @@ test('handleGatewayMessage continues without transcript when audio transcription
   const request = runAgentMock.mock.calls[0]?.[0] as
     | {
         messages?: Array<{ role: string; content: string }>;
+        audioTranscriptsPrepended?: boolean;
       }
     | undefined;
   const userMessage = request?.messages?.at(-1);
   expect(userMessage?.content).not.toContain('[AudioTranscript]');
+  expect(request?.audioTranscriptsPrepended).toBe(false);
   expect(userMessage?.content).toContain('keep going');
   expect(userMessage?.content).toContain(
     `AudioMediaPaths: ["${fixture.relativeAudioPath}"]`,
@@ -320,10 +324,12 @@ test('handleGatewayMessage prefers local CLI transcription before OpenAI when au
   const request = runAgentMock.mock.calls[0]?.[0] as
     | {
         messages?: Array<{ role: string; content: string }>;
+        audioTranscriptsPrepended?: boolean;
       }
     | undefined;
   const userMessage = request?.messages?.at(-1);
   expect(userMessage?.content).toContain('local whisper transcript');
+  expect(request?.audioTranscriptsPrepended).toBe(true);
 });
 
 test('handleGatewayMessage transcribes with a local CLI when no provider key is configured', async () => {
@@ -399,10 +405,12 @@ test('handleGatewayMessage transcribes with a local CLI when no provider key is 
   const request = runAgentMock.mock.calls[0]?.[0] as
     | {
         messages?: Array<{ role: string; content: string }>;
+        audioTranscriptsPrepended?: boolean;
       }
     | undefined;
   const userMessage = request?.messages?.at(-1);
   expect(userMessage?.content).toContain('local-only transcript');
+  expect(request?.audioTranscriptsPrepended).toBe(true);
 });
 
 test('handleGatewayMessage transcribes managed WhatsApp temp audio with whisper-cli', async () => {
@@ -454,10 +462,6 @@ test('handleGatewayMessage transcribes managed WhatsApp temp audio with whisper-
   fs.writeFileSync(waAudioPath, 'voice-bytes', 'utf-8');
 
   const fixture = await createGatewayAudioFixture();
-  const { clearAudioTranscriptionCachesForTests } = await import(
-    '../src/media/audio-transcription-backends.ts'
-  );
-  clearAudioTranscriptionCachesForTests();
   fixture.updateRuntimeConfig((draft) => {
     draft.media.audio.models = [
       {
@@ -506,10 +510,12 @@ test('handleGatewayMessage transcribes managed WhatsApp temp audio with whisper-
   const request = runAgentMock.mock.calls[0]?.[0] as
     | {
         messages?: Array<{ role: string; content: string }>;
+        audioTranscriptsPrepended?: boolean;
       }
     | undefined;
   const userMessage = request?.messages?.at(-1);
   expect(userMessage?.content).toContain('[AudioTranscript]');
+  expect(request?.audioTranscriptsPrepended).toBe(true);
   expect(userMessage?.content).toContain('whatsapp whisper transcript');
 });
 
@@ -585,8 +591,10 @@ test('handleGatewayMessage falls back to the next configured provider when the f
   const request = runAgentMock.mock.calls[0]?.[0] as
     | {
         messages?: Array<{ role: string; content: string }>;
+        audioTranscriptsPrepended?: boolean;
       }
     | undefined;
   const userMessage = request?.messages?.at(-1);
   expect(userMessage?.content).toContain('groq transcript');
+  expect(request?.audioTranscriptsPrepended).toBe(true);
 });

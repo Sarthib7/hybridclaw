@@ -139,6 +139,7 @@ export interface ContainerInput {
   allowedTools?: string[];
   blockedTools?: string[];
   media?: MediaContextItem[];
+  audioTranscriptsPrepended?: boolean;
   mcpServers?: Record<string, McpServerConfig>;
   webSearch?: {
     provider:

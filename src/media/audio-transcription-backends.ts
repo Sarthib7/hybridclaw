@@ -11,6 +11,8 @@ import type {
   RuntimeMediaAudioConfig,
 } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
+import { normalizeMimeType } from './mime-utils.js';
+import { expandUserPath } from './path-utils.js';
 
 const ABSOLUTE_MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 const CLI_OUTPUT_MAX_BUFFER = 5 * 1024 * 1024;
@@ -18,15 +20,12 @@ const GEMINI_CLI_PROBE_TIMEOUT_MS = 8_000;
 const DEFAULT_OPENAI_MODEL = 'gpt-4o-mini-transcribe';
 const DEFAULT_GROQ_MODEL = 'whisper-large-v3-turbo';
 const DEFAULT_DEEPGRAM_MODEL = 'nova-3';
-const DEFAULT_GOOGLE_MODEL = 'gemini-3-flash-preview';
+const DEFAULT_GOOGLE_MODEL = 'gemini-3.1-flash-lite-preview';
 const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_GROQ_BASE_URL = 'https://api.groq.com/openai/v1';
 const DEFAULT_DEEPGRAM_BASE_URL = 'https://api.deepgram.com/v1';
 const DEFAULT_GOOGLE_BASE_URL =
   'https://generativelanguage.googleapis.com/v1beta';
-
-const binaryCache = new Map<string, Promise<string | null>>();
-const geminiProbeCache = new Map<string, Promise<boolean>>();
 
 const COMMON_WHISPER_CPP_MODEL_PATHS = [
   '/opt/homebrew/share/whisper-cpp/ggml-tiny.bin',
@@ -54,12 +53,6 @@ export interface AudioTranscriptionResult {
   backend: string;
 }
 
-function normalizeMimeType(value: string | null | undefined): string | null {
-  if (typeof value !== 'string') return null;
-  const normalized = value.trim().toLowerCase().split(';')[0]?.trim();
-  return normalized || null;
-}
-
 function normalizeBaseUrl(
   baseUrl: string | undefined,
   fallback: string,
@@ -77,18 +70,9 @@ function composeAbortSignal(
   return AbortSignal.any([abortSignal, timeoutSignal]);
 }
 
-function expandHomeDir(value: string): string {
-  if (!value.startsWith('~')) return value;
-  if (value === '~') return os.homedir();
-  if (value.startsWith('~/') || value.startsWith('~\\')) {
-    return path.join(os.homedir(), value.slice(2));
-  }
-  return value;
-}
-
 async function fileExists(filePath: string): Promise<boolean> {
   try {
-    const stat = await fs.stat(path.resolve(expandHomeDir(filePath)));
+    const stat = await fs.stat(path.resolve(expandUserPath(filePath)));
     return stat.isFile();
   } catch {
     return false;
@@ -99,36 +83,188 @@ function resolveLookupCommand(): string {
   return process.platform === 'win32' ? 'where' : 'which';
 }
 
-async function findBinary(name: string): Promise<string | null> {
-  const cached = binaryCache.get(name);
-  if (cached) return cached;
+export class AudioTranscriptionBackendResolver {
+  private readonly binaryCache = new Map<string, Promise<string | null>>();
+  private readonly geminiProbeCache = new Map<string, Promise<boolean>>();
 
-  const resolved = (async () => {
-    const lookup = spawnSync(resolveLookupCommand(), [name], {
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
-    if (lookup.status === 0 && !lookup.error) {
-      const first = (lookup.stdout || '')
-        .split(/\r?\n/)
-        .map((entry) => entry.trim())
-        .find(Boolean);
-      if (first) return path.resolve(expandHomeDir(first));
+  private async findBinary(name: string): Promise<string | null> {
+    const cached = this.binaryCache.get(name);
+    if (cached) return cached;
+
+    const resolved = (async () => {
+      const lookup = spawnSync(resolveLookupCommand(), [name], {
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
+      if (lookup.status === 0 && !lookup.error) {
+        const first = (lookup.stdout || '')
+          .split(/\r?\n/)
+          .map((entry) => entry.trim())
+          .find(Boolean);
+        if (first) return path.resolve(expandUserPath(first));
+      }
+
+      const direct = spawnSync(name, ['--version'], {
+        stdio: 'ignore',
+      });
+      if (!direct.error) return name;
+      return null;
+    })();
+
+    this.binaryCache.set(name, resolved);
+    return resolved;
+  }
+
+  private async hasBinary(name: string): Promise<boolean> {
+    return Boolean(await this.findBinary(name));
+  }
+
+  private async resolveWhisperCppModelPath(): Promise<string | null> {
+    const explicit = String(process.env.WHISPER_CPP_MODEL || '').trim();
+    if (explicit && (await fileExists(explicit))) {
+      return path.resolve(expandUserPath(explicit));
+    }
+    for (const candidate of COMMON_WHISPER_CPP_MODEL_PATHS) {
+      if (await fileExists(candidate)) {
+        return candidate;
+      }
+    }
+    return null;
+  }
+
+  private async resolveSherpaEntry(): Promise<RuntimeAudioCliModelConfig | null> {
+    if (!(await this.hasBinary('sherpa-onnx-offline'))) return null;
+    const modelDir = String(process.env.SHERPA_ONNX_MODEL_DIR || '').trim();
+    if (!modelDir) return null;
+
+    const tokens = path.join(modelDir, 'tokens.txt');
+    const encoder = path.join(modelDir, 'encoder.onnx');
+    const decoder = path.join(modelDir, 'decoder.onnx');
+    const joiner = path.join(modelDir, 'joiner.onnx');
+    if (
+      !(await fileExists(tokens)) ||
+      !(await fileExists(encoder)) ||
+      !(await fileExists(decoder)) ||
+      !(await fileExists(joiner))
+    ) {
+      return null;
     }
 
-    const direct = spawnSync(name, ['--version'], {
-      stdio: 'ignore',
-    });
-    if (!direct.error) return name;
-    return null;
-  })();
+    return {
+      type: 'cli',
+      command: 'sherpa-onnx-offline',
+      args: [
+        `--tokens=${tokens}`,
+        `--encoder=${encoder}`,
+        `--decoder=${decoder}`,
+        `--joiner=${joiner}`,
+        '{{MediaPath}}',
+      ],
+    };
+  }
 
-  binaryCache.set(name, resolved);
-  return resolved;
-}
+  private async resolveWhisperCppEntry(): Promise<RuntimeAudioCliModelConfig | null> {
+    if (!(await this.hasBinary('whisper-cli'))) return null;
+    const modelPath = await this.resolveWhisperCppModelPath();
+    if (!modelPath) return null;
+    return {
+      type: 'cli',
+      command: 'whisper-cli',
+      args: [
+        '-m',
+        modelPath,
+        '-otxt',
+        '-of',
+        '{{OutputBase}}',
+        '-np',
+        '-nt',
+        '{{MediaPath}}',
+      ],
+    };
+  }
 
-async function hasBinary(name: string): Promise<boolean> {
-  return Boolean(await findBinary(name));
+  private async resolveWhisperEntry(): Promise<RuntimeAudioCliModelConfig | null> {
+    if (!(await this.hasBinary('whisper'))) return null;
+    return {
+      type: 'cli',
+      command: 'whisper',
+      args: [
+        '--model',
+        'turbo',
+        '--output_format',
+        'txt',
+        '--output_dir',
+        '{{OutputDir}}',
+        '--verbose',
+        'False',
+        '{{MediaPath}}',
+      ],
+    };
+  }
+
+  private async probeGeminiCli(): Promise<boolean> {
+    const cached = this.geminiProbeCache.get('gemini');
+    if (cached) return cached;
+
+    const resolved = (async () => {
+      if (!(await this.hasBinary('gemini'))) return false;
+      try {
+        const result = await runCommand({
+          command: 'gemini',
+          args: ['--output-format', 'json', 'ok'],
+          timeoutMs: GEMINI_CLI_PROBE_TIMEOUT_MS,
+        });
+        if (result.exitCode !== 0) return false;
+        return Boolean(
+          extractGeminiResponse(result.stdout) ||
+            result.stdout.toLowerCase().includes('ok'),
+        );
+      } catch {
+        return false;
+      }
+    })();
+
+    this.geminiProbeCache.set('gemini', resolved);
+    return resolved;
+  }
+
+  private async resolveGeminiCliEntry(): Promise<RuntimeAudioCliModelConfig | null> {
+    if (!(await this.probeGeminiCli())) return null;
+    return {
+      type: 'cli',
+      command: 'gemini',
+      args: [
+        '--output-format',
+        'json',
+        '--allowed-tools',
+        'read_many_files',
+        '--include-directories',
+        '{{MediaDir}}',
+        '{{Prompt}}',
+        'Use read_many_files to read {{MediaPath}} and respond with only the text output.',
+      ],
+    };
+  }
+
+  async resolveModels(
+    config: RuntimeMediaAudioConfig,
+  ): Promise<RuntimeAudioTranscriptionModelConfig[]> {
+    if (config.models.length > 0) {
+      return [...config.models];
+    }
+
+    const entries: RuntimeAudioTranscriptionModelConfig[] = [];
+    const sherpa = await this.resolveSherpaEntry();
+    if (sherpa) entries.push(sherpa);
+    const whisperCpp = await this.resolveWhisperCppEntry();
+    if (whisperCpp) entries.push(whisperCpp);
+    const whisper = await this.resolveWhisperEntry();
+    if (whisper) entries.push(whisper);
+    const geminiCli = await this.resolveGeminiCliEntry();
+    if (geminiCli) entries.push(geminiCli);
+    entries.push(...resolveAutoProviderEntries());
+    return entries;
+  }
 }
 
 function extractLastJsonObject(raw: string): unknown {
@@ -257,133 +393,6 @@ function resolveEntryLanguage(
   return (entry.language || '').trim() || config.language;
 }
 
-async function resolveWhisperCppModelPath(): Promise<string | null> {
-  const explicit = String(process.env.WHISPER_CPP_MODEL || '').trim();
-  if (explicit && (await fileExists(explicit))) {
-    return path.resolve(expandHomeDir(explicit));
-  }
-  for (const candidate of COMMON_WHISPER_CPP_MODEL_PATHS) {
-    if (await fileExists(candidate)) {
-      return candidate;
-    }
-  }
-  return null;
-}
-
-async function resolveSherpaEntry(): Promise<RuntimeAudioCliModelConfig | null> {
-  if (!(await hasBinary('sherpa-onnx-offline'))) return null;
-  const modelDir = String(process.env.SHERPA_ONNX_MODEL_DIR || '').trim();
-  if (!modelDir) return null;
-
-  const tokens = path.join(modelDir, 'tokens.txt');
-  const encoder = path.join(modelDir, 'encoder.onnx');
-  const decoder = path.join(modelDir, 'decoder.onnx');
-  const joiner = path.join(modelDir, 'joiner.onnx');
-  if (
-    !(await fileExists(tokens)) ||
-    !(await fileExists(encoder)) ||
-    !(await fileExists(decoder)) ||
-    !(await fileExists(joiner))
-  ) {
-    return null;
-  }
-
-  return {
-    type: 'cli',
-    command: 'sherpa-onnx-offline',
-    args: [
-      `--tokens=${tokens}`,
-      `--encoder=${encoder}`,
-      `--decoder=${decoder}`,
-      `--joiner=${joiner}`,
-      '{{MediaPath}}',
-    ],
-  };
-}
-
-async function resolveWhisperCppEntry(): Promise<RuntimeAudioCliModelConfig | null> {
-  if (!(await hasBinary('whisper-cli'))) return null;
-  const modelPath = await resolveWhisperCppModelPath();
-  if (!modelPath) return null;
-  return {
-    type: 'cli',
-    command: 'whisper-cli',
-    args: [
-      '-m',
-      modelPath,
-      '-otxt',
-      '-of',
-      '{{OutputBase}}',
-      '-np',
-      '-nt',
-      '{{MediaPath}}',
-    ],
-  };
-}
-
-async function resolveWhisperEntry(): Promise<RuntimeAudioCliModelConfig | null> {
-  if (!(await hasBinary('whisper'))) return null;
-  return {
-    type: 'cli',
-    command: 'whisper',
-    args: [
-      '--model',
-      'turbo',
-      '--output_format',
-      'txt',
-      '--output_dir',
-      '{{OutputDir}}',
-      '--verbose',
-      'False',
-      '{{MediaPath}}',
-    ],
-  };
-}
-
-async function probeGeminiCli(): Promise<boolean> {
-  const cached = geminiProbeCache.get('gemini');
-  if (cached) return cached;
-
-  const resolved = (async () => {
-    if (!(await hasBinary('gemini'))) return false;
-    try {
-      const result = await runCommand({
-        command: 'gemini',
-        args: ['--output-format', 'json', 'ok'],
-        timeoutMs: GEMINI_CLI_PROBE_TIMEOUT_MS,
-      });
-      if (result.exitCode !== 0) return false;
-      return Boolean(
-        extractGeminiResponse(result.stdout) ||
-          result.stdout.toLowerCase().includes('ok'),
-      );
-    } catch {
-      return false;
-    }
-  })();
-
-  geminiProbeCache.set('gemini', resolved);
-  return resolved;
-}
-
-async function resolveGeminiCliEntry(): Promise<RuntimeAudioCliModelConfig | null> {
-  if (!(await probeGeminiCli())) return null;
-  return {
-    type: 'cli',
-    command: 'gemini',
-    args: [
-      '--output-format',
-      'json',
-      '--allowed-tools',
-      'read_many_files',
-      '--include-directories',
-      '{{MediaDir}}',
-      '{{Prompt}}',
-      'Use read_many_files to read {{MediaPath}} and respond with only the text output.',
-    ],
-  };
-}
-
 function resolveAutoProviderEntries(): RuntimeAudioProviderModelConfig[] {
   const entries: RuntimeAudioProviderModelConfig[] = [];
   if (readProviderApiKey('openai')) {
@@ -404,21 +413,7 @@ function resolveAutoProviderEntries(): RuntimeAudioProviderModelConfig[] {
 export async function resolveAudioTranscriptionModels(
   config: RuntimeMediaAudioConfig,
 ): Promise<RuntimeAudioTranscriptionModelConfig[]> {
-  if (config.models.length > 0) {
-    return [...config.models];
-  }
-
-  const entries: RuntimeAudioTranscriptionModelConfig[] = [];
-  const sherpa = await resolveSherpaEntry();
-  if (sherpa) entries.push(sherpa);
-  const whisperCpp = await resolveWhisperCppEntry();
-  if (whisperCpp) entries.push(whisperCpp);
-  const whisper = await resolveWhisperEntry();
-  if (whisper) entries.push(whisper);
-  const geminiCli = await resolveGeminiCliEntry();
-  if (geminiCli) entries.push(geminiCli);
-  entries.push(...resolveAutoProviderEntries());
-  return entries;
+  return await new AudioTranscriptionBackendResolver().resolveModels(config);
 }
 
 function createGoogleAuthHeaders(apiKey: string): Record<string, string> {
@@ -985,9 +980,4 @@ export async function transcribeAudioWithFallback(params: {
   }
 
   return null;
-}
-
-export function clearAudioTranscriptionCachesForTests(): void {
-  binaryCache.clear();
-  geminiProbeCache.clear();
 }

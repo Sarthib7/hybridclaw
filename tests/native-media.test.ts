@@ -81,13 +81,13 @@ describe('native media injection', () => {
     const messages = [
       {
         role: 'user' as const,
-        content:
-          '[AudioTranscript]\n1. voice-note.ogg:\nhello\n[/AudioTranscript]',
+        content: 'hello',
       },
     ];
     const prepared = await injectNativeAudioContent({
       messages,
       provider: 'vllm',
+      audioTranscriptsPrepended: true,
       media: [
         {
           path: audioPath,

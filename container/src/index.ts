@@ -1006,6 +1006,7 @@ async function main(): Promise<void> {
     messages: firstVisionMessages,
     provider: firstInput.provider,
     media: firstInput.media,
+    audioTranscriptsPrepended: firstInput.audioTranscriptsPrepended,
   });
   const firstPrelude = approvalRuntime.handleApprovalResponse(firstMessages);
   const firstPromptOverride = firstPrelude?.replayPrompt;
@@ -1139,6 +1140,7 @@ async function main(): Promise<void> {
       messages: visionPreparedMessages,
       provider: input.provider,
       media: input.media,
+      audioTranscriptsPrepended: input.audioTranscriptsPrepended,
     });
     approvalRuntime.setFullAutoOptions({
       enabled: input.fullAutoEnabled === true,

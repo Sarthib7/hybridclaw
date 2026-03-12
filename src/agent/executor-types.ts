@@ -24,6 +24,7 @@ export interface ExecutorRequest {
   onToolProgress?: (event: ToolProgressEvent) => void;
   abortSignal?: AbortSignal;
   media?: MediaContextItem[];
+  audioTranscriptsPrepended?: boolean;
 }
 
 export interface Executor {

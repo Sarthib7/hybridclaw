@@ -532,6 +532,7 @@ export async function runContainer(
     onToolProgress,
     abortSignal,
     media,
+    audioTranscriptsPrepended,
   } = params;
   const { workspacePath } = getSessionPaths(sessionId, agentId);
   const modelRuntime = await resolveModelRuntimeCredentials({
@@ -590,6 +591,7 @@ export async function runContainer(
     allowedTools,
     blockedTools,
     media,
+    audioTranscriptsPrepended,
     mcpServers: MCP_SERVERS,
     webSearch: {
       provider: WEB_SEARCH_PROVIDER,

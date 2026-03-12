@@ -384,6 +384,7 @@ export async function runHostProcess(
     onToolProgress,
     abortSignal,
     media,
+    audioTranscriptsPrepended,
   } = params;
 
   const { workspacePath } = getSessionPaths(sessionId, agentId);
@@ -440,6 +441,7 @@ export async function runHostProcess(
     allowedTools,
     blockedTools,
     media,
+    audioTranscriptsPrepended,
     mcpServers: MCP_SERVERS,
     webSearch: {
       provider: WEB_SEARCH_PROVIDER,

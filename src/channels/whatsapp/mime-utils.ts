@@ -1,5 +1,7 @@
 import path from 'node:path';
 
+import { normalizeMimeType } from '../../media/mime-utils.js';
+
 const MIME_TABLE = [
   { mimeType: 'image/jpeg', extensions: ['.jpg', '.jpeg'] },
   { mimeType: 'image/png', extensions: ['.png'] },
@@ -23,22 +25,12 @@ for (const entry of MIME_TABLE) {
   }
 }
 
-function normalizeMimeType(value: string | null | undefined): string {
-  return String(value || '')
-    .trim()
-    .toLowerCase();
-}
-
 export function guessWhatsAppExtensionFromMimeType(
   mimeType: string | null | undefined,
 ): string {
   const normalized = normalizeMimeType(mimeType);
   if (!normalized) return '';
-  return (
-    MIME_TO_EXTENSION.get(normalized) ||
-    MIME_TO_EXTENSION.get(normalized.split(';')[0].trim()) ||
-    ''
-  );
+  return MIME_TO_EXTENSION.get(normalized) || '';
 }
 
 export function resolveWhatsAppMimeTypeFromPath(filePath: string): string {

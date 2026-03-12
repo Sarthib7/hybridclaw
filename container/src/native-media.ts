@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { URL } from 'node:url';
 
 import { inferArtifactMimeType } from './artifacts.js';
+import { isSafeDiscordCdnUrl } from './discord-cdn.js';
 import { normalizeMessageContentToText } from './ralph.js';
 import { resolveMediaPath, resolveWorkspacePath } from './runtime-paths.js';
 import type {
@@ -18,12 +18,6 @@ const NATIVE_AUDIO_MAX_FILES = 1;
 const NATIVE_AUDIO_MAX_BYTES = 25 * 1024 * 1024;
 const AUDIO_FILE_EXTENSION_RE =
   /\.(aac|aif|aiff|alac|flac|m4a|mp3|mp4|mpeg|mpga|oga|ogg|opus|wav|webm|wma)$/i;
-const DISCORD_CDN_HOST_PATTERNS: RegExp[] = [
-  /^cdn\.discordapp\.com$/i,
-  /^media\.discordapp\.net$/i,
-  /^cdn\.discordapp\.net$/i,
-  /^images-ext-\d+\.discordapp\.net$/i,
-];
 
 function normalizeAllowedLocalMediaPath(rawPath: string): string | null {
   const trimmed = rawPath.trim();
@@ -104,19 +98,6 @@ function isAudioMediaItem(item: MediaContextItem): boolean {
     ?.trim();
   if (mimeType?.startsWith('audio/')) return true;
   return AUDIO_FILE_EXTENSION_RE.test(item.filename || '');
-}
-
-function isSafeDiscordCdnUrl(raw: string): boolean {
-  let parsed: URL;
-  try {
-    parsed = new URL(raw);
-  } catch {
-    return false;
-  }
-  if (parsed.protocol !== 'https:') return false;
-  return DISCORD_CDN_HOST_PATTERNS.some((pattern) =>
-    pattern.test(parsed.hostname),
-  );
 }
 
 function modelSupportsNativeVision(model: string): boolean {
@@ -231,15 +212,6 @@ function findLatestUserIndex(messages: ChatMessage[]): number {
   return -1;
 }
 
-function latestUserHasAudioTranscript(messages: ChatMessage[]): boolean {
-  const latestUserIndex = findLatestUserIndex(messages);
-  if (latestUserIndex < 0) return false;
-  const content = normalizeMessageContentToText(
-    messages[latestUserIndex].content,
-  );
-  return content.includes('[AudioTranscript]');
-}
-
 function appendNativePartsToLatestUserMessage(params: {
   messages: ChatMessage[];
   parts: ChatContentPart[];
@@ -308,12 +280,13 @@ export async function injectNativeAudioContent(params: {
   messages: ChatMessage[];
   provider: ContainerInput['provider'] | undefined;
   media: MediaContextItem[] | undefined;
+  audioTranscriptsPrepended?: boolean;
 }): Promise<ChatMessage[]> {
   if (!Array.isArray(params.media) || params.media.length === 0) {
     return params.messages;
   }
   if (!providerSupportsNativeAudio(params.provider)) return params.messages;
-  if (latestUserHasAudioTranscript(params.messages)) return params.messages;
+  if (params.audioTranscriptsPrepended) return params.messages;
 
   const audioMedia = params.media
     .filter((item) => isAudioMediaItem(item))

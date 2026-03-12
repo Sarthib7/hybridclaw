@@ -1,5 +1,3 @@
-import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import {
@@ -10,13 +8,16 @@ import {
 } from '../config/config.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
-import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
-import { validateAdditionalMounts } from '../security/mount-security.js';
+import {
+  buildValidatedMountAliases,
+  resolveAllowedHostMediaPath,
+} from '../security/media-paths.js';
 import type { MediaContextItem } from '../types.js';
 import {
   resolveAudioTranscriptionModels,
   transcribeAudioWithFallback,
 } from './audio-transcription-backends.js';
+import { AUDIO_FILE_EXTENSION_RE, normalizeMimeType } from './mime-utils.js';
 
 const WORKSPACE_ROOT_DISPLAY = '/workspace';
 const DISCORD_MEDIA_CACHE_ROOT_DISPLAY = '/discord-media-cache';
@@ -24,13 +25,6 @@ const DISCORD_MEDIA_CACHE_ROOT = path.resolve(
   path.join(DATA_DIR, 'discord-media-cache'),
 );
 const MANAGED_TEMP_MEDIA_DIR_PREFIXES = ['hybridclaw-wa-'] as const;
-const AUDIO_FILE_EXTENSION_RE =
-  /\.(aac|aif|aiff|alac|flac|m4a|mp3|mp4|mpeg|mpga|oga|ogg|opus|wav|webm|wma)$/i;
-
-interface ValidatedMountAlias {
-  hostPath: string;
-  containerPath: string;
-}
 
 export interface AudioTranscriptItem {
   filename: string;
@@ -44,182 +38,10 @@ export interface AudioTranscriptionPrelude {
   transcripts: AudioTranscriptItem[];
 }
 
-function normalizeMimeType(value: string | null | undefined): string | null {
-  if (typeof value !== 'string') return null;
-  const normalized = value.trim().toLowerCase().split(';')[0]?.trim();
-  return normalized || null;
-}
-
 export function isAudioMediaItem(item: MediaContextItem): boolean {
   const mimeType = normalizeMimeType(item.mimeType);
   if (mimeType?.startsWith('audio/')) return true;
   return AUDIO_FILE_EXTENSION_RE.test(item.filename || '');
-}
-
-function normalizePathSlashes(value: string): string {
-  return value.replace(/\\/g, '/');
-}
-
-function expandUserPath(input: string): string {
-  const trimmed = input.trim();
-  if (trimmed === '~') return os.homedir();
-  if (trimmed.startsWith('~/') || trimmed.startsWith('~\\')) {
-    return path.join(os.homedir(), trimmed.slice(2));
-  }
-  return trimmed;
-}
-
-function isWithinRoot(candidate: string, root: string): boolean {
-  const resolvedCandidate = path.resolve(candidate);
-  const resolvedRoot = path.resolve(root);
-  return (
-    resolvedCandidate === resolvedRoot ||
-    resolvedCandidate.startsWith(`${resolvedRoot}${path.sep}`)
-  );
-}
-
-async function isManagedTempMediaPath(candidate: string): Promise<boolean> {
-  const resolvedCandidate = path.resolve(candidate);
-  const tempRoot = await resolveCanonicalPath(os.tmpdir());
-  if (!isWithinRoot(resolvedCandidate, tempRoot)) {
-    return false;
-  }
-
-  const dirName = path.basename(path.dirname(resolvedCandidate));
-  return MANAGED_TEMP_MEDIA_DIR_PREFIXES.some((prefix) =>
-    dirName.startsWith(prefix),
-  );
-}
-
-async function resolveCanonicalPath(filePath: string): Promise<string> {
-  try {
-    return await fs.promises.realpath(filePath);
-  } catch {
-    return path.resolve(filePath);
-  }
-}
-
-function buildValidatedMountAliases(): ValidatedMountAlias[] {
-  try {
-    const configured = resolveConfiguredAdditionalMounts({
-      binds: CONTAINER_BINDS,
-      additionalMounts: ADDITIONAL_MOUNTS,
-    });
-    if (configured.mounts.length === 0) return [];
-
-    return validateAdditionalMounts(configured.mounts).map((mount) => ({
-      hostPath: mount.hostPath,
-      containerPath: normalizePathSlashes(mount.containerPath),
-    }));
-  } catch (error) {
-    logger.warn(
-      { error },
-      'Falling back to built-in media roots after mount alias validation failed',
-    );
-    return [];
-  }
-}
-
-function resolveDisplayPathToHost(
-  rawPath: string,
-  workspaceRoot: string,
-  mountAliases: ValidatedMountAlias[],
-): string | null {
-  const normalized = normalizePathSlashes(rawPath);
-
-  for (const alias of mountAliases) {
-    if (
-      normalized === alias.containerPath ||
-      normalized.startsWith(`${alias.containerPath}/`)
-    ) {
-      const relative = normalized
-        .slice(alias.containerPath.length)
-        .replace(/^\/+/, '');
-      return relative
-        ? path.resolve(alias.hostPath, relative)
-        : path.resolve(alias.hostPath);
-    }
-  }
-
-  if (
-    normalized === WORKSPACE_ROOT_DISPLAY ||
-    normalized.startsWith(`${WORKSPACE_ROOT_DISPLAY}/`)
-  ) {
-    const relative = normalized
-      .slice(WORKSPACE_ROOT_DISPLAY.length)
-      .replace(/^\/+/, '');
-    return relative
-      ? path.resolve(workspaceRoot, relative)
-      : path.resolve(workspaceRoot);
-  }
-
-  if (
-    normalized === DISCORD_MEDIA_CACHE_ROOT_DISPLAY ||
-    normalized.startsWith(`${DISCORD_MEDIA_CACHE_ROOT_DISPLAY}/`)
-  ) {
-    const relative = normalized
-      .slice(DISCORD_MEDIA_CACHE_ROOT_DISPLAY.length)
-      .replace(/^\/+/, '');
-    return relative
-      ? path.resolve(DISCORD_MEDIA_CACHE_ROOT, relative)
-      : path.resolve(DISCORD_MEDIA_CACHE_ROOT);
-  }
-
-  return null;
-}
-
-async function resolveAllowedHostMediaPath(params: {
-  rawPath: string;
-  workspaceRoot: string;
-  mountAliases: ValidatedMountAlias[];
-}): Promise<string | null> {
-  const { rawPath, workspaceRoot, mountAliases } = params;
-  const cleaned = rawPath.trim();
-  if (!cleaned) return null;
-
-  const explicitAbsoluteInput =
-    path.isAbsolute(cleaned) ||
-    /^[A-Za-z]:[\\/]/.test(cleaned) ||
-    cleaned.startsWith('~/') ||
-    cleaned.startsWith('~\\');
-
-  const displayResolved = resolveDisplayPathToHost(
-    cleaned,
-    workspaceRoot,
-    mountAliases,
-  );
-  const expanded = expandUserPath(cleaned);
-  const resolved = displayResolved
-    ? displayResolved
-    : path.isAbsolute(expanded) || /^[A-Za-z]:[\\/]/.test(expanded)
-      ? path.resolve(expanded)
-      : path.resolve(workspaceRoot, expanded);
-  const canonical = await resolveCanonicalPath(resolved);
-  const allowedRoots = await Promise.all(
-    [
-      workspaceRoot,
-      DISCORD_MEDIA_CACHE_ROOT,
-      ...mountAliases.map((alias) => alias.hostPath),
-    ].map((entry) => resolveCanonicalPath(entry)),
-  );
-
-  if (!allowedRoots.some((root) => isWithinRoot(canonical, root))) {
-    if (
-      !(await isManagedTempMediaPath(canonical)) &&
-      !(CONTAINER_SANDBOX_MODE === 'host' && explicitAbsoluteInput)
-    ) {
-      return null;
-    }
-  }
-
-  let stat: fs.Stats;
-  try {
-    stat = await fs.promises.stat(canonical);
-  } catch {
-    return null;
-  }
-  if (!stat.isFile()) return null;
-  return canonical;
 }
 
 function clampText(value: string, maxChars: number): string {
@@ -279,7 +101,10 @@ export async function prependAudioTranscriptionsToUserContent(params: {
     };
   }
 
-  const mountAliases = buildValidatedMountAliases();
+  const mountAliases = buildValidatedMountAliases({
+    binds: CONTAINER_BINDS,
+    additionalMounts: ADDITIONAL_MOUNTS,
+  });
   const transcripts: AudioTranscriptItem[] = [];
   let remainingChars = audioConfig.maxTotalChars;
 
@@ -291,7 +116,12 @@ export async function prependAudioTranscriptionsToUserContent(params: {
     const resolvedPath = await resolveAllowedHostMediaPath({
       rawPath: item.path || '',
       workspaceRoot: params.workspaceRoot,
+      workspaceRootDisplay: WORKSPACE_ROOT_DISPLAY,
+      mediaCacheRoot: DISCORD_MEDIA_CACHE_ROOT,
+      mediaCacheRootDisplay: DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
       mountAliases,
+      managedTempDirPrefixes: MANAGED_TEMP_MEDIA_DIR_PREFIXES,
+      allowHostAbsolutePaths: CONTAINER_SANDBOX_MODE === 'host',
     });
     if (!resolvedPath) {
       logger.debug(

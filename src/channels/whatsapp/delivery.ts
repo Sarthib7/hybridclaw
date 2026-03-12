@@ -10,6 +10,7 @@ import { WHATSAPP_TEXT_CHUNK_LIMIT } from '../../config/config.js';
 import { chunkMessage } from '../../memory/chunk.js';
 import { sleep } from '../../utils/sleep.js';
 import { markdownToWhatsApp } from './markdown.js';
+import { resolveWhatsAppMimeTypeFromPath } from './mime-utils.js';
 import type { WhatsAppOutboundMessageRef } from './self-echo-cache.js';
 
 const OUTBOUND_DELAY_MS = 350;
@@ -17,35 +18,6 @@ type SentWhatsAppMessage = proto.WebMessageInfo | undefined;
 
 function clampTextChunkLimit(limit: number): number {
   return Math.max(200, Math.min(4_000, Math.floor(limit)));
-}
-
-function resolveMimeTypeFromPath(filePath: string): string {
-  const ext = path.extname(filePath).toLowerCase();
-  switch (ext) {
-    case '.jpg':
-    case '.jpeg':
-      return 'image/jpeg';
-    case '.png':
-      return 'image/png';
-    case '.gif':
-      return 'image/gif';
-    case '.webp':
-      return 'image/webp';
-    case '.mp4':
-      return 'video/mp4';
-    case '.mov':
-      return 'video/quicktime';
-    case '.mp3':
-      return 'audio/mpeg';
-    case '.ogg':
-      return 'audio/ogg';
-    case '.wav':
-      return 'audio/wav';
-    case '.pdf':
-      return 'application/pdf';
-    default:
-      return 'application/octet-stream';
-  }
 }
 
 export function prepareWhatsAppTextChunks(text: string): string[] {
@@ -99,7 +71,7 @@ export async function sendWhatsAppMedia(params: {
   const mimeType =
     String(params.mimeType || '')
       .trim()
-      .toLowerCase() || resolveMimeTypeFromPath(params.filePath);
+      .toLowerCase() || resolveWhatsAppMimeTypeFromPath(params.filePath);
   const filename =
     String(params.filename || '').trim() || path.basename(params.filePath);
   const upload = { url: params.filePath };

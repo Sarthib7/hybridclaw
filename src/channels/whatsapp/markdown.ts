@@ -6,6 +6,17 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function restorePlaceholders(
+  text: string,
+  placeholder: string,
+  segments: string[],
+): string {
+  return text.replace(
+    new RegExp(`${escapeRegExp(placeholder)}(\\d+)`, 'g'),
+    (_match, index: string) => segments[Number(index)] ?? '',
+  );
+}
+
 export function markdownToWhatsApp(text: string): string {
   if (!text) return text;
 
@@ -37,18 +48,9 @@ export function markdownToWhatsApp(text: string): string {
     '$1_$2_',
   );
 
-  result = result.replace(
-    new RegExp(`${escapeRegExp(BOLD_PLACEHOLDER)}(\\d+)`, 'g'),
-    (_match, index: string) => boldSegments[Number(index)] ?? '',
-  );
-  result = result.replace(
-    new RegExp(`${escapeRegExp(INLINE_CODE_PLACEHOLDER)}(\\d+)`, 'g'),
-    (_match, index: string) => inlineCodes[Number(index)] ?? '',
-  );
-  result = result.replace(
-    new RegExp(`${escapeRegExp(FENCE_PLACEHOLDER)}(\\d+)`, 'g'),
-    (_match, index: string) => fences[Number(index)] ?? '',
-  );
+  result = restorePlaceholders(result, BOLD_PLACEHOLDER, boldSegments);
+  result = restorePlaceholders(result, INLINE_CODE_PLACEHOLDER, inlineCodes);
+  result = restorePlaceholders(result, FENCE_PLACEHOLDER, fences);
 
   return result;
 }

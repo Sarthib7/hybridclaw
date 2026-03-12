@@ -14,10 +14,12 @@ import type {
   WhatsAppGroupPolicy,
 } from '../../config/runtime-config.js';
 import type { MediaContextItem } from '../../types.js';
+import { guessWhatsAppExtensionFromMimeType } from './mime-utils.js';
 import { isGroupJid, jidToPhone, normalizePhoneNumber } from './phone.js';
 
 const STATUS_BROADCAST_JID = 'status@broadcast';
 const WHATSAPP_MEDIA_TMP_PREFIX = 'hybridclaw-wa-';
+const normalizedAllowListCache = new WeakMap<string[], string[]>();
 
 function normalizeWhatsAppMediaPath(filePath: string): string | null {
   const trimmed = String(filePath || '').trim();
@@ -43,31 +45,11 @@ function sanitizeFilename(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]+/g, '_');
 }
 
-function guessExtensionFromMime(mimeType: string | null): string {
-  switch (mimeType) {
-    case 'image/jpeg':
-      return '.jpg';
-    case 'image/png':
-      return '.png';
-    case 'image/webp':
-      return '.webp';
-    case 'video/mp4':
-      return '.mp4';
-    case 'audio/ogg':
-    case 'audio/ogg; codecs=opus':
-      return '.ogg';
-    case 'audio/mpeg':
-      return '.mp3';
-    case 'application/pdf':
-      return '.pdf';
-    default:
-      return '';
-  }
-}
-
 function resolveMessageMimeType(
   message: NonNullable<WAMessage['message']>,
 ): string | null {
+  // Prefer the explicit WhatsApp-declared mimetype, but fall back to the
+  // media kind when Baileys gives us the message object without that field.
   return (
     message.imageMessage?.mimetype ??
     message.videoMessage?.mimetype ??
@@ -128,10 +110,15 @@ function matchesAllowList(list: string[], senderPhone: string | null): boolean {
 }
 
 function normalizeAllowList(values: string[]): string[] {
+  const cached = normalizedAllowListCache.get(values);
+  if (cached) return cached;
+
   const normalized = values
     .map((entry) => normalizeAllowEntry(entry))
     .filter((entry): entry is string => Boolean(entry));
-  return [...new Set(normalized)];
+  const deduplicated = [...new Set(normalized)];
+  normalizedAllowListCache.set(values, deduplicated);
+  return deduplicated;
 }
 
 function isSelfChat(params: {
@@ -220,13 +207,8 @@ async function downloadInboundMedia(params: {
   const normalizedMessage = normalizeMessageContent(params.message.message);
   if (!normalizedMessage) return [];
 
-  const hasMedia =
-    Boolean(normalizedMessage.imageMessage) ||
-    Boolean(normalizedMessage.videoMessage) ||
-    Boolean(normalizedMessage.documentMessage) ||
-    Boolean(normalizedMessage.audioMessage) ||
-    Boolean(normalizedMessage.stickerMessage);
-  if (!hasMedia) return [];
+  const mimeType = resolveMessageMimeType(normalizedMessage);
+  if (!mimeType) return [];
 
   const mediaBytes =
     normalizedMessage.imageMessage?.fileLength ??
@@ -252,10 +234,9 @@ async function downloadInboundMedia(params: {
   ).catch(() => null);
   if (!buffer) return [];
 
-  const mimeType = resolveMessageMimeType(normalizedMessage);
   const defaultName =
     normalizedMessage.documentMessage?.fileName?.trim() ||
-    `wa-media-${params.message.key.id || Date.now()}${guessExtensionFromMime(
+    `wa-media-${params.message.key.id || Date.now()}${guessWhatsAppExtensionFromMimeType(
       mimeType,
     )}`;
   const filename = sanitizeFilename(defaultName);

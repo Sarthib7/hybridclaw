@@ -69,6 +69,12 @@ async function importFreshRuntimeModule(options?: { isSelfChat?: boolean }) {
     rawMessage: message,
   }));
   const cleanupWhatsAppInboundMedia = vi.fn(async () => {});
+  const createWhatsAppConnectionManager = vi.fn(
+    (params?: { onSocketCreated?: (socket: typeof socket) => void }) => {
+      onSocketCreated = params?.onSocketCreated;
+      return manager;
+    },
+  );
 
   vi.doMock('../src/config/config.ts', () => ({
     WHATSAPP_TEXT_CHUNK_LIMIT: 4000,
@@ -94,12 +100,7 @@ async function importFreshRuntimeModule(options?: { isSelfChat?: boolean }) {
   }));
 
   vi.doMock('../src/channels/whatsapp/connection.ts', () => ({
-    createWhatsAppConnectionManager: vi.fn(
-      (params?: { onSocketCreated?: (socket: typeof socket) => void }) => {
-        onSocketCreated = params?.onSocketCreated;
-        return manager;
-      },
-    ),
+    createWhatsAppConnectionManager,
   }));
 
   vi.doMock('../src/channels/whatsapp/debounce.ts', () => ({
@@ -130,6 +131,7 @@ async function importFreshRuntimeModule(options?: { isSelfChat?: boolean }) {
   return {
     manager,
     cleanupWhatsAppInboundMedia,
+    createWhatsAppConnectionManager,
     processInboundWhatsAppMessage,
     runtime,
     socket,
@@ -145,6 +147,19 @@ async function flushAsyncWork(): Promise<void> {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.resetModules();
+});
+
+test('createWhatsAppRuntime isolates runtime state per instance', async () => {
+  const { createWhatsAppConnectionManager, runtime } =
+    await importFreshRuntimeModule();
+  const firstRuntime = runtime.createWhatsAppRuntime();
+  const secondRuntime = runtime.createWhatsAppRuntime();
+  const messageHandler = vi.fn(async () => {});
+
+  await firstRuntime.initWhatsApp(messageHandler);
+  await secondRuntime.initWhatsApp(messageHandler);
+
+  expect(createWhatsAppConnectionManager).toHaveBeenCalledTimes(2);
 });
 
 test('ignores reflected self-chat messages sent by HybridClaw itself', async () => {

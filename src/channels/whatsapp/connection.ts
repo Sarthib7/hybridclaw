@@ -28,46 +28,40 @@ interface WhatsAppLogger {
   error: (obj: unknown, msg?: string) => void;
 }
 
-function resolveWhatsAppMetadataLogLevel(
+function isVerboseWhatsAppLogging(
   target: Pick<WhatsAppLogger, 'level'>,
-): string | undefined {
-  const rootLevel =
-    typeof logger.level === 'string' && logger.level.trim()
+): boolean {
+  const effectiveLevel =
+    typeof logger.level === 'string' && logger.level.trim().length > 0
       ? logger.level
-      : undefined;
-  if (rootLevel) return rootLevel;
-  return target.level;
+      : target.level;
+  return VERBOSE_WHATSAPP_LOG_LEVELS.has(effectiveLevel.trim().toLowerCase());
 }
 
-function shouldLogWhatsAppMetadata(level: string | undefined): boolean {
-  return VERBOSE_WHATSAPP_LOG_LEVELS.has(
-    String(level || '')
-      .trim()
-      .toLowerCase(),
-  );
-}
-
-function writeWhatsAppLog(
+function emitWhatsAppLog(
   target: WhatsAppLogger,
   level: WhatsAppLogLevel,
   payload: unknown,
   message?: string,
 ): void {
-  if (message == null) {
+  if (isVerboseWhatsAppLogging(target)) {
+    if (message === undefined) {
+      target[level](payload);
+      return;
+    }
+    target[level](payload, message);
+    return;
+  }
+
+  if (typeof message === 'string' && message.trim().length > 0) {
+    target[level](message);
+    return;
+  }
+  if (typeof payload === 'string' && payload.trim().length > 0) {
     target[level](payload);
     return;
   }
-  target[level](payload, message);
-}
-
-function resolveWhatsAppLogMessage(
-  level: WhatsAppLogLevel,
-  payload: unknown,
-  message?: string,
-): string {
-  if (typeof message === 'string' && message.trim().length > 0) return message;
-  if (typeof payload === 'string' && payload.trim().length > 0) return payload;
-  return `WhatsApp ${level}`;
+  target[level](`WhatsApp ${level}`);
 }
 
 function logWhatsAppMessage(
@@ -76,31 +70,19 @@ function logWhatsAppMessage(
   message: string,
   metadata?: unknown,
 ): void {
-  if (
-    metadata !== undefined &&
-    shouldLogWhatsAppMetadata(resolveWhatsAppMetadataLogLevel(target))
-  ) {
-    writeWhatsAppLog(target, level, metadata, message);
-    return;
-  }
-  writeWhatsAppLog(target, level, message);
+  emitWhatsAppLog(
+    target,
+    level,
+    metadata === undefined ? message : metadata,
+    metadata === undefined ? undefined : message,
+  );
 }
 
 function createBaileysLogger(baseLogger: WhatsAppLogger): WhatsAppLogger {
   const forward =
     (level: WhatsAppLogLevel) =>
     (payload: unknown, message?: string): void => {
-      if (
-        shouldLogWhatsAppMetadata(resolveWhatsAppMetadataLogLevel(baseLogger))
-      ) {
-        writeWhatsAppLog(baseLogger, level, payload, message);
-        return;
-      }
-      writeWhatsAppLog(
-        baseLogger,
-        level,
-        resolveWhatsAppLogMessage(level, payload, message),
-      );
+      emitWhatsAppLog(baseLogger, level, payload, message);
     };
 
   return {
@@ -141,6 +123,7 @@ export function createWhatsAppConnectionManager(params?: {
   let socket: WASocket | null = null;
   let started = false;
   let stopped = false;
+  let stopGeneration = 0;
   let connectionOpen = false;
   let reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -258,6 +241,33 @@ export function createWhatsAppConnectionManager(params?: {
     await connectingPromise;
   };
 
+  const startConnectionManager = async (params?: {
+    allowRestart?: boolean;
+    expectedStopGeneration?: number;
+  }): Promise<void> => {
+    if (started) return;
+    if (
+      params?.expectedStopGeneration !== undefined &&
+      params.expectedStopGeneration !== stopGeneration
+    ) {
+      return;
+    }
+    if (stopped) {
+      if (!params?.allowRestart) return;
+      stopped = false;
+    }
+    if (
+      params?.expectedStopGeneration !== undefined &&
+      params.expectedStopGeneration !== stopGeneration
+    ) {
+      return;
+    }
+    if (started) return;
+    started = true;
+    reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
+    await connect();
+  };
+
   const handleConnectionUpdate = async (
     observedSocket: WASocket,
     update: Partial<ConnectionState>,
@@ -322,13 +332,10 @@ export function createWhatsAppConnectionManager(params?: {
       return socket;
     },
     async start() {
-      if (started) return;
-      started = true;
-      stopped = false;
-      reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
-      await connect();
+      await startConnectionManager({ allowRestart: true });
     },
     async stop() {
+      stopGeneration += 1;
       stopped = true;
       started = false;
       if (reconnectTimer) {
@@ -353,10 +360,11 @@ export function createWhatsAppConnectionManager(params?: {
         return Promise.reject(new Error('WhatsApp runtime stopped'));
       }
       if (socket && connectionOpen) return Promise.resolve(socket);
+      const expectedStopGeneration = stopGeneration;
       return new Promise<WASocket>((resolve, reject) => {
         waiters.push({ resolve, reject });
         if (!started) {
-          void this.start().catch(reject);
+          void startConnectionManager({ expectedStopGeneration }).catch(reject);
         }
       });
     },

@@ -6,9 +6,20 @@ async function flushMicrotasks(count = 4): Promise<void> {
   }
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 async function importFreshConnectionModule(options?: {
   logLevel?: string;
   rootLevel?: string;
+  deferAuthState?: boolean;
 }) {
   vi.resetModules();
 
@@ -41,12 +52,16 @@ async function importFreshConnectionModule(options?: {
     level: options?.rootLevel ?? options?.logLevel ?? 'info',
     child: vi.fn(() => whatsappLogger),
   };
+  const authStateGate = createDeferred<void>();
 
   vi.doMock('../src/channels/whatsapp/auth.ts', () => ({
-    loadWhatsAppAuthState: vi.fn(async () => ({
-      state: { creds: {}, keys: {} },
-      saveCreds: vi.fn(async () => {}),
-    })),
+    loadWhatsAppAuthState: vi.fn(async () => {
+      if (options?.deferAuthState) await authStateGate.promise;
+      return {
+        state: { creds: {}, keys: {} },
+        saveCreds: vi.fn(async () => {}),
+      };
+    }),
   }));
 
   vi.doMock('../src/logger.ts', () => ({
@@ -117,7 +132,13 @@ async function importFreshConnectionModule(options?: {
   });
 
   const module = await import('../src/channels/whatsapp/connection.ts');
-  return { ...module, qrcodeGenerate, sockets, whatsappLogger };
+  return {
+    ...module,
+    qrcodeGenerate,
+    sockets,
+    whatsappLogger,
+    releaseAuthState: () => authStateGate.resolve(),
+  };
 }
 
 afterEach(() => {
@@ -198,6 +219,24 @@ test('start can restart the manager after stop', async () => {
   });
 
   await expect(socketPromise).resolves.toBe(secondSocket);
+});
+
+test('waitForSocket does not revive the manager after stop during implicit startup', async () => {
+  const { createWhatsAppConnectionManager, sockets, releaseAuthState } =
+    await importFreshConnectionModule({
+      deferAuthState: true,
+    });
+
+  const manager = createWhatsAppConnectionManager();
+  const socketPromise = manager.waitForSocket();
+
+  await flushMicrotasks();
+  await manager.stop();
+  releaseAuthState();
+  await flushMicrotasks();
+
+  await expect(socketPromise).rejects.toThrow('WhatsApp runtime stopped');
+  expect(sockets).toHaveLength(0);
 });
 
 test('info-level WhatsApp logs omit structured metadata', async () => {

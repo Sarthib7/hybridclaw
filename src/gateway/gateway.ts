@@ -169,9 +169,12 @@ function simplifyImageAttachmentNarration(
   const keptLines: string[] = [];
   for (const line of text.split('\n')) {
     const normalizedLine = normalizePathForMatch(line);
-    const mentionsArtifact = Array.from(pathHints).some((hint) =>
-      normalizedLine.includes(hint),
-    );
+    let mentionsArtifact = false;
+    for (const hint of pathHints) {
+      if (!normalizedLine.includes(hint)) continue;
+      mentionsArtifact = true;
+      break;
+    }
     const isPathLine = pathishLine.test(line.trim());
     const isLocationNarration = locationNarration.test(line);
     if (mentionsArtifact && (isPathLine || isLocationNarration)) {

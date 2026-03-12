@@ -48,6 +48,7 @@ import {
   saveRuntimeSecrets,
 } from './security/runtime-secrets.js';
 import { printUpdateUsage, runUpdateCommand } from './update.js';
+import { sleep } from './utils/sleep.js';
 
 const PACKAGE_NAME = '@hybridaione/hybridclaw';
 let cachedInstallRoot: string | null = null;
@@ -104,10 +105,6 @@ async function ensureRuntimeContainer(
     required,
     cwd: resolveInstallRoot(),
   });
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function isGatewayReachable(): Promise<boolean> {

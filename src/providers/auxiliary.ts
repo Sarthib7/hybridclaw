@@ -701,11 +701,10 @@ async function callOllamaTextModel(
   messages: ChatMessage[],
   options: AuxiliaryRequestOptions,
 ): Promise<string> {
-  const extraBody = options.extraBody ? { ...options.extraBody } : {};
-  const rawOptions = isRecord(extraBody.options)
-    ? { ...extraBody.options }
+  const { options: extraBodyOptions, ...extraBody } = options.extraBody ?? {};
+  const rawOptions = isRecord(extraBodyOptions)
+    ? { ...extraBodyOptions }
     : undefined;
-  delete extraBody.options;
 
   const body: Record<string, unknown> = {
     ...extraBody,

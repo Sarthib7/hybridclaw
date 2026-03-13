@@ -1060,7 +1060,7 @@ async function runGatewayApiCommand(args: string[]): Promise<void> {
 }
 
 async function handleGatewayCommand(args: string[]): Promise<void> {
-  const normalized = args.map((arg) => arg.trim()).filter(Boolean);
+  const normalized = normalizeArgs(args);
   if (normalized.length === 0) {
     await startGatewayBackend('hybridclaw gateway');
     return;
@@ -1376,11 +1376,15 @@ function normalizeUnifiedProvider(
   return null;
 }
 
+function normalizeArgs(args: string[]): string[] {
+  return args.map((arg) => arg.trim()).filter(Boolean);
+}
+
 function parseUnifiedProviderArgs(args: string[]): {
   provider: UnifiedProvider | null;
   remaining: string[];
 } {
-  const normalized = args.map((arg) => arg.trim()).filter(Boolean);
+  const normalized = normalizeArgs(args);
   if (normalized.length === 0) {
     return {
       provider: null,
@@ -1718,7 +1722,7 @@ function configureLocalBackend(args: string[]): void {
 }
 
 async function handleLocalCommand(args: string[]): Promise<void> {
-  const normalized = args.map((arg) => arg.trim()).filter(Boolean);
+  const normalized = normalizeArgs(args);
   if (normalized.length === 0 || isHelpRequest(normalized)) {
     printLocalUsage();
     return;
@@ -1738,7 +1742,7 @@ async function handleLocalCommand(args: string[]): Promise<void> {
 }
 
 async function handleAuthLoginCommand(args: string[]): Promise<void> {
-  const normalized = args.map((arg) => arg.trim()).filter(Boolean);
+  const normalized = normalizeArgs(args);
   if (normalized.length === 0) {
     await ensureRuntimeCredentials({
       commandName: 'hybridclaw auth login',
@@ -1777,7 +1781,7 @@ async function handleAuthLoginCommand(args: string[]): Promise<void> {
 }
 
 async function handleAuthCommand(args: string[]): Promise<void> {
-  const normalized = args.map((arg) => arg.trim()).filter(Boolean);
+  const normalized = normalizeArgs(args);
   if (normalized.length === 0 || isHelpRequest(normalized)) {
     printAuthUsage();
     return;
@@ -1821,7 +1825,7 @@ async function handleAuthCommand(args: string[]): Promise<void> {
 }
 
 async function handleAuthWhatsAppCommand(args: string[]): Promise<void> {
-  const normalized = args.map((arg) => arg.trim()).filter(Boolean);
+  const normalized = normalizeArgs(args);
   if (normalized.length === 0 || isHelpRequest(normalized)) {
     printWhatsAppUsage();
     return;
@@ -1853,7 +1857,7 @@ async function handleProviderStatusCommand(
   args: string[],
   commandName: string,
 ): Promise<void> {
-  const normalized = args.map((arg) => arg.trim()).filter(Boolean);
+  const normalized = normalizeArgs(args);
   if (normalized.length === 0) {
     printAuthUsage();
     return;
@@ -1896,7 +1900,7 @@ async function handleProviderLogoutCommand(
   args: string[],
   commandName: string,
 ): Promise<void> {
-  const normalized = args.map((arg) => arg.trim()).filter(Boolean);
+  const normalized = normalizeArgs(args);
   if (normalized.length === 0) {
     printAuthUsage();
     return;
@@ -2183,7 +2187,7 @@ async function configureWhatsAppChannel(args: string[]): Promise<void> {
 }
 
 async function handleChannelsCommand(args: string[]): Promise<void> {
-  const normalized = args.map((arg) => arg.trim()).filter(Boolean);
+  const normalized = normalizeArgs(args);
   if (normalized.length === 0 || isHelpRequest(normalized)) {
     printChannelsUsage();
     return;
@@ -2216,7 +2220,7 @@ async function handleChannelsCommand(args: string[]): Promise<void> {
 }
 
 async function handleHybridAICommand(args: string[]): Promise<void> {
-  const normalized = args.map((arg) => arg.trim()).filter(Boolean);
+  const normalized = normalizeArgs(args);
   if (normalized.length === 0 || isHelpRequest(normalized)) {
     printHybridAIUsage();
     return;
@@ -2257,7 +2261,7 @@ async function handleHybridAICommand(args: string[]): Promise<void> {
 }
 
 async function handleCodexCommand(args: string[]): Promise<void> {
-  const normalized = args.map((arg) => arg.trim()).filter(Boolean);
+  const normalized = normalizeArgs(args);
   if (normalized.length === 0 || isHelpRequest(normalized)) {
     printCodexUsage();
     return;
@@ -2302,7 +2306,7 @@ async function handleCodexCommand(args: string[]): Promise<void> {
 }
 
 async function handleSkillCommand(args: string[]): Promise<void> {
-  const normalized = args.map((arg) => arg.trim()).filter(Boolean);
+  const normalized = normalizeArgs(args);
   if (normalized.length === 0 || isHelpRequest(normalized)) {
     printSkillUsage();
     return;

@@ -195,6 +195,9 @@ npm run tui                          # tsx src/cli.ts tui
   `src/workspace.ts` and the workspace bootstrap tests.
 - Do not mix container and gateway changes in one commit unless they are
   tightly coupled.
+- **README tone:** Describe the current state of the product, not changes
+  relative to a prior version. Avoid "now", "no longer", "deprecated … for
+  now", "recently added". The changelog is the place for transition language.
 
 ### Coding Style
 

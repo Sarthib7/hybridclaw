@@ -193,7 +193,9 @@ class FileBackedWhatsAppMessageStore implements WhatsAppMessageStore {
   async clear(): Promise<void> {
     this.loaded = true;
     this.messages = [];
-    await this.runAfterPersistQueue(() => fs.rm(this.filePath, { force: true }));
+    await this.runAfterPersistQueue(() =>
+      fs.rm(this.filePath, { force: true }),
+    );
   }
 
   private async ensureLoaded(): Promise<void> {

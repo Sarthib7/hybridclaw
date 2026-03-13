@@ -24,6 +24,19 @@ const OPENROUTER_MODEL_PREFIX = 'openrouter/';
 const OLLAMA_MODEL_PREFIX = 'ollama/';
 const LMSTUDIO_MODEL_PREFIX = 'lmstudio/';
 const VLLM_MODEL_PREFIX = 'vllm/';
+const PREFIX_BY_PROVIDER: Record<
+  Extract<
+    ModelCatalogProviderFilter,
+    'openai-codex' | 'openrouter' | 'ollama' | 'lmstudio' | 'vllm'
+  >,
+  string
+> = {
+  'openai-codex': OPENAI_CODEX_MODEL_PREFIX,
+  openrouter: OPENROUTER_MODEL_PREFIX,
+  ollama: OLLAMA_MODEL_PREFIX,
+  lmstudio: LMSTUDIO_MODEL_PREFIX,
+  vllm: VLLM_MODEL_PREFIX,
+};
 
 function compareModelNames(
   left: string,
@@ -60,9 +73,9 @@ function hasModelPrefix(model: string, prefix: string): boolean {
 
 function isLocalPrefixedModel(model: string): boolean {
   return (
-    hasModelPrefix(model, OLLAMA_MODEL_PREFIX) ||
-    hasModelPrefix(model, LMSTUDIO_MODEL_PREFIX) ||
-    hasModelPrefix(model, VLLM_MODEL_PREFIX)
+    hasModelPrefix(model, PREFIX_BY_PROVIDER.ollama) ||
+    hasModelPrefix(model, PREFIX_BY_PROVIDER.lmstudio) ||
+    hasModelPrefix(model, PREFIX_BY_PROVIDER.vllm)
   );
 }
 
@@ -95,24 +108,14 @@ function matchesProviderFilter(
   const normalized = String(model || '').trim();
   if (!normalized) return false;
 
-  if (providerFilter === 'openrouter') {
-    return hasModelPrefix(normalized, OPENROUTER_MODEL_PREFIX);
+  const prefix =
+    providerFilter === 'local' || providerFilter === 'hybridai'
+      ? null
+      : PREFIX_BY_PROVIDER[providerFilter];
+  if (prefix) {
+    return hasModelPrefix(normalized, prefix);
   }
-  if (providerFilter === 'openai-codex') {
-    return hasModelPrefix(normalized, OPENAI_CODEX_MODEL_PREFIX);
-  }
-  if (providerFilter === 'ollama') {
-    return hasModelPrefix(normalized, OLLAMA_MODEL_PREFIX);
-  }
-  if (providerFilter === 'lmstudio') {
-    return hasModelPrefix(normalized, LMSTUDIO_MODEL_PREFIX);
-  }
-  if (providerFilter === 'vllm') {
-    return hasModelPrefix(normalized, VLLM_MODEL_PREFIX);
-  }
-  if (providerFilter === 'local') {
-    return isLocalPrefixedModel(normalized);
-  }
+  if (providerFilter === 'local') return isLocalPrefixedModel(normalized);
 
   const provider = resolveModelProvider(normalized);
   if (providerFilter === 'hybridai') {

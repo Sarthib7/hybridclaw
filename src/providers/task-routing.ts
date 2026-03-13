@@ -15,6 +15,10 @@ import { resolveModelRuntimeCredentials } from './factory.js';
 export type AuxiliaryTask = TaskModelKey;
 
 type RuntimeProvider = NonNullable<TaskModelPolicy['provider']>;
+type TaskOverrideSuffix = 'MODEL' | 'PROVIDER';
+type TaskOverrideSnapshot = Partial<
+  Record<AuxiliaryTask, Partial<Record<TaskOverrideSuffix, string>>>
+>;
 
 const AUXILIARY_TASKS: AuxiliaryTask[] = [...TASK_MODEL_KEYS];
 
@@ -53,16 +57,35 @@ function normalizeTaskProviderSelection(
   return undefined;
 }
 
+function readTaskOverrideSnapshot(): TaskOverrideSnapshot {
+  const snapshot: TaskOverrideSnapshot = {};
+  for (const task of AUXILIARY_TASKS) {
+    const taskKey = task.toUpperCase();
+    for (const suffix of ['MODEL', 'PROVIDER'] as const) {
+      for (const prefix of ENV_OVERRIDE_PREFIXES) {
+        const value =
+          process.env[`${prefix}${taskKey}_${suffix}`]?.trim() ?? '';
+        if (!value) continue;
+        snapshot[task] = {
+          ...(snapshot[task] || {}),
+          [suffix]: value,
+        };
+        break;
+      }
+    }
+  }
+  return snapshot;
+}
+
+// Snapshot env overrides once at module load so a running worker sees stable
+// task-routing behavior for its lifetime instead of re-reading process.env.
+const TASK_OVERRIDE_SNAPSHOT = readTaskOverrideSnapshot();
+
 function readTaskOverride(
   task: AuxiliaryTask,
-  suffix: 'MODEL' | 'PROVIDER',
+  suffix: TaskOverrideSuffix,
 ): string | undefined {
-  const taskKey = task.toUpperCase();
-  for (const prefix of ENV_OVERRIDE_PREFIXES) {
-    const value = process.env[`${prefix}${taskKey}_${suffix}`]?.trim() ?? '';
-    if (value) return value;
-  }
-  return undefined;
+  return TASK_OVERRIDE_SNAPSHOT[task]?.[suffix];
 }
 
 function getConfiguredTaskSelection(

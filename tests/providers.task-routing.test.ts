@@ -166,6 +166,37 @@ test('prefers auxiliary env overrides for provider and model selection', async (
   });
 });
 
+test('captures env overrides at module load', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.local.backends.lmstudio.enabled = true;
+    config.local.backends.lmstudio.baseUrl = 'http://127.0.0.1:1234';
+    config.local.backends.ollama.enabled = true;
+    config.local.backends.ollama.baseUrl = 'http://127.0.0.1:11434';
+    config.auxiliaryModels.compression.model = '';
+    config.auxiliaryModels.compression.maxTokens = 222;
+  });
+  process.env.AUXILIARY_COMPRESSION_PROVIDER = 'lmstudio';
+  process.env.AUXILIARY_COMPRESSION_MODEL = 'qwen/qwen2.5-instruct';
+
+  const taskRouting = await importFreshTaskRouting(homeDir);
+
+  process.env.AUXILIARY_COMPRESSION_PROVIDER = 'ollama';
+  process.env.AUXILIARY_COMPRESSION_MODEL = 'qwen2.5:latest';
+
+  const policy = await taskRouting.resolveTaskModelPolicy('compression', {
+    agentId: 'main',
+    chatbotId: 'bot_123',
+  });
+
+  expect(policy).toMatchObject({
+    provider: 'lmstudio',
+    baseUrl: 'http://127.0.0.1:1234',
+    model: 'lmstudio/qwen/qwen2.5-instruct',
+    maxTokens: 222,
+  });
+});
+
 test('captures unsupported vision task model config as a deferred policy error', async () => {
   const homeDir = makeTempHome();
   writeRuntimeConfig(homeDir, (config) => {

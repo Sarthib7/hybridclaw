@@ -197,3 +197,14 @@ test('captures unsupported vision task model config as a deferred policy error',
     },
   });
 });
+
+test('normalizes max token values consistently', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir);
+  const taskRouting = await importFreshTaskRouting(homeDir);
+
+  expect(taskRouting.normalizeMaxTokens(42.9)).toBe(42);
+  expect(taskRouting.normalizeMaxTokens(0)).toBeUndefined();
+  expect(taskRouting.normalizeMaxTokens(undefined)).toBeUndefined();
+  expect(taskRouting.normalizeMaxTokens('42')).toBeUndefined();
+});

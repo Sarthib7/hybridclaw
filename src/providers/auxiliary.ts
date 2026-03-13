@@ -6,6 +6,7 @@ import {
   type AuxiliaryTask,
   detectRuntimeProviderPrefix,
   normalizeAuxiliaryProviderModel,
+  normalizeMaxTokens,
   resolveDefaultAuxiliaryModelForProvider,
   resolveTaskModelPolicy,
 } from './task-routing.js';
@@ -77,13 +78,6 @@ export interface AuxiliaryModelCallParams {
   temperature?: number;
   timeoutMs?: number;
   extraBody?: Record<string, unknown>;
-}
-
-function normalizeMaxTokens(value: number | undefined): number | undefined {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
-    return undefined;
-  }
-  return Math.floor(value);
 }
 
 function normalizeTemperature(value: number | undefined): number | undefined {

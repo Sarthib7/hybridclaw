@@ -27,8 +27,10 @@ const RUNTIME_PROVIDER_PREFIXES: Record<RuntimeProvider, string> = {
   vllm: 'vllm/',
 };
 
-function normalizeTaskMaxTokens(value: number): number | undefined {
-  if (!Number.isFinite(value) || value <= 0) return undefined;
+export function normalizeMaxTokens(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    return undefined;
+  }
   return Math.floor(value);
 }
 
@@ -189,7 +191,7 @@ async function resolveConfiguredTaskModelPolicy(
   const configured = getConfiguredTaskSelection(task);
   const providerSelection = getSelectedTaskProvider(task);
   const rawModel = getSelectedTaskModel(task);
-  const maxTokens = normalizeTaskMaxTokens(configured.maxTokens);
+  const maxTokens = normalizeMaxTokens(configured.maxTokens);
 
   if (providerSelection === 'auto' && !rawModel) return undefined;
 

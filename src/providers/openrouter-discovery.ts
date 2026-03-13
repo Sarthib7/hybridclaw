@@ -1,7 +1,4 @@
-import {
-  OPENROUTER_BASE_URL,
-  OPENROUTER_ENABLED,
-} from '../config/config.js';
+import { OPENROUTER_BASE_URL, OPENROUTER_ENABLED } from '../config/config.js';
 import { readOpenRouterApiKey } from './openrouter-utils.js';
 import { isRecord, normalizeBaseUrl } from './utils.js';
 

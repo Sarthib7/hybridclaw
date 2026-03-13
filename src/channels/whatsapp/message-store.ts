@@ -193,15 +193,7 @@ class FileBackedWhatsAppMessageStore implements WhatsAppMessageStore {
   async clear(): Promise<void> {
     this.loaded = true;
     this.messages = [];
-    this.persistQueue = this.persistQueue.then(
-      async () => {
-        await fs.rm(this.filePath, { force: true });
-      },
-      async () => {
-        await fs.rm(this.filePath, { force: true });
-      },
-    );
-    await this.persistQueue;
+    await this.runAfterPersistQueue(() => fs.rm(this.filePath, { force: true }));
   }
 
   private async ensureLoaded(): Promise<void> {
@@ -212,14 +204,15 @@ class FileBackedWhatsAppMessageStore implements WhatsAppMessageStore {
   }
 
   private async enqueuePersist(): Promise<void> {
-    this.persistQueue = this.persistQueue.then(
-      async () => {
-        await writeStoreFile(this.filePath, this.messages);
-      },
-      async () => {
-        await writeStoreFile(this.filePath, this.messages);
-      },
+    await this.runAfterPersistQueue(() =>
+      writeStoreFile(this.filePath, this.messages),
     );
+  }
+
+  private async runAfterPersistQueue(
+    action: () => Promise<void>,
+  ): Promise<void> {
+    this.persistQueue = this.persistQueue.catch(() => undefined).then(action);
     await this.persistQueue;
   }
 

@@ -361,52 +361,52 @@ export function createLocalDiscoveryStore(): LocalDiscoveryStore {
     if (discoveryInFlight) return discoveryInFlight;
 
     discoveryInFlight = (async () => {
-      const tasks: Array<Promise<LocalModelInfo[]>> = [];
-      if (LOCAL_OLLAMA_ENABLED) {
-        tasks.push(
-          discoverOllamaModels(LOCAL_OLLAMA_BASE_URL, {
-            maxModels: LOCAL_DISCOVERY_MAX_MODELS,
-            concurrency: LOCAL_DISCOVERY_CONCURRENCY,
-          }).catch(() => []),
-        );
-      }
-      if (LOCAL_LMSTUDIO_ENABLED) {
-        tasks.push(
-          discoverLmStudioModels(LOCAL_LMSTUDIO_BASE_URL).catch(() => []),
-        );
-      }
-      if (LOCAL_VLLM_ENABLED) {
-        tasks.push(
-          discoverVllmModels(LOCAL_VLLM_BASE_URL, LOCAL_VLLM_API_KEY).catch(
-            () => [],
-          ),
-        );
-      }
-
-      const discovered = (await Promise.all(tasks)).flat();
-      const deduped: LocalModelInfo[] = [];
-      const seen = new Set<string>();
-      for (const backend of DISCOVERY_ORDER) {
-        for (const model of discovered.filter(
-          (entry) => entry.backend === backend,
-        )) {
-          const cacheKey = `${model.backend}:${model.id}`;
-          if (seen.has(cacheKey)) continue;
-          seen.add(cacheKey);
-          deduped.push(model);
+      try {
+        const tasks: Array<Promise<LocalModelInfo[]>> = [];
+        if (LOCAL_OLLAMA_ENABLED) {
+          tasks.push(
+            discoverOllamaModels(LOCAL_OLLAMA_BASE_URL, {
+              maxModels: LOCAL_DISCOVERY_MAX_MODELS,
+              concurrency: LOCAL_DISCOVERY_CONCURRENCY,
+            }).catch(() => []),
+          );
         }
-      }
+        if (LOCAL_LMSTUDIO_ENABLED) {
+          tasks.push(
+            discoverLmStudioModels(LOCAL_LMSTUDIO_BASE_URL).catch(() => []),
+          );
+        }
+        if (LOCAL_VLLM_ENABLED) {
+          tasks.push(
+            discoverVllmModels(LOCAL_VLLM_BASE_URL, LOCAL_VLLM_API_KEY).catch(
+              () => [],
+            ),
+          );
+        }
 
-      replaceDiscoveryCache(deduped);
-      lastDiscoveryAtMs = Date.now();
-      return deduped;
+        const discovered = (await Promise.all(tasks)).flat();
+        const deduped: LocalModelInfo[] = [];
+        const seen = new Set<string>();
+        for (const backend of DISCOVERY_ORDER) {
+          for (const model of discovered.filter(
+            (entry) => entry.backend === backend,
+          )) {
+            const cacheKey = `${model.backend}:${model.id}`;
+            if (seen.has(cacheKey)) continue;
+            seen.add(cacheKey);
+            deduped.push(model);
+          }
+        }
+
+        replaceDiscoveryCache(deduped);
+        lastDiscoveryAtMs = Date.now();
+        return deduped;
+      } finally {
+        discoveryInFlight = null;
+      }
     })();
 
-    try {
-      return await discoveryInFlight;
-    } finally {
-      discoveryInFlight = null;
-    }
+    return discoveryInFlight;
   }
 
   function stopLoop(): void {

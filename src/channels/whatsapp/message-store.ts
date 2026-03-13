@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { proto, type WAMessageKey } from '@whiskeysockets/baileys';
 import { logger } from '../../logger.js';
-import { ensureWhatsAppAuthDir, WHATSAPP_AUTH_DIR } from './auth.js';
+import { WHATSAPP_AUTH_DIR } from './auth.js';
 
 const MESSAGE_STORE_FILE = 'message-store.json';
 const MAX_STORED_MESSAGES = 256;
@@ -207,10 +207,8 @@ class FileBackedWhatsAppMessageStore implements WhatsAppMessageStore {
   private async ensureLoaded(): Promise<void> {
     if (this.loaded) return;
     this.loaded = true;
-    const authDir = await ensureWhatsAppAuthDir(path.dirname(this.filePath));
-    this.messages = await readStoreFile(
-      path.join(authDir, path.basename(this.filePath)),
-    );
+    await fs.mkdir(path.dirname(this.filePath), { recursive: true });
+    this.messages = await readStoreFile(this.filePath);
   }
 
   private async enqueuePersist(): Promise<void> {

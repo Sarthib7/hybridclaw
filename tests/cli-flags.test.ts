@@ -2,9 +2,6 @@ import { describe, expect, it } from 'vitest';
 
 import {
   findUnsupportedGatewayLifecycleFlag,
-  hasDebugFlag,
-  hasForegroundFlag,
-  hasSandboxFlag,
   parseGatewayFlags,
 } from '../src/config/cli-flags.js';
 
@@ -51,28 +48,6 @@ describe('parseGatewayFlags', () => {
     expect(() => parseGatewayFlags(['--sandbox=weird'])).toThrow(
       /Invalid value for --sandbox/,
     );
-  });
-});
-
-describe('hasSandboxFlag', () => {
-  it('detects sandbox flags in gateway subcommand args', () => {
-    expect(hasSandboxFlag(['status', '--sandbox=host'])).toBe(true);
-    expect(hasSandboxFlag(['status'])).toBe(false);
-  });
-});
-
-describe('hasDebugFlag', () => {
-  it('detects debug flags in gateway subcommand args', () => {
-    expect(hasDebugFlag(['status', '--debug'])).toBe(true);
-    expect(hasDebugFlag(['status'])).toBe(false);
-  });
-});
-
-describe('hasForegroundFlag', () => {
-  it('detects foreground flags in gateway subcommand args', () => {
-    expect(hasForegroundFlag(['status', '--foreground'])).toBe(true);
-    expect(hasForegroundFlag(['status', '-f'])).toBe(true);
-    expect(hasForegroundFlag(['status'])).toBe(false);
   });
 });
 

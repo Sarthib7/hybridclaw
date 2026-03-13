@@ -71,17 +71,19 @@ afterEach(async () => {
 });
 
 describe('local providers', () => {
-  test('provider factory registers local providers before HybridAI fallback', async () => {
+  test('provider factory resolves explicit provider prefixes without exposing provider internals', async () => {
     const homeDir = makeTempHome();
     writeRuntimeConfig(homeDir);
     const { factory } = await importFreshModules(homeDir);
 
-    expect(factory.getAIProviders().map((provider) => provider.id)).toEqual([
+    expect(factory.resolveModelProvider('openai-codex/gpt-5.4')).toBe(
       'openai-codex',
+    );
+    expect(factory.resolveModelProvider('anthropic/claude-sonnet-4')).toBe(
       'anthropic',
-      'ollama',
-      'hybridai',
-    ]);
+    );
+    expect(factory.resolveModelProvider('ollama/llama3.2')).toBe('ollama');
+    expect(factory.resolveModelProvider('gpt-5-nano')).toBe('hybridai');
   });
 
   test('explicit ollama model prefixes resolve to the ollama provider', async () => {
@@ -169,7 +171,7 @@ describe('local providers', () => {
     expect(credentials.apiKey).toBe('');
   });
 
-  test('factory provider order: local providers appear after anthropic, before hybridai fallback', async () => {
+  test('all enabled local provider prefixes remain routable', async () => {
     const homeDir = makeTempHome();
     writeRuntimeConfig(homeDir, (config) => {
       config.local.backends.ollama.enabled = true;
@@ -178,19 +180,12 @@ describe('local providers', () => {
     });
     const { factory } = await importFreshModules(homeDir);
 
-    const providerIds = factory.getAIProviders().map((p) => p.id);
-    const anthropicIndex = providerIds.indexOf('anthropic');
-    const ollamaIndex = providerIds.indexOf('ollama');
-    const lmstudioIndex = providerIds.indexOf('lmstudio');
-    const vllmIndex = providerIds.indexOf('vllm');
-    const hybridaiIndex = providerIds.indexOf('hybridai');
-
-    expect(anthropicIndex).toBeLessThan(ollamaIndex);
-    expect(ollamaIndex).toBeLessThan(hybridaiIndex);
-    expect(lmstudioIndex).toBeLessThan(hybridaiIndex);
-    expect(vllmIndex).toBeLessThan(hybridaiIndex);
-    // hybridai is always last
-    expect(hybridaiIndex).toBe(providerIds.length - 1);
+    expect(factory.resolveModelProvider('ollama/llama3.2')).toBe('ollama');
+    expect(factory.resolveModelProvider('lmstudio/qwen3.5-9b')).toBe(
+      'lmstudio',
+    );
+    expect(factory.resolveModelProvider('vllm/granite-3.2')).toBe('vllm');
+    expect(factory.resolveModelProvider('gpt-5-nano')).toBe('hybridai');
   });
 
   test('unknown models still fall back to HybridAI', async () => {

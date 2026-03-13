@@ -295,7 +295,7 @@ async function runSummaryAttempt(params: {
   return normalized;
 }
 
-export function splitConversation(
+function splitConversation(
   messages: StoredMessage[],
   overrides?: Partial<CompactionConfig>,
 ): ConversationSplit {

@@ -161,9 +161,9 @@ export let HYBRIDAI_MODEL = 'gpt-5-nano';
 export let HYBRIDAI_CHATBOT_ID = '';
 export let HYBRIDAI_MAX_TOKENS = 4_096;
 export let HYBRIDAI_ENABLE_RAG = true;
-export let HYBRIDAI_MODELS: string[] = ['gpt-5-nano', 'gpt-5-mini', 'gpt-5'];
+let HYBRIDAI_MODELS: string[] = ['gpt-5-nano', 'gpt-5-mini', 'gpt-5'];
 export let CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex';
-export let CODEX_MODELS: string[] = [
+let CODEX_MODELS: string[] = [
   'openai-codex/gpt-5-codex',
   'openai-codex/gpt-5.3-codex',
   'openai-codex/gpt-5.4',
@@ -175,9 +175,7 @@ export let CODEX_MODELS: string[] = [
 ];
 export let OPENROUTER_ENABLED = false;
 export let OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
-export let OPENROUTER_MODELS: string[] = [
-  'openrouter/anthropic/claude-sonnet-4',
-];
+let OPENROUTER_MODELS: string[] = ['openrouter/anthropic/claude-sonnet-4'];
 export let CONFIGURED_MODELS: string[] = dedupeStringList([
   ...HYBRIDAI_MODELS,
   ...CODEX_MODELS,

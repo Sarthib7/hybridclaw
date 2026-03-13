@@ -32,15 +32,15 @@ function isDebugFlag(arg: string): boolean {
   return String(arg || '').trim() === '--debug';
 }
 
-export function hasSandboxFlag(argv: string[]): boolean {
+function hasSandboxFlag(argv: string[]): boolean {
   return argv.some((arg) => isSandboxFlag(arg));
 }
 
-export function hasForegroundFlag(argv: string[]): boolean {
+function hasForegroundFlag(argv: string[]): boolean {
   return argv.some((arg) => isForegroundFlag(arg));
 }
 
-export function hasDebugFlag(argv: string[]): boolean {
+function hasDebugFlag(argv: string[]): boolean {
   return argv.some((arg) => isDebugFlag(arg));
 }
 

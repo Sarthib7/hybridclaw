@@ -69,18 +69,19 @@ describe('configured model catalog', () => {
     });
 
     const config = await importFreshConfig(homeDir);
+    const snapshot = config.getConfigSnapshot();
 
-    expect(config.HYBRIDAI_MODELS).toEqual([
+    expect(snapshot.hybridai.models).toEqual([
       'gpt-5-nano',
       'shared-model',
       'gpt-5',
     ]);
-    expect(config.CODEX_MODELS).toEqual([
+    expect(snapshot.codex.models).toEqual([
       'shared-model',
       'openai-codex/gpt-5.4',
     ]);
     expect(config.OPENROUTER_ENABLED).toBe(true);
-    expect(config.OPENROUTER_MODELS).toEqual([
+    expect(snapshot.openrouter.models).toEqual([
       'shared-model',
       'openrouter/anthropic/claude-sonnet-4',
     ]);

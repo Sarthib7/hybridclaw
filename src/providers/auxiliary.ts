@@ -189,17 +189,15 @@ async function resolveContextFromModel(params: {
   });
 }
 
-function hasExplicitSelection(params: AuxiliaryModelCallParams): boolean {
-  return (
-    typeof params.provider === 'string' ||
-    String(params.model || '').trim().length > 0
-  );
-}
-
 async function resolveExplicitTextCallContext(
   params: AuxiliaryModelCallParams,
 ): Promise<AuxiliaryTextCallContext | null> {
-  if (!hasExplicitSelection(params)) return null;
+  if (
+    typeof params.provider !== 'string' &&
+    String(params.model || '').trim().length === 0
+  ) {
+    return null;
+  }
 
   const providerSelection = params.provider || 'auto';
   const explicitModel = String(params.model || '').trim();

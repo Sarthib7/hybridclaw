@@ -176,6 +176,33 @@ function resolveOpenAICompatBaseUrl(configuredBaseUrl: string): string {
   return normalizeBaseUrl(configuredBaseUrl);
 }
 
+async function fetchOpenAICompatModels(
+  backend: Extract<LocalBackendType, 'lmstudio' | 'vllm'>,
+  baseUrl: string,
+  apiKey?: string,
+): Promise<LocalModelInfo[]> {
+  const headers: Record<string, string> = {};
+  if (String(apiKey || '').trim()) {
+    headers.Authorization = `Bearer ${String(apiKey).trim()}`;
+  }
+
+  const apiBase = resolveOpenAICompatBaseUrl(baseUrl);
+  const payload = await fetchJson(`${apiBase}/models`, { headers }, 5_000);
+  const data =
+    isRecord(payload) && Array.isArray(payload.data) ? payload.data : [];
+
+  return data
+    .filter((entry) => isRecord(entry) && typeof entry.id === 'string')
+    .slice(0, LOCAL_DISCOVERY_MAX_MODELS)
+    .map((entry) =>
+      createLocalModelInfo(
+        backend,
+        String((entry as Record<string, unknown>).id || '').trim(),
+      ),
+    )
+    .filter((model) => Boolean(model.id));
+}
+
 export async function discoverOllamaModels(
   baseUrl = LOCAL_OLLAMA_BASE_URL,
   opts?: { maxModels?: number; concurrency?: number },
@@ -242,42 +269,14 @@ export async function discoverOllamaModels(
 export async function discoverLmStudioModels(
   baseUrl = LOCAL_LMSTUDIO_BASE_URL,
 ): Promise<LocalModelInfo[]> {
-  const apiBase = resolveOpenAICompatBaseUrl(baseUrl);
-  const payload = await fetchJson(`${apiBase}/models`, {}, 5_000);
-  const data =
-    isRecord(payload) && Array.isArray(payload.data) ? payload.data : [];
-  return data
-    .filter((entry) => isRecord(entry) && typeof entry.id === 'string')
-    .slice(0, LOCAL_DISCOVERY_MAX_MODELS)
-    .map((entry) => {
-      const record = entry as Record<string, unknown>;
-      return createLocalModelInfo('lmstudio', String(record.id || '').trim());
-    })
-    .filter((model) => Boolean(model.id));
+  return fetchOpenAICompatModels('lmstudio', baseUrl);
 }
 
 export async function discoverVllmModels(
   baseUrl = LOCAL_VLLM_BASE_URL,
   apiKey = LOCAL_VLLM_API_KEY,
 ): Promise<LocalModelInfo[]> {
-  const headers: Record<string, string> = {};
-  if (String(apiKey || '').trim()) {
-    headers.Authorization = `Bearer ${String(apiKey).trim()}`;
-  }
-  const apiBase = resolveOpenAICompatBaseUrl(baseUrl);
-  const payload = await fetchJson(`${apiBase}/models`, { headers }, 5_000);
-  const data =
-    isRecord(payload) && Array.isArray(payload.data) ? payload.data : [];
-  return data
-    .filter((entry) => isRecord(entry) && typeof entry.id === 'string')
-    .slice(0, LOCAL_DISCOVERY_MAX_MODELS)
-    .map((entry) =>
-      createLocalModelInfo(
-        'vllm',
-        String((entry as Record<string, unknown>).id || '').trim(),
-      ),
-    )
-    .filter((model) => Boolean(model.id));
+  return fetchOpenAICompatModels('vllm', baseUrl, apiKey);
 }
 
 function replaceDiscoveryCache(models: LocalModelInfo[]): void {

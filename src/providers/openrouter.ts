@@ -1,16 +1,17 @@
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { OPENROUTER_BASE_URL } from '../config/config.js';
 import { getDiscoveredOpenRouterModelContextWindow } from './openrouter-discovery.js';
-import { readOpenRouterApiKey } from './openrouter-utils.js';
+import {
+  OPENROUTER_MODEL_PREFIX,
+  OPENROUTER_REFERER,
+  OPENROUTER_TITLE,
+  readOpenRouterApiKey,
+} from './openrouter-utils.js';
 import type {
   AIProvider,
   ResolvedModelRuntimeCredentials,
   ResolveProviderRuntimeParams,
 } from './types.js';
-
-const OPENROUTER_MODEL_PREFIX = 'openrouter/';
-const OPENROUTER_REFERER = 'https://github.com/hybridaione/hybridclaw';
-const OPENROUTER_TITLE = 'HybridClaw';
 
 export function isOpenRouterModel(model: string): boolean {
   return String(model || '')

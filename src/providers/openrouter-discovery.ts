@@ -1,11 +1,13 @@
 import { OPENROUTER_BASE_URL, OPENROUTER_ENABLED } from '../config/config.js';
-import { readOpenRouterApiKey } from './openrouter-utils.js';
+import {
+  OPENROUTER_MODEL_PREFIX,
+  OPENROUTER_REFERER,
+  OPENROUTER_TITLE,
+  readOpenRouterApiKey,
+} from './openrouter-utils.js';
 import { isRecord, normalizeBaseUrl } from './utils.js';
 
-const OPENROUTER_MODEL_PREFIX = 'openrouter/';
 const OPENROUTER_DISCOVERY_TTL_MS = 3_600_000;
-const OPENROUTER_REFERER = 'https://github.com/hybridaione/hybridclaw';
-const OPENROUTER_TITLE = 'HybridClaw';
 const OPENROUTER_PRICING_KEYS = [
   'prompt',
   'completion',

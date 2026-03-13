@@ -4,6 +4,10 @@ import {
   refreshRuntimeSecretsFromEnv,
 } from '../config/config.js';
 
+export const OPENROUTER_MODEL_PREFIX = 'openrouter/';
+export const OPENROUTER_REFERER = 'https://github.com/hybridaione/hybridclaw';
+export const OPENROUTER_TITLE = 'HybridClaw';
+
 export function readOpenRouterApiKey(opts?: { required?: boolean }): string {
   refreshRuntimeSecretsFromEnv();
   const apiKey = process.env.OPENROUTER_API_KEY || OPENROUTER_API_KEY || '';

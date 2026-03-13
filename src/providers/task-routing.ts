@@ -172,15 +172,6 @@ export function normalizeAuxiliaryProviderModel(params: {
   return `${RUNTIME_PROVIDER_PREFIXES[params.provider]}${trimmed}`;
 }
 
-function buildProviderUnavailableError(
-  provider: RuntimeProvider,
-  model: string,
-): Error {
-  return new Error(
-    `Provider "${provider}" is not available for model "${model}".`,
-  );
-}
-
 export async function resolveTaskModelPolicy(
   task: AuxiliaryTask,
   params: {
@@ -224,7 +215,9 @@ export async function resolveTaskModelPolicy(
       agentId: params.agentId,
     });
     if (expectedProvider && resolved.provider !== expectedProvider) {
-      throw buildProviderUnavailableError(expectedProvider, model);
+      throw new Error(
+        `Provider "${expectedProvider}" is not available for model "${model}".`,
+      );
     }
     return {
       provider: resolved.provider,

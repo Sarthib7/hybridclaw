@@ -6,6 +6,16 @@ import { CONTAINER_MAX_OUTPUT_SIZE, DATA_DIR } from '../config/config.js';
 import { logger } from '../logger.js';
 import type { ContainerInput, ContainerOutput } from '../types.js';
 
+const TASK_MODEL_KEYS = [
+  'vision',
+  'compression',
+  'web_extract',
+  'session_search',
+  'skills_hub',
+  'mcp',
+  'flush_memories',
+] as const;
+
 /**
  * Get session directory, creating it if needed.
  */
@@ -23,6 +33,22 @@ function agentDir(agentId: string): string {
   const workspaceId = resolveAgentWorkspaceId(agentId);
   const safe = workspaceId.replace(/[^a-zA-Z0-9_-]/g, '_');
   return path.join(DATA_DIR, 'agents', safe);
+}
+
+function redactTaskModelSecrets(
+  taskModels: ContainerInput['taskModels'],
+): ContainerInput['taskModels'] | undefined {
+  const redacted: NonNullable<ContainerInput['taskModels']> = {};
+  for (const key of TASK_MODEL_KEYS) {
+    const taskModel = taskModels?.[key];
+    if (!taskModel) continue;
+    redacted[key] = {
+      ...taskModel,
+      apiKey: '',
+      requestHeaders: {},
+    };
+  }
+  return Object.keys(redacted).length > 0 ? redacted : undefined;
 }
 
 export function agentWorkspaceDir(agentId: string): string {
@@ -56,7 +82,12 @@ export function writeInput(
   const dir = ipcDir(sessionId);
   const inputPath = path.join(dir, 'input.json');
   const toWrite = opts?.omitApiKey
-    ? { ...input, apiKey: '', requestHeaders: {} }
+    ? {
+        ...input,
+        apiKey: '',
+        requestHeaders: {},
+        taskModels: redactTaskModelSecrets(input.taskModels),
+      }
     : input;
   fs.writeFileSync(inputPath, JSON.stringify(toWrite, null, 2));
   logger.debug({ sessionId, path: inputPath }, 'Wrote IPC input');

@@ -1853,16 +1853,42 @@ async function handleAuthWhatsAppCommand(args: string[]): Promise<void> {
   );
 }
 
-async function handleProviderStatusCommand(
-  args: string[],
-  commandName: string,
+type ProviderAction = 'status' | 'logout';
+
+async function dispatchProviderAction(
+  provider: UnifiedProvider,
+  action: ProviderAction,
 ): Promise<void> {
-  const normalized = normalizeArgs(args);
-  if (normalized.length === 0) {
-    printAuthUsage();
+  if (provider === 'hybridai') {
+    await handleHybridAICommand([action]);
     return;
   }
-  if (isHelpRequest(normalized)) {
+  if (provider === 'codex') {
+    await handleCodexCommand([action]);
+    return;
+  }
+  if (provider === 'openrouter') {
+    if (action === 'status') {
+      printOpenRouterStatus();
+      return;
+    }
+    clearOpenRouterCredentials();
+    return;
+  }
+  if (action === 'status') {
+    printLocalStatus();
+    return;
+  }
+  clearLocalBackends();
+}
+
+async function handleProviderActionCommand(
+  args: string[],
+  commandName: string,
+  action: ProviderAction,
+): Promise<void> {
+  const normalized = normalizeArgs(args);
+  if (normalized.length === 0 || isHelpRequest(normalized)) {
     printAuthUsage();
     return;
   }
@@ -1870,7 +1896,7 @@ async function handleProviderStatusCommand(
   const parsed = parseUnifiedProviderArgs(normalized);
   if (!parsed.provider) {
     throw new Error(
-      `Unknown status provider "${normalized[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, or \`local\`.`,
+      `Unknown ${action} provider "${normalized[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, or \`local\`.`,
     );
   }
   if (parsed.remaining.length > 0) {
@@ -1881,62 +1907,21 @@ async function handleProviderStatusCommand(
     throw new Error(`Unexpected arguments for \`${commandName}\`.`);
   }
 
-  if (parsed.provider === 'hybridai') {
-    await handleHybridAICommand(['status']);
-    return;
-  }
-  if (parsed.provider === 'codex') {
-    await handleCodexCommand(['status']);
-    return;
-  }
-  if (parsed.provider === 'openrouter') {
-    printOpenRouterStatus();
-    return;
-  }
-  printLocalStatus();
+  await dispatchProviderAction(parsed.provider, action);
+}
+
+async function handleProviderStatusCommand(
+  args: string[],
+  commandName: string,
+): Promise<void> {
+  await handleProviderActionCommand(args, commandName, 'status');
 }
 
 async function handleProviderLogoutCommand(
   args: string[],
   commandName: string,
 ): Promise<void> {
-  const normalized = normalizeArgs(args);
-  if (normalized.length === 0) {
-    printAuthUsage();
-    return;
-  }
-  if (isHelpRequest(normalized)) {
-    printAuthUsage();
-    return;
-  }
-
-  const parsed = parseUnifiedProviderArgs(normalized);
-  if (!parsed.provider) {
-    throw new Error(
-      `Unknown logout provider "${normalized[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, or \`local\`.`,
-    );
-  }
-  if (parsed.remaining.length > 0) {
-    if (isHelpRequest(parsed.remaining)) {
-      printUnifiedProviderUsage(parsed.provider);
-      return;
-    }
-    throw new Error(`Unexpected arguments for \`${commandName}\`.`);
-  }
-
-  if (parsed.provider === 'hybridai') {
-    await handleHybridAICommand(['logout']);
-    return;
-  }
-  if (parsed.provider === 'codex') {
-    await handleCodexCommand(['logout']);
-    return;
-  }
-  if (parsed.provider === 'openrouter') {
-    clearOpenRouterCredentials();
-    return;
-  }
-  clearLocalBackends();
+  await handleProviderActionCommand(args, commandName, 'logout');
 }
 
 function parseWhatsAppSetupArgs(args: string[]): {

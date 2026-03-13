@@ -156,11 +156,6 @@ export async function refreshAvailableModelCatalogs(): Promise<void> {
   ]);
 }
 
-export function formatAvailableModelLabel(model: string): string {
-  const normalized = String(model || '').trim();
-  return normalized;
-}
-
 export async function getAvailableModelChoices(
   limit = 25,
 ): Promise<Array<{ name: string; value: string }>> {
@@ -168,7 +163,7 @@ export async function getAvailableModelChoices(
   return getAvailableModelList()
     .slice(0, Math.max(0, limit))
     .map((model) => ({
-      name: formatAvailableModelLabel(model),
+      name: model,
       value: model,
     }));
 }

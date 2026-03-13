@@ -114,7 +114,6 @@ import {
 } from '../providers/local-discovery.js';
 import { getAllBackendHealth } from '../providers/local-health.js';
 import {
-  formatAvailableModelLabel,
   getAvailableModelList,
   isAvailableModelFree,
   normalizeModelCatalogProviderFilter,
@@ -4066,10 +4065,9 @@ export async function handleGatewayCommand(
         const listedModels = getAvailableModelList(providerFilterArg);
         const current = runtime.model;
         const modelCatalog = listedModels.map((model) => {
-          const label = formatAvailableModelLabel(model);
           return {
             value: model,
-            label: model === current ? `${label} (current)` : label,
+            label: model === current ? `${model} (current)` : model,
             isFree: isAvailableModelFree(model),
           };
         });

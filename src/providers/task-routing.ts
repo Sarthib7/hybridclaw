@@ -3,6 +3,7 @@ import {
   type RuntimeAuxiliaryModelPolicyConfig,
   type RuntimeAuxiliaryProviderSelection,
 } from '../config/runtime-config.js';
+import { logger } from '../logger.js';
 import {
   TASK_MODEL_KEYS,
   type TaskModelKey,
@@ -222,6 +223,15 @@ export async function resolveTaskModelPolicy(
       maxTokens,
     };
   } catch (err) {
+    logger.warn(
+      {
+        task,
+        provider: providerSelection,
+        model,
+        err,
+      },
+      'Failed to resolve auxiliary task model policy',
+    );
     return {
       model,
       maxTokens,

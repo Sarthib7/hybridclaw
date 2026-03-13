@@ -54,6 +54,7 @@ async function importFreshTaskRouting(homeDir: string) {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.resetModules();
+  vi.doUnmock('../src/logger.js');
   restoreEnvVar('HOME', ORIGINAL_HOME);
   restoreEnvVar(
     'HYBRIDCLAW_DISABLE_CONFIG_WATCHER',
@@ -196,6 +197,41 @@ test('captures unsupported vision task model config as a deferred policy error',
       ),
     },
   });
+});
+
+test('warns when task model policy resolution fails and returns a deferred error', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.auxiliaryModels.vision.model = 'anthropic/claude-3-7-sonnet';
+    config.auxiliaryModels.vision.maxTokens = 512;
+  });
+  const warn = vi.fn();
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      warn,
+    },
+  }));
+
+  const taskRouting = await importFreshTaskRouting(homeDir);
+  const policy = await taskRouting.resolveTaskModelPolicy('vision', {
+    agentId: 'main',
+    chatbotId: 'bot_123',
+  });
+
+  expect(policy).toMatchObject({
+    model: 'anthropic/claude-3-7-sonnet',
+    maxTokens: 512,
+    error: expect.stringContaining('Anthropic provider is not implemented yet'),
+  });
+  expect(warn).toHaveBeenCalledWith(
+    expect.objectContaining({
+      task: 'vision',
+      provider: 'auto',
+      model: 'anthropic/claude-3-7-sonnet',
+      err: expect.any(Error),
+    }),
+    'Failed to resolve auxiliary task model policy',
+  );
 });
 
 test('normalizes max token values consistently', async () => {

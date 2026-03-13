@@ -137,10 +137,10 @@ function buildResolvedContext(params: {
 }): AuxiliaryTextCallContext {
   const context: Partial<AuxiliaryTextCallContext> = {
     provider: params.provider,
-    baseUrl: String(params.baseUrl || '').trim(),
-    apiKey: String(params.apiKey || '').trim(),
-    model: String(params.model || '').trim(),
-    chatbotId: String(params.chatbotId || '').trim(),
+    baseUrl: params.baseUrl.trim(),
+    apiKey: params.apiKey.trim(),
+    model: params.model.trim(),
+    chatbotId: params.chatbotId.trim(),
     enableRag: params.enableRag,
     requestHeaders: params.requestHeaders ? { ...params.requestHeaders } : {},
     maxTokens: normalizeMaxTokens(params.maxTokens),
@@ -158,7 +158,7 @@ async function resolveContextFromModel(params: {
   maxTokens?: number;
   expectedProvider?: RuntimeProvider;
 }): Promise<AuxiliaryTextCallContext> {
-  const model = String(params.model || '').trim();
+  const model = params.model.trim();
   if (!model) {
     throw new Error(`${params.task} is not configured: missing model context.`);
   }
@@ -192,15 +192,12 @@ async function resolveContextFromModel(params: {
 async function resolveExplicitTextCallContext(
   params: AuxiliaryModelCallParams,
 ): Promise<AuxiliaryTextCallContext | null> {
-  if (
-    typeof params.provider !== 'string' &&
-    String(params.model || '').trim().length === 0
-  ) {
+  if (typeof params.provider !== 'string' && !params.model?.trim()) {
     return null;
   }
 
   const providerSelection = params.provider || 'auto';
-  const explicitModel = String(params.model || '').trim();
+  const explicitModel = params.model?.trim() ?? '';
   if (providerSelection === 'auto' && !explicitModel) return null;
 
   const model =
@@ -232,7 +229,7 @@ async function resolveExplicitTextCallContext(
 }
 
 function buildOpenRouterFallbackModel(modelHint?: string): string | undefined {
-  const trimmed = String(modelHint || '').trim();
+  const trimmed = modelHint?.trim() ?? '';
   if (!trimmed) {
     return resolveDefaultAuxiliaryModelForProvider('openrouter');
   }
@@ -276,10 +273,7 @@ async function withOpenRouterFallback(
   if (
     params.provider === 'openrouter' ||
     primaryProvider === 'openrouter' ||
-    String(modelHint || '')
-      .trim()
-      .toLowerCase()
-      .startsWith('openrouter/')
+    (modelHint?.trim().toLowerCase() ?? '').startsWith('openrouter/')
   ) {
     throw primaryError;
   }
@@ -335,34 +329,33 @@ async function resolveTextCallContext(
     return buildResolvedContext({
       task: params.task,
       provider: taskOverride.provider,
-      baseUrl: String(taskOverride.baseUrl || '').trim(),
-      apiKey: String(taskOverride.apiKey || '').trim(),
-      model: String(taskOverride.model || '').trim(),
-      chatbotId: String(taskOverride.chatbotId || '').trim(),
+      baseUrl: taskOverride.baseUrl?.trim() ?? '',
+      apiKey: taskOverride.apiKey?.trim() ?? '',
+      model: taskOverride.model.trim(),
+      chatbotId: taskOverride.chatbotId?.trim() ?? '',
       enableRag: false,
       requestHeaders: taskOverride.requestHeaders,
       maxTokens: requestedMaxTokens ?? taskOverride.maxTokens,
     });
   }
 
+  const fallbackModel = params.fallbackModel?.trim() ?? '';
   try {
     return await resolveContextFromModel({
       task: params.task,
-      model: String(params.fallbackModel || '').trim(),
+      model: fallbackModel,
       agentId: params.agentId,
       chatbotId: params.fallbackChatbotId,
       enableRag: params.fallbackEnableRag ?? false,
       maxTokens: requestedMaxTokens ?? params.fallbackMaxTokens,
-      expectedProvider: detectRuntimeProviderPrefix(
-        String(params.fallbackModel || '').trim(),
-      ),
+      expectedProvider: detectRuntimeProviderPrefix(fallbackModel),
     });
   } catch (error) {
     return withOpenRouterFallback(
       params,
       error,
       params.fallbackModel,
-      detectRuntimeProviderPrefix(String(params.fallbackModel || '').trim()),
+      detectRuntimeProviderPrefix(fallbackModel),
     );
   }
 }
@@ -375,11 +368,9 @@ function buildJsonHeaders(params: {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
-  if (
-    params.includeAuthorization !== false &&
-    String(params.apiKey || '').trim()
-  ) {
-    headers.Authorization = `Bearer ${String(params.apiKey).trim()}`;
+  const apiKey = params.apiKey?.trim() ?? '';
+  if (params.includeAuthorization !== false && apiKey) {
+    headers.Authorization = `Bearer ${apiKey}`;
   }
   return {
     ...headers,
@@ -394,7 +385,7 @@ function createTimeoutSignal(
 }
 
 function normalizeOpenRouterRuntimeModelName(model: string): string {
-  const trimmed = String(model || '').trim();
+  const trimmed = model.trim();
   const prefix = 'openrouter/';
   if (!trimmed.toLowerCase().startsWith(prefix)) return trimmed;
   const upstreamModel = trimmed.slice(prefix.length).trim();
@@ -406,7 +397,7 @@ function normalizeOpenAICompatModelName(
   provider: RuntimeProvider,
   model: string,
 ): string {
-  const trimmed = String(model || '').trim();
+  const trimmed = model.trim();
   if (provider === 'openrouter') {
     return normalizeOpenRouterRuntimeModelName(trimmed);
   }
@@ -416,24 +407,21 @@ function normalizeOpenAICompatModelName(
 }
 
 function normalizeCodexModelName(model: string): string {
-  const trimmed = String(model || '').trim();
+  const trimmed = model.trim();
   const prefix = 'openai-codex/';
   if (!trimmed.toLowerCase().startsWith(prefix)) return trimmed;
   return trimmed.slice(prefix.length) || trimmed;
 }
 
 function normalizeOllamaModelName(model: string): string {
-  const trimmed = String(model || '').trim();
+  const trimmed = model.trim();
   const prefix = 'ollama/';
   if (!trimmed.toLowerCase().startsWith(prefix)) return trimmed;
   return trimmed.slice(prefix.length) || trimmed;
 }
 
 function normalizeOllamaBaseUrl(baseUrl: string): string {
-  return String(baseUrl || '')
-    .trim()
-    .replace(/\/+$/g, '')
-    .replace(/\/v1$/i, '');
+  return baseUrl.trim().replace(/\/+$/g, '').replace(/\/v1$/i, '');
 }
 
 function contentToText(content: ChatMessage['content']): string {

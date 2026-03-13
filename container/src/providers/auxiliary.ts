@@ -83,21 +83,20 @@ export function resolveAuxiliaryTaskContext(params: {
   fallbackContext: AuxiliaryTaskContext;
   toolName?: string;
 }): AuxiliaryTaskContext {
+  const toolName = (params.toolName ?? params.task).trim() || params.task;
   const taskOverride = resolveTaskOverride(params.task, params.taskModels);
   if (taskOverride?.error) {
-    throw new Error(
-      `${String(params.toolName || params.task).trim() || params.task} is not configured: ${taskOverride.error}`,
-    );
+    throw new Error(`${toolName} is not configured: ${taskOverride.error}`);
   }
   if (!taskOverride) {
     return cloneAuxiliaryTaskContext(params.fallbackContext);
   }
   return {
     provider: taskOverride.provider,
-    baseUrl: String(taskOverride.baseUrl || '').trim(),
-    apiKey: String(taskOverride.apiKey || '').trim(),
-    model: String(taskOverride.model || '').trim(),
-    chatbotId: String(taskOverride.chatbotId || '').trim(),
+    baseUrl: taskOverride.baseUrl?.trim() ?? '',
+    apiKey: taskOverride.apiKey?.trim() ?? '',
+    model: taskOverride.model.trim(),
+    chatbotId: taskOverride.chatbotId?.trim() ?? '',
     requestHeaders: taskOverride.requestHeaders
       ? { ...taskOverride.requestHeaders }
       : undefined,
@@ -136,7 +135,7 @@ export async function callAuxiliaryModel(
       response: ChatCompletionResponse;
     }
 > {
-  const toolName = String(params.toolName || params.task).trim() || params.task;
+  const toolName = (params.toolName ?? params.task).trim() || params.task;
   const context = resolveAuxiliaryTaskContext({
     task: params.task,
     taskModels: params.taskModels,
@@ -174,7 +173,7 @@ export async function callAuxiliaryModel(
       throw new Error(`${toolName} returned empty content`);
     }
     return {
-      model: String(context.model || '').trim(),
+      model: context.model.trim(),
       content,
       response,
     };

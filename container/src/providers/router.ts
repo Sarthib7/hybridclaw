@@ -67,10 +67,10 @@ export interface RoutedVisionCallParams extends RoutedModelContext {
 function buildCallArgs(params: RoutedModelCallParams): NormalizedCallArgs {
   return {
     provider: params.provider,
-    baseUrl: String(params.baseUrl || '').trim(),
-    apiKey: String(params.apiKey || '').trim(),
-    model: String(params.model || '').trim(),
-    chatbotId: String(params.chatbotId || '').trim(),
+    baseUrl: params.baseUrl.trim(),
+    apiKey: params.apiKey.trim(),
+    model: params.model.trim(),
+    chatbotId: params.chatbotId.trim(),
     enableRag: params.enableRag ?? false,
     requestHeaders: params.requestHeaders
       ? { ...params.requestHeaders }
@@ -148,9 +148,7 @@ function normalizeVisionBaseUrl(
   provider: RuntimeProvider | undefined,
   baseUrl: string,
 ): string {
-  const normalized = String(baseUrl || '')
-    .trim()
-    .replace(/\/+$/g, '');
+  const normalized = baseUrl.trim().replace(/\/+$/g, '');
   if (provider === 'ollama') {
     return normalized.replace(/\/v1$/i, '');
   }
@@ -169,17 +167,16 @@ function buildVisionMessages(params: RoutedVisionCallParams): ChatMessage[] {
   if (params.provider === 'openai-codex') {
     messages.push({
       role: 'system',
-      content:
-        String(params.instructions || '').trim() || DEFAULT_VISION_INSTRUCTIONS,
+      content: params.instructions?.trim() || DEFAULT_VISION_INSTRUCTIONS,
     });
   }
   messages.push({
     role: 'user',
     content: [
-      { type: 'text', text: String(params.question || '') },
+      { type: 'text', text: params.question },
       {
         type: 'image_url',
-        image_url: { url: String(params.imageDataUrl || '') },
+        image_url: { url: params.imageDataUrl },
       },
     ],
   });
@@ -233,7 +230,7 @@ export async function callVisionProviderModel(
   }
 
   return {
-    model: String(params.model || '').trim(),
+    model: params.model.trim(),
     analysis,
     response,
   };

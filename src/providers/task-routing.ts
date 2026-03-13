@@ -37,9 +37,7 @@ export function normalizeMaxTokens(value: unknown): number | undefined {
 function normalizeTaskProviderSelection(
   value: string | undefined,
 ): RuntimeAuxiliaryProviderSelection | undefined {
-  const normalized = String(value || '')
-    .trim()
-    .toLowerCase();
+  const normalized = (value ?? '').trim().toLowerCase();
   if (
     normalized === 'auto' ||
     normalized === 'hybridai' ||
@@ -60,9 +58,7 @@ function readTaskOverride(
 ): string | undefined {
   const taskKey = task.toUpperCase();
   for (const prefix of ENV_OVERRIDE_PREFIXES) {
-    const value = String(
-      process.env[`${prefix}${taskKey}_${suffix}`] || '',
-    ).trim();
+    const value = process.env[`${prefix}${taskKey}_${suffix}`]?.trim() ?? '';
     if (value) return value;
   }
   return undefined;
@@ -87,15 +83,13 @@ function getSelectedTaskProvider(
 function getSelectedTaskModel(task: AuxiliaryTask): string {
   const override = readTaskOverride(task, 'MODEL');
   if (override) return override;
-  return String(getConfiguredTaskSelection(task).model || '').trim();
+  return getConfiguredTaskSelection(task).model.trim();
 }
 
 export function detectRuntimeProviderPrefix(
   model: string,
 ): RuntimeProvider | undefined {
-  const normalized = String(model || '')
-    .trim()
-    .toLowerCase();
+  const normalized = model.trim().toLowerCase();
   if (!normalized) return undefined;
   if (normalized.startsWith('openai-codex/')) return 'openai-codex';
   if (normalized.startsWith('openrouter/')) return 'openrouter';
@@ -132,7 +126,7 @@ export function resolveDefaultAuxiliaryModelForProvider(
 
   return selectFirstNonEmpty(
     [config.hybridai.defaultModel, ...config.hybridai.models].filter((model) =>
-      String(model || '')
+      model
         .trim()
         .toLowerCase()
         .startsWith(RUNTIME_PROVIDER_PREFIXES[provider]),
@@ -144,7 +138,7 @@ export function normalizeAuxiliaryProviderModel(params: {
   provider: RuntimeProvider;
   model: string;
 }): string {
-  const trimmed = String(params.model || '').trim();
+  const trimmed = params.model.trim();
   if (!trimmed) {
     return resolveDefaultAuxiliaryModelForProvider(params.provider) || '';
   }

@@ -103,16 +103,17 @@ test('clears a stale WhatsApp auth lock owned by a dead pid', async () => {
     'utf-8',
   );
 
-  const killSpy = vi.spyOn(process, 'kill').mockImplementation(
-    ((pid: number | NodeJS.Signals, signal?: number | NodeJS.Signals) => {
-      if (pid === stalePid && signal === 0) {
-        const error = new Error('process not found') as NodeJS.ErrnoException;
-        error.code = 'ESRCH';
-        throw error;
-      }
-      return true;
-    }) as typeof process.kill,
-  );
+  const killSpy = vi.spyOn(process, 'kill').mockImplementation(((
+    pid: number | NodeJS.Signals,
+    signal?: number | NodeJS.Signals,
+  ) => {
+    if (pid === stalePid && signal === 0) {
+      const error = new Error('process not found') as NodeJS.ErrnoException;
+      error.code = 'ESRCH';
+      throw error;
+    }
+    return true;
+  }) as typeof process.kill);
 
   const releaseLock = await acquireWhatsAppAuthLock(authDir, {
     purpose: 'fresh',

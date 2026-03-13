@@ -18,6 +18,7 @@ import type {
   LocalModelInfo,
   LocalThinkingFormat,
 } from './local-types.js';
+import { isRecord, normalizeBaseUrl } from './utils.js';
 
 const DISCOVERY_ORDER: LocalBackendType[] = ['ollama', 'lmstudio', 'vllm'];
 const ZERO_COST = {
@@ -42,16 +43,6 @@ function hasEnabledLocalBackend(): boolean {
 
 function normalizeModelId(modelId: string): string {
   return String(modelId || '').trim();
-}
-
-function normalizeBaseUrl(baseUrl: string): string {
-  return String(baseUrl || '')
-    .trim()
-    .replace(/\/+$/g, '');
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
 function isReasoningModel(modelId: string): boolean {

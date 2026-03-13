@@ -1,11 +1,9 @@
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
-  MissingRequiredEnvVarError,
-  OPENROUTER_API_KEY,
   OPENROUTER_BASE_URL,
-  refreshRuntimeSecretsFromEnv,
 } from '../config/config.js';
 import { getDiscoveredOpenRouterModelContextWindow } from './openrouter-discovery.js';
+import { readOpenRouterApiKey } from './openrouter-utils.js';
 import type {
   AIProvider,
   ResolvedModelRuntimeCredentials,
@@ -23,23 +21,13 @@ export function isOpenRouterModel(model: string): boolean {
     .startsWith(OPENROUTER_MODEL_PREFIX);
 }
 
-function readOpenRouterApiKey(): string {
-  refreshRuntimeSecretsFromEnv();
-  const apiKey = process.env.OPENROUTER_API_KEY || OPENROUTER_API_KEY || '';
-  const normalized = apiKey.trim();
-  if (!normalized) {
-    throw new MissingRequiredEnvVarError('OPENROUTER_API_KEY');
-  }
-  return normalized;
-}
-
 async function resolveOpenRouterRuntimeCredentials(
   params: ResolveProviderRuntimeParams,
 ): Promise<ResolvedModelRuntimeCredentials> {
   const agentId = String(params.agentId || '').trim() || DEFAULT_AGENT_ID;
   return {
     provider: 'openrouter',
-    apiKey: readOpenRouterApiKey(),
+    apiKey: readOpenRouterApiKey({ required: true }),
     baseUrl: OPENROUTER_BASE_URL.trim().replace(/\/+$/g, ''),
     chatbotId: '',
     enableRag: false,

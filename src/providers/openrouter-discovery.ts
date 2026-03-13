@@ -1,9 +1,9 @@
 import {
-  OPENROUTER_API_KEY,
   OPENROUTER_BASE_URL,
   OPENROUTER_ENABLED,
-  refreshRuntimeSecretsFromEnv,
 } from '../config/config.js';
+import { readOpenRouterApiKey } from './openrouter-utils.js';
+import { isRecord, normalizeBaseUrl } from './utils.js';
 
 const OPENROUTER_MODEL_PREFIX = 'openrouter/';
 const OPENROUTER_DISCOVERY_TTL_MS = 3_600_000;
@@ -25,16 +25,6 @@ let freeModelNames = new Set<string>();
 let contextWindowByModel = new Map<string, number>();
 let discoveredAtMs = 0;
 let discoveryInFlight: Promise<string[]> | null = null;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
-}
-
-function normalizeBaseUrl(baseUrl: string): string {
-  return String(baseUrl || '')
-    .trim()
-    .replace(/\/+$/g, '');
-}
 
 function normalizeOpenRouterModelName(modelId: string): string {
   const normalized = String(modelId || '').trim();
@@ -88,13 +78,6 @@ function isFreeOpenRouterModel(entry: Record<string, unknown>): boolean {
   }
 
   return sawPrice;
-}
-
-function readOpenRouterApiKey(): string {
-  refreshRuntimeSecretsFromEnv();
-  return String(
-    process.env.OPENROUTER_API_KEY || OPENROUTER_API_KEY || '',
-  ).trim();
 }
 
 function replaceDiscoveryCache(
@@ -157,7 +140,7 @@ export async function discoverOpenRouterModels(opts?: {
     return [];
   }
 
-  const apiKey = readOpenRouterApiKey();
+  const apiKey = readOpenRouterApiKey({ required: false });
   if (!apiKey) {
     replaceDiscoveryCache([], [], [], { cacheResult: false });
     return [];

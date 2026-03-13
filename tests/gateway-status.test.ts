@@ -503,6 +503,7 @@ test('model info shows global, agent, and session scopes', async () => {
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
   expect(result.title).toBe('Model Info');
+  expect(result.text).toContain('Effective model: gpt-5-nano');
   expect(result.text).toContain('Global model: gpt-5');
   expect(result.text).toContain('Agent model: gpt-5-mini');
   expect(result.text).toContain('Session model: gpt-5-nano');
@@ -570,6 +571,7 @@ test('model clear removes the session override and falls back to the agent model
   if (info.kind !== 'info') {
     throw new Error(`Unexpected result kind: ${info.kind}`);
   }
+  expect(info.text).toContain('Effective model: gpt-5-mini');
   expect(info.text).toContain('Global model: gpt-5');
   expect(info.text).toContain('Agent model: gpt-5-mini');
   expect(info.text).toContain('Session model: (none)');
@@ -630,6 +632,7 @@ test('agent model sets the persistent model for the current session agent', asyn
     throw new Error(`Unexpected result kind: ${updated.kind}`);
   }
   expect(updated.title).toBe('Agent Model Updated');
+  expect(updated.text).toContain('Effective model: gpt-5-nano');
   expect(updated.text).toContain('Global model: gpt-5');
   expect(updated.text).toContain('Agent model: gpt-5');
   expect(updated.text).toContain('Session model: gpt-5-nano');
@@ -643,6 +646,7 @@ test('agent model sets the persistent model for the current session agent', asyn
   }
   expect(info.title).toBe('Agent Model');
   expect(info.text).toContain('Current agent: research');
+  expect(info.text).toContain('Effective model: gpt-5-nano');
   expect(info.text).toContain('Global model: gpt-5');
   expect(info.text).toContain('Agent model: gpt-5');
   expect(info.text).toContain('Session model: gpt-5-nano');

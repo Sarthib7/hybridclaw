@@ -3808,6 +3808,7 @@ export async function handleGatewayCommand(
           [
             `Current agent: ${agent.id}`,
             ...(agent.name ? [`Name: ${agent.name}`] : []),
+            `Effective model: ${runtime.model}`,
             `Global model: ${HYBRIDAI_MODEL}`,
             `Agent model: ${formatConfiguredAgentModel(storedAgent)}`,
             `Session model: ${formatSessionModelOverride(session.model)}`,
@@ -3863,10 +3864,12 @@ export async function handleGatewayCommand(
         const modelName = String(req.args[2] || '').trim();
 
         if (!modelName) {
+          const runtime = resolveAgentForRequest({ session });
           return infoCommand(
             'Agent Model',
             [
               `Current agent: ${resolvedAgent.id}`,
+              `Effective model: ${runtime.model}`,
               `Global model: ${HYBRIDAI_MODEL}`,
               `Agent model: ${formatConfiguredAgentModel(storedAgent)}`,
               `Session model: ${sessionOverride}`,
@@ -3890,11 +3893,13 @@ export async function handleGatewayCommand(
           ...storedAgent,
           model: modelName,
         });
+        const effectiveModel = resolveAgentForRequest({ session }).model;
         const hasSessionOverride = sessionOverride !== '(none)';
         return infoCommand(
           'Agent Model Updated',
           [
             `Current agent: ${updated.id}`,
+            `Effective model: ${effectiveModel}`,
             `Global model: ${HYBRIDAI_MODEL}`,
             `Agent model: ${resolveAgentModel(updated) || '(none)'}`,
             `Session model: ${sessionOverride}`,
@@ -4148,6 +4153,7 @@ export async function handleGatewayCommand(
         return infoCommand(
           'Model Info',
           [
+            `Effective model: ${runtime.model}`,
             `Global model: ${HYBRIDAI_MODEL}`,
             `Agent model: ${formatConfiguredAgentModel(resolvedAgent)}`,
             `Session model: ${sessionOverride}`,

@@ -91,15 +91,27 @@ test('fails to acquire the WhatsApp auth lock while the current process holds it
 test('clears a stale WhatsApp auth lock owned by a dead pid', async () => {
   const authDir = makeTempAuthDir();
   const lockPath = whatsappAuthLockPath(authDir);
+  const stalePid = 999_999;
   fs.writeFileSync(
     lockPath,
     JSON.stringify({
-      pid: 999_999,
+      pid: stalePid,
       startedAt: '2026-03-13T00:00:00.000Z',
       purpose: 'stale',
       cwd: '/tmp',
     }),
     'utf-8',
+  );
+
+  const killSpy = vi.spyOn(process, 'kill').mockImplementation(
+    ((pid: number | NodeJS.Signals, signal?: number | NodeJS.Signals) => {
+      if (pid === stalePid && signal === 0) {
+        const error = new Error('process not found') as NodeJS.ErrnoException;
+        error.code = 'ESRCH';
+        throw error;
+      }
+      return true;
+    }) as typeof process.kill,
   );
 
   const releaseLock = await acquireWhatsAppAuthLock(authDir, {
@@ -108,6 +120,7 @@ test('clears a stale WhatsApp auth lock owned by a dead pid', async () => {
   });
   expect(fs.existsSync(lockPath)).toBe(true);
   releaseLock();
+  killSpy.mockRestore();
 });
 
 test('reset clears auth files and leaves the auth directory ready for re-pairing', async () => {

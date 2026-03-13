@@ -46,7 +46,11 @@ function isProcessRunning(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException)?.code;
+    if (code === 'ESRCH') return false;
+    // EPERM means the process exists but belongs to another user.
+    if (code === 'EPERM') return true;
     return false;
   }
 }
@@ -111,7 +115,7 @@ export async function acquireWhatsAppAuthLock(
 
   await fs.mkdir(path.dirname(lockPath), { recursive: true });
 
-  while (Date.now() - startedAt <= timeoutMs) {
+  while (true) {
     try {
       const fd = fsSync.openSync(lockPath, 'wx', WHATSAPP_AUTH_FILE_MODE);
       const payload: WhatsAppAuthLockMetadata = {
@@ -142,7 +146,7 @@ export async function acquireWhatsAppAuthLock(
         );
       }
       if (maybeClearInactiveAuthLock(lockPath)) continue;
-      if (timeoutMs === 0) break;
+      if (Date.now() - startedAt >= timeoutMs) break;
       await sleep(backoffMs);
       backoffMs = Math.min(backoffMs * 2, 250);
     }

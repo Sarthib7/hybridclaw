@@ -58,8 +58,6 @@ afterEach(async () => {
     process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER =
       ORIGINAL_DISABLE_CONFIG_WATCHER;
   }
-  const health = await import('../src/providers/local-health.js');
-  health.resetLocalHealthState();
 });
 
 describe('local health checks', () => {

@@ -224,8 +224,3 @@ export function stopHealthCheckLoop(): void {
   clearInterval(healthTimer);
   healthTimer = null;
 }
-
-export function resetLocalHealthState(): void {
-  stopHealthCheckLoop();
-  backendHealth.clear();
-}

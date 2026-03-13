@@ -194,7 +194,7 @@ async function fetchOpenAICompatModels(
     .filter((model) => Boolean(model.id));
 }
 
-export async function discoverOllamaModels(
+async function discoverOllamaModels(
   baseUrl = LOCAL_OLLAMA_BASE_URL,
   opts?: { maxModels?: number; concurrency?: number },
 ): Promise<LocalModelInfo[]> {
@@ -257,13 +257,13 @@ export async function discoverOllamaModels(
   return models.filter((model) => Boolean(model.id));
 }
 
-export async function discoverLmStudioModels(
+async function discoverLmStudioModels(
   baseUrl = LOCAL_LMSTUDIO_BASE_URL,
 ): Promise<LocalModelInfo[]> {
   return fetchOpenAICompatModels('lmstudio', baseUrl);
 }
 
-export async function discoverVllmModels(
+async function discoverVllmModels(
   baseUrl = LOCAL_VLLM_BASE_URL,
   apiKey = LOCAL_VLLM_API_KEY,
 ): Promise<LocalModelInfo[]> {

@@ -31,10 +31,6 @@ function getActiveProviders(): AIProvider[] {
   ];
 }
 
-export function getAIProviders(): readonly AIProvider[] {
-  return getActiveProviders();
-}
-
 export function resolveProviderForModel(model: string): AIProvider {
   const normalizedModel = String(model || '').trim();
   return (

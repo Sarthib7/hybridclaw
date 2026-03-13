@@ -1,26 +1,67 @@
 import { describe, expect, test } from 'vitest';
 
 import {
-  parseBindSpec,
+  parseBindSpecs,
   resolveConfiguredAdditionalMounts,
 } from '../src/security/mount-config.ts';
 
 describe('mount config parsing', () => {
   test('parses OpenClaw-style bind specs', () => {
-    expect(parseBindSpec('/host/data:/docs:ro')).toEqual({
-      mount: {
-        hostPath: '/host/data',
-        containerPath: 'docs',
-        readonly: true,
-      },
+    expect(parseBindSpecs(['/host/data:/docs:ro'])).toEqual({
+      mounts: [
+        {
+          hostPath: '/host/data',
+          containerPath: 'docs',
+          readonly: true,
+        },
+      ],
+      warnings: [],
     });
 
-    expect(parseBindSpec('/host/cache:/cache:rw')).toEqual({
-      mount: {
-        hostPath: '/host/cache',
-        containerPath: 'cache',
-        readonly: false,
-      },
+    expect(parseBindSpecs(['/host/cache:/cache:rw'])).toEqual({
+      mounts: [
+        {
+          hostPath: '/host/cache',
+          containerPath: 'cache',
+          readonly: false,
+        },
+      ],
+      warnings: [],
+    });
+  });
+
+  test('surfaces warnings for invalid bind specs', () => {
+    expect(parseBindSpecs(['missing-delimiter'])).toEqual({
+      mounts: [],
+      warnings: [
+        'bind spec must use host:container[:ro|rw] format (for example "/host/data:/data:ro")',
+      ],
+    });
+
+    expect(parseBindSpecs(['/host/data:/workspace:ro'])).toEqual({
+      mounts: [],
+      warnings: [
+        'bind spec "/host/data:/workspace:ro" targets a reserved container path',
+      ],
+    });
+  });
+
+  test('deduplicates repeated bind specs', () => {
+    expect(
+      parseBindSpecs([
+        '/host/data:/docs:ro',
+        '/host/data:/docs:ro',
+        '/host/data:/docs',
+      ]),
+    ).toEqual({
+      mounts: [
+        {
+          hostPath: '/host/data',
+          containerPath: 'docs',
+          readonly: true,
+        },
+      ],
+      warnings: [],
     });
   });
 

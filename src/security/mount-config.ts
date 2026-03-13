@@ -47,7 +47,7 @@ function normalizeReadonly(rawMode: string | undefined): boolean | null {
   return null;
 }
 
-export function parseBindSpec(spec: string): {
+function parseBindSpec(spec: string): {
   mount: AdditionalMount | null;
   warning?: string;
 } {

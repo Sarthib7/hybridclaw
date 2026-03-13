@@ -73,7 +73,12 @@ describe('local discovery', () => {
   test('discoverOllamaModels reads tags and show metadata with concurrency', async () => {
     const homeDir = makeTempHome();
     writeRuntimeConfig(homeDir, (config) => {
+      config.local.backends.ollama.enabled = true;
+      config.local.backends.lmstudio.enabled = false;
+      config.local.backends.vllm.enabled = false;
       config.local.backends.ollama.baseUrl = 'http://127.0.0.1:11434/v1/';
+      config.local.discovery.maxModels = 2;
+      config.local.discovery.concurrency = 2;
     });
     const discovery = await importFreshDiscovery(homeDir);
 
@@ -128,13 +133,7 @@ describe('local discovery', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const models = await discovery.discoverOllamaModels(
-      'http://127.0.0.1:11434/v1/',
-      {
-        maxModels: 2,
-        concurrency: 2,
-      },
-    );
+    const models = await discovery.discoverAllLocalModels({ force: true });
 
     expect(models).toEqual([
       expect.objectContaining({
@@ -159,7 +158,12 @@ describe('local discovery', () => {
 
   test('discoverLmStudioModels parses OpenAI-compatible /models output', async () => {
     const homeDir = makeTempHome();
-    writeRuntimeConfig(homeDir);
+    writeRuntimeConfig(homeDir, (config) => {
+      config.local.backends.ollama.enabled = false;
+      config.local.backends.lmstudio.enabled = true;
+      config.local.backends.vllm.enabled = false;
+      config.local.backends.lmstudio.baseUrl = 'http://127.0.0.1:1234/v1';
+    });
     const discovery = await importFreshDiscovery(homeDir);
 
     vi.stubGlobal(
@@ -175,9 +179,7 @@ describe('local discovery', () => {
       ),
     );
 
-    const models = await discovery.discoverLmStudioModels(
-      'http://127.0.0.1:1234/v1',
-    );
+    const models = await discovery.discoverAllLocalModels({ force: true });
 
     expect(models.map((model) => [model.backend, model.id])).toEqual([
       ['lmstudio', 'qwen2.5-coder:7b'],
@@ -189,7 +191,13 @@ describe('local discovery', () => {
 
   test('discoverVllmModels sends bearer auth only when configured', async () => {
     const homeDir = makeTempHome();
-    writeRuntimeConfig(homeDir);
+    writeRuntimeConfig(homeDir, (config) => {
+      config.local.backends.ollama.enabled = false;
+      config.local.backends.lmstudio.enabled = false;
+      config.local.backends.vllm.enabled = true;
+      config.local.backends.vllm.baseUrl = 'http://127.0.0.1:8000/v1';
+      config.local.backends.vllm.apiKey = 'secret';
+    });
     const discovery = await importFreshDiscovery(homeDir);
 
     const fetchMock = vi.fn(
@@ -201,15 +209,13 @@ describe('local discovery', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    await discovery.discoverVllmModels('http://127.0.0.1:8000/v1', 'secret');
-    await discovery.discoverVllmModels('http://127.0.0.1:8000/v1', '');
+    await discovery.discoverAllLocalModels({ force: true });
 
     expect((fetchMock.mock.calls[0]?.[1] as RequestInit).headers).toMatchObject(
       {
         Authorization: 'Bearer secret',
       },
     );
-    expect((fetchMock.mock.calls[1]?.[1] as RequestInit).headers).toEqual({});
   });
 
   test('discoverAllLocalModels reloads vLLM discovery after the cache expires', async () => {
@@ -297,7 +303,12 @@ describe('local discovery', () => {
 
   test('discoverOllamaModels caps results at maxModels limit', async () => {
     const homeDir = makeTempHome();
-    writeRuntimeConfig(homeDir);
+    writeRuntimeConfig(homeDir, (config) => {
+      config.local.backends.ollama.enabled = true;
+      config.local.backends.lmstudio.enabled = false;
+      config.local.backends.vllm.enabled = false;
+      config.local.discovery.maxModels = 2;
+    });
     const discovery = await importFreshDiscovery(homeDir);
 
     vi.stubGlobal(
@@ -325,10 +336,7 @@ describe('local discovery', () => {
       }),
     );
 
-    const models = await discovery.discoverOllamaModels(
-      'http://127.0.0.1:11434',
-      { maxModels: 2 },
-    );
+    const models = await discovery.discoverAllLocalModels({ force: true });
 
     expect(models).toHaveLength(2);
     expect(models.map((m) => m.id)).toEqual(['model-a', 'model-b']);
@@ -336,7 +344,12 @@ describe('local discovery', () => {
 
   test('discoverOllamaModels detects reasoning models by id pattern', async () => {
     const homeDir = makeTempHome();
-    writeRuntimeConfig(homeDir);
+    writeRuntimeConfig(homeDir, (config) => {
+      config.local.backends.ollama.enabled = true;
+      config.local.backends.lmstudio.enabled = false;
+      config.local.backends.vllm.enabled = false;
+      config.local.discovery.maxModels = 10;
+    });
     const discovery = await importFreshDiscovery(homeDir);
 
     vi.stubGlobal(
@@ -365,10 +378,7 @@ describe('local discovery', () => {
       }),
     );
 
-    const models = await discovery.discoverOllamaModels(
-      'http://127.0.0.1:11434',
-      { maxModels: 10 },
-    );
+    const models = await discovery.discoverAllLocalModels({ force: true });
 
     expect(models.find((m) => m.id === 'deepseek-r1')?.isReasoning).toBe(true);
     expect(models.find((m) => m.id === 'reasoning-model')?.isReasoning).toBe(
@@ -380,7 +390,13 @@ describe('local discovery', () => {
 
   test('discoverVllmModels omits Authorization header when apiKey is empty', async () => {
     const homeDir = makeTempHome();
-    writeRuntimeConfig(homeDir);
+    writeRuntimeConfig(homeDir, (config) => {
+      config.local.backends.ollama.enabled = false;
+      config.local.backends.lmstudio.enabled = false;
+      config.local.backends.vllm.enabled = true;
+      config.local.backends.vllm.baseUrl = 'http://127.0.0.1:8000/v1';
+      config.local.backends.vllm.apiKey = '';
+    });
     const discovery = await importFreshDiscovery(homeDir);
 
     const fetchMock = vi.fn(
@@ -392,11 +408,8 @@ describe('local discovery', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    await discovery.discoverVllmModels('http://127.0.0.1:8000/v1', undefined);
+    await discovery.discoverAllLocalModels({ force: true });
     expect((fetchMock.mock.calls[0]?.[1] as RequestInit).headers).toEqual({});
-
-    await discovery.discoverVllmModels('http://127.0.0.1:8000/v1', '');
-    expect((fetchMock.mock.calls[1]?.[1] as RequestInit).headers).toEqual({});
   });
 
   test('discoverAllLocalModels caches discovered names for prefixed selection', async () => {

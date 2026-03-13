@@ -3,10 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { describe, expect, test } from 'vitest';
-import {
-  compactConversation,
-  splitConversation,
-} from '../src/memory/compaction.js';
+import { compactConversation } from '../src/memory/compaction.js';
 import { listArchives } from '../src/memory/compaction-archive.js';
 import type { Session, StoredMessage } from '../src/types.js';
 
@@ -73,7 +70,10 @@ function makeStructuredSummary(label: string): string {
 }
 
 describe('memory compaction', () => {
-  test('splitConversation preserves system messages and a recent tail', () => {
+  test('compactConversation preserves system messages and a recent tail', async () => {
+    const archiveBaseDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-compact-tail-'),
+    );
     const messages = [
       makeMessage(1, 'system', 'System instruction'),
       makeMessage(2, 'user', 'User asks for a release plan'),
@@ -83,16 +83,33 @@ describe('memory compaction', () => {
       makeMessage(6, 'user', 'User asks for risk tracking'),
       makeMessage(7, 'assistant', 'Assistant adds risks and owners'),
     ];
+    const deletedIds: number[][] = [];
 
-    const split = splitConversation(messages, {
-      keepRecentMessages: 3,
-      compactRatio: 0.7,
+    const result = await compactConversation({
+      session: makeSession(),
+      messages,
+      backend: {
+        deleteMessagesByIds: (_sessionId, ids) => {
+          deletedIds.push([...ids]);
+          return ids.length;
+        },
+        storeSemanticMemory: () => 1,
+        updateSessionSummary: () => {},
+      },
+      promptRunner: {
+        run: async () => makeStructuredSummary('recent-tail'),
+      },
+      embed: () => [0.5, 0.5],
+      config: {
+        archiveBaseDir,
+        keepRecentMessages: 3,
+        compactRatio: 0.7,
+      },
     });
 
-    expect(split.system.map((message) => message.id)).toEqual([1]);
-    expect(split.compactable.length).toBeGreaterThan(0);
-    expect(split.recent.length).toBeGreaterThanOrEqual(3);
-    expect(split.recent.at(-1)?.id).toBe(7);
+    expect(result.messagesCompacted).toBe(3);
+    expect(result.messagesPreserved).toBe(4);
+    expect(deletedIds[0]).toEqual([2, 3, 4]);
   });
 
   test('compactConversation archives transcript, stores semantic memory, and deletes only compacted messages', async () => {

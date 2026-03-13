@@ -25,7 +25,9 @@ test('resolves Discord message tool hints when channelType is discord', () => {
   ).toBe(true);
   expect(hints.some((entry) => entry.includes('`filePath`'))).toBe(true);
   expect(
-    hints.some((entry) => entry.includes('WhatsApp JID or phone number')),
+    hints.some((entry) =>
+      entry.includes('WhatsApp JID/phone number or an email address instead'),
+    ),
   ).toBe(true);
 });
 

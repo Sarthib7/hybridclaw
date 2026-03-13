@@ -1,6 +1,7 @@
 import type {
   ChatCompletionResponse,
   ChatMessage,
+  TaskModelKey,
   TaskModelPolicies,
   ToolDefinition,
 } from '../types.js';
@@ -11,14 +12,7 @@ import {
   type RoutedModelContext,
 } from './router.js';
 
-export type AuxiliaryTask =
-  | 'vision'
-  | 'compression'
-  | 'web_extract'
-  | 'session_search'
-  | 'skills_hub'
-  | 'mcp'
-  | 'flush_memories';
+export type AuxiliaryTask = TaskModelKey;
 
 export interface AuxiliaryTaskContext extends RoutedModelContext {
   maxTokens?: number;
@@ -35,13 +29,7 @@ export interface AuxiliaryVisionTaskCallParams {
 }
 
 export interface AuxiliaryTextTaskCallParams {
-  task:
-    | 'compression'
-    | 'web_extract'
-    | 'session_search'
-    | 'skills_hub'
-    | 'mcp'
-    | 'flush_memories';
+  task: Exclude<AuxiliaryTask, 'vision'>;
   taskModels?: TaskModelPolicies;
   fallbackContext: AuxiliaryTaskContext;
   messages: ChatMessage[];

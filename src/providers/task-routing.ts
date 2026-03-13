@@ -3,29 +3,19 @@ import {
   type RuntimeAuxiliaryModelPolicyConfig,
   type RuntimeAuxiliaryProviderSelection,
 } from '../config/runtime-config.js';
-import type { TaskModelPolicies, TaskModelPolicy } from '../types.js';
+import {
+  TASK_MODEL_KEYS,
+  type TaskModelKey,
+  type TaskModelPolicies,
+  type TaskModelPolicy,
+} from '../types.js';
 import { resolveModelRuntimeCredentials } from './factory.js';
 
-export type AuxiliaryTask =
-  | 'vision'
-  | 'compression'
-  | 'web_extract'
-  | 'session_search'
-  | 'skills_hub'
-  | 'mcp'
-  | 'flush_memories';
+export type AuxiliaryTask = TaskModelKey;
 
 type RuntimeProvider = NonNullable<TaskModelPolicy['provider']>;
 
-const AUXILIARY_TASKS: AuxiliaryTask[] = [
-  'vision',
-  'compression',
-  'web_extract',
-  'session_search',
-  'skills_hub',
-  'mcp',
-  'flush_memories',
-];
+const AUXILIARY_TASKS: AuxiliaryTask[] = [...TASK_MODEL_KEYS];
 
 const ENV_OVERRIDE_PREFIXES = ['AUXILIARY_', 'CONTEXT_'] as const;
 const RUNTIME_PROVIDER_PREFIXES: Record<RuntimeProvider, string> = {

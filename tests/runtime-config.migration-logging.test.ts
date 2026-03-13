@@ -105,13 +105,14 @@ describe('runtime config migration logging', () => {
     ) as RuntimeConfig;
 
     expect(
-      infoSpy.mock.calls.some(([message]) =>
-        String(message).includes(
-          `[runtime-config] migrated config schema from v10 to v${stored.version}`,
-        ) ||
-        String(message).includes(
-          `[runtime-config] normalized config schema v${stored.version}`,
-        ),
+      infoSpy.mock.calls.some(
+        ([message]) =>
+          String(message).includes(
+            `[runtime-config] migrated config schema from v10 to v${stored.version}`,
+          ) ||
+          String(message).includes(
+            `[runtime-config] normalized config schema v${stored.version}`,
+          ),
       ),
     ).toBe(true);
   });

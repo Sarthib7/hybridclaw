@@ -98,7 +98,6 @@ test('clears a stale WhatsApp auth lock owned by a dead pid', async () => {
       pid: stalePid,
       startedAt: '2026-03-13T00:00:00.000Z',
       purpose: 'stale',
-      cwd: '/tmp',
     }),
     'utf-8',
   );

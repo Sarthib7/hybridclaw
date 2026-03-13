@@ -19,7 +19,6 @@ interface WhatsAppAuthLockMetadata {
   pid: number | null;
   startedAt: string;
   purpose: string;
-  cwd: string;
 }
 
 export class WhatsAppAuthLockError extends Error {
@@ -67,7 +66,6 @@ function readLockMetadata(lockPath: string): WhatsAppAuthLockMetadata | null {
       pid,
       startedAt: typeof parsed.startedAt === 'string' ? parsed.startedAt : '',
       purpose: typeof parsed.purpose === 'string' ? parsed.purpose : '',
-      cwd: typeof parsed.cwd === 'string' ? parsed.cwd : '',
     };
   } catch {
     return null;
@@ -122,7 +120,6 @@ export async function acquireWhatsAppAuthLock(
         pid: process.pid,
         startedAt: new Date().toISOString(),
         purpose: String(options?.purpose || 'runtime').trim() || 'runtime',
-        cwd: process.cwd(),
       };
       fsSync.writeFileSync(
         fd,

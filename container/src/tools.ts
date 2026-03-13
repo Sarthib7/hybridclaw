@@ -768,13 +768,14 @@ async function readVisionImageFromUrl(
 }
 
 async function callVisionModel(
+  runtimeContext: AuxiliaryRuntimeContext,
   question: string,
   imageDataUrl: string,
 ): Promise<{ model: string; analysis: string }> {
   const vision = await callAuxiliaryModel({
     task: 'vision',
-    taskModels: currentTaskModelPolicies,
-    fallbackContext: currentAuxiliaryFallbackContext(),
+    taskModels: runtimeContext.taskModels,
+    fallbackContext: runtimeContext.fallbackContext,
     question,
     imageDataUrl,
     toolName: 'vision_analyze',
@@ -787,6 +788,7 @@ async function callVisionModel(
 
 async function runVisionAnalyze(
   args: Record<string, unknown>,
+  runtimeContext: AuxiliaryRuntimeContext,
 ): Promise<string> {
   const question = readStringValue(args.question);
   if (!question) return failTool('Error: question is required');
@@ -812,7 +814,7 @@ async function runVisionAnalyze(
         ? await readVisionImageFromUrl(candidate)
         : await readVisionImageFromLocalPath(candidate);
       const dataUrl = `data:${image.mimeType};base64,${image.buffer.toString('base64')}`;
-      const vision = await callVisionModel(question, dataUrl);
+      const vision = await callVisionModel(runtimeContext, question, dataUrl);
       return JSON.stringify(
         {
           success: true,
@@ -1313,11 +1315,24 @@ function currentAuxiliaryFallbackContext() {
     apiKey: currentModelApiKey,
     model: currentModelName,
     chatbotId: currentChatbotId,
-    requestHeaders: currentModelHeaders,
+    requestHeaders: { ...currentModelHeaders },
+  };
+}
+
+type AuxiliaryRuntimeContext = {
+  fallbackContext: ReturnType<typeof currentAuxiliaryFallbackContext>;
+  taskModels?: TaskModelPolicies;
+};
+
+function captureAuxiliaryRuntimeContext(): AuxiliaryRuntimeContext {
+  return {
+    fallbackContext: currentAuxiliaryFallbackContext(),
+    taskModels: cloneTaskModelPolicies(currentTaskModelPolicies),
   };
 }
 
 async function callTextAuxiliaryTask(params: {
+  runtimeContext: AuxiliaryRuntimeContext;
   task: Exclude<TaskModelKey, 'vision'>;
   messages: Array<{
     role: 'system' | 'user' | 'assistant' | 'tool';
@@ -1328,8 +1343,8 @@ async function callTextAuxiliaryTask(params: {
 }): Promise<string> {
   const response = await callAuxiliaryModel({
     task: params.task,
-    taskModels: currentTaskModelPolicies,
-    fallbackContext: currentAuxiliaryFallbackContext(),
+    taskModels: params.runtimeContext.taskModels,
+    fallbackContext: params.runtimeContext.fallbackContext,
     messages: params.messages,
     maxTokens: params.maxTokens,
     toolName: params.toolName,
@@ -1376,6 +1391,7 @@ function buildSessionSearchContext(
 }
 
 async function summarizeSessionCandidateWithAuxiliary(
+  runtimeContext: AuxiliaryRuntimeContext,
   candidate: SessionSearchCandidate,
   query: string,
 ): Promise<string | null> {
@@ -1383,6 +1399,7 @@ async function summarizeSessionCandidateWithAuxiliary(
   if (!transcript) return null;
 
   const summary = await callTextAuxiliaryTask({
+    runtimeContext,
     task: 'session_search',
     toolName: 'session_search',
     maxTokens: SESSION_SEARCH_LLM_MAX_TOKENS,
@@ -1449,6 +1466,7 @@ function splitTextIntoChunks(text: string, maxChars: number): string[] {
 }
 
 async function processWebExtractWithAuxiliary(params: {
+  runtimeContext: AuxiliaryRuntimeContext;
   url: string;
   title?: string;
   extractedText: string;
@@ -1468,6 +1486,7 @@ async function processWebExtractWithAuxiliary(params: {
     total: number,
   ): Promise<string> =>
     await callTextAuxiliaryTask({
+      runtimeContext: params.runtimeContext,
       task: 'web_extract',
       toolName: 'web_extract',
       maxTokens: WEB_EXTRACT_LLM_MAX_TOKENS,
@@ -1514,6 +1533,7 @@ async function processWebExtractWithAuxiliary(params: {
   }
 
   const synthesized = await callTextAuxiliaryTask({
+    runtimeContext: params.runtimeContext,
     task: 'web_extract',
     toolName: 'web_extract',
     maxTokens: WEB_EXTRACT_LLM_MAX_TOKENS,
@@ -1542,6 +1562,7 @@ async function executeToolInternal(
   argsJson: string,
 ): Promise<string> {
   const args = JSON.parse(argsJson);
+  const auxiliaryRuntimeContext = captureAuxiliaryRuntimeContext();
 
   if (mcpClientManager?.isKnownTool(name)) {
     if (!args || typeof args !== 'object' || Array.isArray(args)) {
@@ -2239,13 +2260,14 @@ async function executeToolInternal(
         args.llmSummary === true ||
         (args.useLlmSummary !== false &&
           args.llmSummary !== false &&
-          Boolean(currentTaskModelPolicies?.session_search));
+          Boolean(auxiliaryRuntimeContext.taskModels?.session_search));
       const results: Record<string, unknown>[] = [];
       for (const candidate of top) {
         const summaryResult = summarizeSessionCandidate(candidate, query);
         if (useLlmSummary) {
           try {
             const llmSummary = await summarizeSessionCandidateWithAuxiliary(
+              auxiliaryRuntimeContext,
               candidate,
               query,
             );
@@ -2301,6 +2323,7 @@ async function executeToolInternal(
       if (useLlmProcessing && result.text.trim()) {
         try {
           outputText = await processWebExtractWithAuxiliary({
+            runtimeContext: auxiliaryRuntimeContext,
             url: result.finalUrl,
             title: result.title,
             extractedText: result.text,
@@ -2343,7 +2366,7 @@ async function executeToolInternal(
 
     case 'vision_analyze':
     case 'image': {
-      return await runVisionAnalyze(args);
+      return await runVisionAnalyze(args, auxiliaryRuntimeContext);
     }
 
     case 'browser_navigate':

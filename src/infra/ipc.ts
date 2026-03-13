@@ -4,17 +4,11 @@ import path from 'node:path';
 import { resolveAgentWorkspaceId } from '../agents/agent-registry.js';
 import { CONTAINER_MAX_OUTPUT_SIZE, DATA_DIR } from '../config/config.js';
 import { logger } from '../logger.js';
-import type { ContainerInput, ContainerOutput } from '../types.js';
-
-const TASK_MODEL_KEYS = [
-  'vision',
-  'compression',
-  'web_extract',
-  'session_search',
-  'skills_hub',
-  'mcp',
-  'flush_memories',
-] as const;
+import {
+  type ContainerInput,
+  type ContainerOutput,
+  TASK_MODEL_KEYS,
+} from '../types.js';
 
 /**
  * Get session directory, creating it if needed.

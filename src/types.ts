@@ -89,6 +89,18 @@ export interface TaskModelPolicy {
   error?: string;
 }
 
+export const TASK_MODEL_KEYS = [
+  'vision',
+  'compression',
+  'web_extract',
+  'session_search',
+  'skills_hub',
+  'mcp',
+  'flush_memories',
+] as const;
+
+export type TaskModelKey = (typeof TASK_MODEL_KEYS)[number];
+
 export interface TaskModelPolicies {
   vision?: TaskModelPolicy;
   compression?: TaskModelPolicy;

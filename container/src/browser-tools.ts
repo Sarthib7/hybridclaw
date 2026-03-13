@@ -15,7 +15,11 @@ import {
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
 } from './runtime-paths.js';
-import type { TaskModelPolicies, ToolDefinition } from './types.js';
+import {
+  TASK_MODEL_KEYS,
+  type TaskModelPolicies,
+  type ToolDefinition,
+} from './types.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -202,15 +206,6 @@ let currentBrowserModelContext: BrowserModelContext = {
   requestHeaders: {},
 };
 let currentBrowserTaskModels: TaskModelPolicies | undefined;
-const TASK_MODEL_KEYS = [
-  'vision',
-  'compression',
-  'web_extract',
-  'session_search',
-  'skills_hub',
-  'mcp',
-  'flush_memories',
-] as const;
 
 function cloneTaskModelPolicies(
   taskModels?: TaskModelPolicies,

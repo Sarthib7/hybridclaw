@@ -22,14 +22,16 @@ import {
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
 } from './runtime-paths.js';
-import type {
-  DelegationSideEffect,
-  DelegationTaskSpec,
-  MediaContextItem,
-  ScheduleSideEffect,
-  TaskModelPolicies,
-  ToolDefinition,
-  ToolRunResult,
+import {
+  type DelegationSideEffect,
+  type DelegationTaskSpec,
+  type MediaContextItem,
+  type ScheduleSideEffect,
+  TASK_MODEL_KEYS,
+  type TaskModelKey,
+  type TaskModelPolicies,
+  type ToolDefinition,
+  type ToolRunResult,
 } from './types.js';
 import type { WebSearchRuntimeConfig } from './web-search.js';
 
@@ -101,15 +103,6 @@ let currentModelHeaders: Record<string, string> = {};
 let currentMediaContext: MediaContextItem[] = [];
 let currentWebSearchConfig: WebSearchRuntimeConfig | undefined;
 let currentTaskModelPolicies: TaskModelPolicies | undefined;
-const TASK_MODEL_KEYS = [
-  'vision',
-  'compression',
-  'web_extract',
-  'session_search',
-  'skills_hub',
-  'mcp',
-  'flush_memories',
-] as const;
 let mcpClientManager: McpClientManager | null = null;
 const MAX_PENDING_DELEGATIONS = 3;
 const MAX_DELEGATION_BATCH_ITEMS = 6;
@@ -1325,13 +1318,7 @@ function currentAuxiliaryFallbackContext() {
 }
 
 async function callTextAuxiliaryTask(params: {
-  task:
-    | 'compression'
-    | 'web_extract'
-    | 'session_search'
-    | 'skills_hub'
-    | 'mcp'
-    | 'flush_memories';
+  task: Exclude<TaskModelKey, 'vision'>;
   messages: Array<{
     role: 'system' | 'user' | 'assistant' | 'tool';
     content: string;

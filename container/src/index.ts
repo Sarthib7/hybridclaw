@@ -67,14 +67,15 @@ import {
   setWebSearchConfig,
   TOOL_DEFINITIONS,
 } from './tools.js';
-import type {
-  ArtifactMetadata,
-  ChatCompletionResponse,
-  ChatMessage,
-  ContainerInput,
-  ContainerOutput,
-  ToolDefinition,
-  ToolExecution,
+import {
+  type ArtifactMetadata,
+  type ChatCompletionResponse,
+  type ChatMessage,
+  type ContainerInput,
+  type ContainerOutput,
+  TASK_MODEL_KEYS,
+  type ToolDefinition,
+  type ToolExecution,
 } from './types.js';
 
 const IDLE_TIMEOUT_MS = parseInt(
@@ -114,15 +115,6 @@ let storedRequestHeaders: Record<string, string> = {};
 let storedTaskModels: ContainerInput['taskModels'];
 let mcpClientManager: McpClientManager | null = null;
 let mcpConfigWatcher: McpConfigWatcher | null = null;
-const TASK_MODEL_KEYS = [
-  'vision',
-  'compression',
-  'web_extract',
-  'session_search',
-  'skills_hub',
-  'mcp',
-  'flush_memories',
-] as const;
 
 function cloneTaskModels(
   taskModels: ContainerInput['taskModels'],

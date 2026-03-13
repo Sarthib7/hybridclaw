@@ -1,3 +1,5 @@
+import { TASK_MODEL_KEYS, type TaskModelKey } from '../types.js';
+
 interface WorkerSignatureTaskModel {
   provider?: string;
   baseUrl?: string;
@@ -12,34 +14,13 @@ interface WorkerSignatureTaskModel {
   error?: string;
 }
 
-const TASK_MODEL_KEYS = [
-  'vision',
-  'compression',
-  'web_extract',
-  'session_search',
-  'skills_hub',
-  'mcp',
-  'flush_memories',
-] as const;
-
 export interface WorkerSignatureInput {
   agentId: string;
   provider: string | undefined;
   baseUrl: string;
   apiKey: string;
   requestHeaders: Record<string, string> | undefined;
-  taskModels?: Partial<
-    Record<
-      | 'vision'
-      | 'compression'
-      | 'web_extract'
-      | 'session_search'
-      | 'skills_hub'
-      | 'mcp'
-      | 'flush_memories',
-      WorkerSignatureTaskModel
-    >
-  >;
+  taskModels?: Partial<Record<TaskModelKey, WorkerSignatureTaskModel>>;
 }
 
 function normalizeHeaders(

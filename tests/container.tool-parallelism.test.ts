@@ -7,9 +7,6 @@ import {
 
 describe('getToolExecutionMode', () => {
   test.each([
-    ['read', '{"path":"src/index.ts"}'],
-    ['glob', '{"pattern":"src/**/*.ts"}'],
-    ['grep', '{"pattern":"TODO"}'],
     ['session_search', '{"query":"parallel tools"}'],
     ['vision_analyze', '{"image_url":"x.png","question":"what is this?"}'],
     ['image', '{"image_url":"x.png","question":"what is this?"}'],
@@ -21,6 +18,9 @@ describe('getToolExecutionMode', () => {
   });
 
   test.each([
+    ['read', '{"path":"src/index.ts"}'],
+    ['glob', '{"pattern":"src/**/*.ts"}'],
+    ['grep', '{"pattern":"TODO"}'],
     ['message', '{"action":"send","content":"hi"}'],
     ['web_fetch', '{"url":"https://example.com"}'],
     ['web_search', '{"query":"hybridclaw"}'],
@@ -29,7 +29,7 @@ describe('getToolExecutionMode', () => {
     ['bash', '{"command":"git status"}'],
     ['browser_navigate', '{"url":"https://example.com"}'],
     ['delegate', '{"prompt":"check the logs"}'],
-  ])('keeps %s on the sequential path when it may affect state', (toolName, argsJson) => {
+  ])('keeps %s on the sequential path when it may affect state or depends on loop-guard history', (toolName, argsJson) => {
     expect(getToolExecutionMode(toolName, argsJson)).toBe('sequential');
   });
 });

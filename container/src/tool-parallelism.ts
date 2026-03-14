@@ -1,7 +1,6 @@
+// Guarded discovery tools (read/glob/grep) stay sequential so the loop guard
+// can observe each result before deciding whether the next call is repetitive.
 const ALWAYS_PARALLEL_TOOL_NAMES = new Set([
-  'read',
-  'glob',
-  'grep',
   'session_search',
   'vision_analyze',
   'image',

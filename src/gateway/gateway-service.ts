@@ -4828,6 +4828,9 @@ export async function handleGatewayCommand(
       const proactiveQueued = getQueuedProactiveMessageCount();
       const cacheKnown =
         metrics.cacheReadTokens != null || metrics.cacheWriteTokens != null;
+      const cacheHitLabel = formatPercent(
+        cacheKnown ? (metrics.cacheHitPercent ?? 0) : metrics.cacheHitPercent,
+      );
       const contextLabel =
         metrics.contextUsedTokens != null && metrics.contextBudgetTokens != null
           ? `${formatCompactNumber(metrics.contextUsedTokens)}/${formatCompactNumber(metrics.contextBudgetTokens)} (${formatPercent(metrics.contextUsagePercent)})`
@@ -4845,7 +4848,7 @@ export async function handleGatewayCommand(
         `🧠 Model: ${sessionModel}`,
         `🧮 Tokens: ${formatCompactNumber(metrics.promptTokens)} in / ${formatCompactNumber(metrics.completionTokens)} out`,
         cacheKnown
-          ? `🗄️ Cache: ${formatPercent(metrics.cacheHitPercent)} hit · ${formatCompactNumber(metrics.cacheReadTokens)} cached, ${formatCompactNumber(metrics.cacheWriteTokens)} new`
+          ? `🗄️ Cache: ${cacheHitLabel} hit · ${formatCompactNumber(metrics.cacheReadTokens)} cached, ${formatCompactNumber(metrics.cacheWriteTokens)} new`
           : '🗄️ Cache: n/a (provider did not report cache stats)',
         `📚 Context: ${contextLabel} · 🧹 Compactions: ${session.compaction_count}`,
         `📊 Usage: uptime ${formatUptime(status.uptime)} · sessions ${status.sessions} · sandbox ${sandboxLabel}`,

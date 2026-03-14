@@ -142,6 +142,21 @@ export interface GatewayProactivePullResponse {
   messages: GatewayProactiveMessage[];
 }
 
+export interface GatewayHistoryMessage {
+  id: number;
+  session_id: string;
+  user_id: string;
+  username: string | null;
+  role: string;
+  content: string;
+  created_at: string;
+}
+
+export interface GatewayHistoryResponse {
+  sessionId: string;
+  history: GatewayHistoryMessage[];
+}
+
 export interface GatewaySchedulerJobStatus {
   id: string;
   name: string;

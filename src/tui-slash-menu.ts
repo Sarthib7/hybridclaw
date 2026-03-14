@@ -33,6 +33,11 @@ interface TuiSlashMenuState {
 }
 
 type InternalReadline = readline.Interface & {
+  // The slash menu hooks into Node 22 readline internals (`_ttyWrite`,
+  // `_refreshLine`, `line`, `cursor`) because the public API does not expose a
+  // way to intercept key handling or replace the active buffer contents
+  // without breaking history/navigation behavior. Keep this scoped here and
+  // re-verify on Node upgrades.
   line: string;
   cursor: number;
   _refreshLine?: () => void;
@@ -816,6 +821,9 @@ export class TuiSlashMenuController {
   install(): void {
     if (!this.output.isTTY || !this.originalTtyWrite) return;
 
+    // This monkey-patch is intentionally limited to the TUI session. It relies
+    // on the current Node.js 22 readline implementation calling `_ttyWrite`
+    // for raw-mode keypress handling before prompt redraw.
     this.rl._ttyWrite = (chunk: string, key: readline.Key) => {
       if (this.handleKeypress(key)) {
         this.sync();
@@ -953,6 +961,9 @@ export class TuiSlashMenuController {
     const selectedEntry = state.entries[this.selectedIndex];
     if (!selectedEntry) return true;
 
+    // Mutating `line`/`cursor` keeps readline history and prompt state intact,
+    // but it is also part of the same Node.js-internal contract documented
+    // above.
     this.rl.line = selectedEntry.insertText;
     this.rl.cursor = selectedEntry.insertText.length;
     this.rl._refreshLine?.();

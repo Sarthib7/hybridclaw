@@ -59,6 +59,14 @@ function visibleWindowBounds(params: {
   availableRows: number;
   selectedItemHeight: number;
 }): [number, number] {
+  // Invariant:
+  // - The selected item must always remain visible.
+  // - Its wrapped description consumes `selectedItemHeight` rows from the
+  //   small menu viewport, so the remaining rows are split across siblings.
+  // - We first reserve a minimal lead-in row before the selection when
+  //   possible, then place rows after it, then spend any leftover capacity on
+  //   whichever side still has unseen items. This keeps the selected entry
+  //   visually anchored while still filling the window.
   const selectedItemHeight = Math.min(
     params.selectedItemHeight,
     params.availableRows,

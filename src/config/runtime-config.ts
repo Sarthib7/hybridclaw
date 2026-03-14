@@ -10,6 +10,7 @@ import {
 } from '../agents/agent-types.js';
 import { CODEX_DEFAULT_BASE_URL } from '../auth/codex-auth.js';
 import type { LocalProviderConfig } from '../providers/local-types.js';
+import type { SessionResetMode } from '../session/session-reset.js';
 import type { McpServerConfig } from '../types.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
@@ -388,6 +389,21 @@ export interface RuntimeConfig {
       maxChars: number;
     };
   };
+  sessionReset: {
+    defaultPolicy: {
+      mode: SessionResetMode;
+      atHour: number;
+      idleMinutes: number;
+    };
+    byChannelKind?: Record<
+      string,
+      {
+        mode?: SessionResetMode;
+        atHour?: number;
+        idleMinutes?: number;
+      }
+    >;
+  };
   promptHooks: {
     bootstrapEnabled: boolean;
     memoryEnabled: boolean;
@@ -697,6 +713,13 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       enabled: true,
       maxMessages: 80,
       maxChars: 24_000,
+    },
+  },
+  sessionReset: {
+    defaultPolicy: {
+      mode: 'both',
+      atHour: 4,
+      idleMinutes: 1440,
     },
   },
   promptHooks: {
@@ -1794,6 +1817,24 @@ function normalizeContainerSandboxMode(
   return normalized === 'host' ? 'host' : 'container';
 }
 
+function normalizeSessionResetMode(
+  value: unknown,
+  fallback: SessionResetMode,
+): SessionResetMode {
+  const normalized = normalizeString(value, fallback, {
+    allowEmpty: false,
+  }).toLowerCase();
+  if (
+    normalized === 'daily' ||
+    normalized === 'idle' ||
+    normalized === 'both' ||
+    normalized === 'none'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
 function normalizeAuxiliaryProviderSelection(
   value: unknown,
   fallback: RuntimeAuxiliaryProviderSelection,
@@ -2076,6 +2117,13 @@ function normalizeRuntimeConfig(
     : {};
   const rawPreFlush = isRecord(rawSessionCompaction.preCompactionMemoryFlush)
     ? rawSessionCompaction.preCompactionMemoryFlush
+    : {};
+  const rawSessionReset = isRecord(raw.sessionReset) ? raw.sessionReset : {};
+  const rawDefaultResetPolicy = isRecord(rawSessionReset.defaultPolicy)
+    ? rawSessionReset.defaultPolicy
+    : {};
+  const rawResetByChannelKind = isRecord(rawSessionReset.byChannelKind)
+    ? rawSessionReset.byChannelKind
     : {};
   const rawPromptHooks = isRecord(raw.promptHooks) ? raw.promptHooks : {};
   const rawProactive = isRecord(raw.proactive) ? raw.proactive : {};
@@ -2752,6 +2800,63 @@ function normalizeRuntimeConfig(
           { min: 4_000 },
         ),
       },
+    },
+    sessionReset: {
+      defaultPolicy: {
+        mode: normalizeSessionResetMode(
+          rawDefaultResetPolicy.mode,
+          DEFAULT_RUNTIME_CONFIG.sessionReset.defaultPolicy.mode,
+        ),
+        atHour: normalizeInteger(
+          rawDefaultResetPolicy.atHour,
+          DEFAULT_RUNTIME_CONFIG.sessionReset.defaultPolicy.atHour,
+          { min: 0, max: 23 },
+        ),
+        idleMinutes: normalizeInteger(
+          rawDefaultResetPolicy.idleMinutes,
+          DEFAULT_RUNTIME_CONFIG.sessionReset.defaultPolicy.idleMinutes,
+          { min: 1 },
+        ),
+      },
+      byChannelKind: Object.fromEntries(
+        Object.entries(rawResetByChannelKind).flatMap(([key, value]) => {
+          if (!isRecord(value)) return [];
+          const normalizedKey = normalizeString(key, '', { allowEmpty: false });
+          if (!normalizedKey) return [];
+          return [
+            [
+              normalizedKey,
+              {
+                mode:
+                  hasOwn(value, 'mode') && value.mode != null
+                    ? normalizeSessionResetMode(
+                        value.mode,
+                        DEFAULT_RUNTIME_CONFIG.sessionReset.defaultPolicy.mode,
+                      )
+                    : undefined,
+                atHour:
+                  hasOwn(value, 'atHour') && value.atHour != null
+                    ? normalizeInteger(
+                        value.atHour,
+                        DEFAULT_RUNTIME_CONFIG.sessionReset.defaultPolicy
+                          .atHour,
+                        { min: 0, max: 23 },
+                      )
+                    : undefined,
+                idleMinutes:
+                  hasOwn(value, 'idleMinutes') && value.idleMinutes != null
+                    ? normalizeInteger(
+                        value.idleMinutes,
+                        DEFAULT_RUNTIME_CONFIG.sessionReset.defaultPolicy
+                          .idleMinutes,
+                        { min: 1 },
+                      )
+                    : undefined,
+              },
+            ],
+          ];
+        }),
+      ),
     },
     promptHooks: {
       bootstrapEnabled: normalizeBoolean(

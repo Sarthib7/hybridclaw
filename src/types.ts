@@ -294,6 +294,8 @@ export interface Session {
   show_mode: SessionShowMode;
   created_at: string;
   last_active: string;
+  reset_count: number;
+  reset_at: string | null;
 }
 
 export interface StoredMessage {

@@ -6,7 +6,13 @@ import type { AgentConfig, AgentModelConfig } from '../agents/agent-types.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import type { AuditEventPayload, WireRecord } from '../audit/audit-trail.js';
 import { DB_PATH } from '../config/config.js';
+import { getRuntimeConfig } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
+import {
+  isSessionExpired,
+  resolveResetPolicy,
+  type SessionResetMode,
+} from '../session/session-reset.js';
 import type {
   ApprovalAuditEntry,
   AuditEntry,
@@ -36,7 +42,7 @@ import { KnowledgeEntityType, KnowledgeRelationType } from '../types.js';
 let db: Database.Database;
 let databaseInitialized = false;
 
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 
 interface InitDatabaseOptions {
   quiet?: boolean;
@@ -823,6 +829,32 @@ function migrateV7(
   recordMigration(database, 7, 'Add per-session show mode column');
 }
 
+function migrateV8(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  const quiet = opts?.quiet === true;
+  addColumnIfMissing({
+    database,
+    table: 'sessions',
+    column: 'reset_count',
+    ddl: 'reset_count INTEGER NOT NULL DEFAULT 0',
+    quiet,
+  });
+  addColumnIfMissing({
+    database,
+    table: 'sessions',
+    column: 'reset_at',
+    ddl: 'reset_at TEXT',
+    quiet,
+  });
+  recordMigration(
+    database,
+    8,
+    'Track automatic session resets and reset timestamps',
+  );
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -846,6 +878,7 @@ function runMigrations(
   if (currentVersion < 5) migrateV5(database, opts);
   if (currentVersion < 6) migrateV6(database, opts);
   if (currentVersion < 7) migrateV7(database, opts);
+  if (currentVersion < 8) migrateV8(database, opts);
 
   setSchemaVersion(database, SCHEMA_VERSION);
   if (!quiet && currentVersion < SCHEMA_VERSION) {
@@ -2171,12 +2204,29 @@ export function getOrCreateSession(
   guildId: string | null,
   channelId: string,
   agentId?: string,
+  opts?: { resetMode?: SessionResetMode },
 ): Session {
   const existing = getSessionById(sessionId);
   const normalizedAgentId = agentId?.trim() || null;
 
   if (existing) {
-    if (normalizedAgentId && existing.agent_id !== normalizedAgentId) {
+    const policy = resolveResetPolicy({
+      channelKind: channelId === 'heartbeat' ? 'heartbeat' : undefined,
+      config: getRuntimeConfig(),
+    });
+    const effectivePolicy = opts?.resetMode
+      ? { ...policy, mode: opts.resetMode }
+      : policy;
+    let activeSession = existing;
+    let wasReset = false;
+
+    if (isSessionExpired(effectivePolicy, existing.last_active)) {
+      resetSessionState(sessionId);
+      activeSession = getSessionById(sessionId) as Session;
+      wasReset = true;
+    }
+
+    if (normalizedAgentId && activeSession.agent_id !== normalizedAgentId) {
       db.prepare(
         `UPDATE sessions
          SET last_active = datetime('now'),
@@ -2185,10 +2235,13 @@ export function getOrCreateSession(
       ).run(normalizedAgentId, sessionId);
       return getSessionById(sessionId) as Session;
     }
-    db.prepare(
-      "UPDATE sessions SET last_active = datetime('now') WHERE id = ?",
-    ).run(sessionId);
-    return getSessionById(sessionId) as Session;
+    if (!wasReset) {
+      db.prepare(
+        "UPDATE sessions SET last_active = datetime('now') WHERE id = ?",
+      ).run(sessionId);
+      return getSessionById(sessionId) as Session;
+    }
+    return activeSession;
   }
 
   db.prepare(
@@ -2333,6 +2386,25 @@ export function clearSessionHistory(sessionId: string): number {
     'UPDATE sessions SET message_count = 0, session_summary = NULL, summary_updated_at = NULL, compaction_count = 0, memory_flush_at = NULL WHERE id = ?',
   ).run(sessionId);
   return result.changes;
+}
+
+export function resetSessionState(sessionId: string): void {
+  const transaction = db.transaction((value: string) => {
+    db.prepare(
+      `UPDATE sessions
+       SET message_count = 0,
+           session_summary = NULL,
+           summary_updated_at = NULL,
+           compaction_count = 0,
+           memory_flush_at = NULL,
+           reset_count = reset_count + 1,
+           reset_at = datetime('now'),
+           last_active = datetime('now')
+       WHERE id = ?`,
+    ).run(value);
+    db.prepare('DELETE FROM messages WHERE session_id = ?').run(value);
+  });
+  transaction(sessionId);
 }
 
 export function deleteSessionData(sessionId: string): {

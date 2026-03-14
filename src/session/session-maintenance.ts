@@ -113,7 +113,7 @@ function buildSystemPrompt(
   });
 }
 
-async function runPreCompactionMemoryFlush(params: {
+export async function runPreCompactionMemoryFlush(params: {
   sessionId: string;
   agentId: string;
   chatbotId: string;

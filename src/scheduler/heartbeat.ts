@@ -122,6 +122,7 @@ export function startHeartbeat(
         null,
         channelId,
         agentId,
+        { resetMode: 'none' },
       );
       turnIndex = session.message_count + 1;
 

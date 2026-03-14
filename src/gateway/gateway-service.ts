@@ -134,7 +134,15 @@ import {
   resumeConfigJob,
 } from '../scheduler/scheduler.js';
 import { exportSessionSnapshotJsonl } from '../session/session-export.js';
-import { maybeCompactSession } from '../session/session-maintenance.js';
+import {
+  maybeCompactSession,
+  runPreCompactionMemoryFlush,
+} from '../session/session-maintenance.js';
+import {
+  isSessionExpired,
+  resolveResetPolicy,
+  type SessionResetMode,
+} from '../session/session-reset.js';
 import { appendSessionTranscript } from '../session/session-transcripts.js';
 import {
   estimateTokenCountFromMessages,
@@ -3017,12 +3025,62 @@ function enqueueDelegationFromSideEffect(params: {
   });
 }
 
+async function maybeFlushSessionBeforeAutoReset(params: {
+  sessionId: string;
+  channelId: string;
+  agentId?: string | null;
+  chatbotId?: string | null;
+  model?: string | null;
+  enableRag?: boolean;
+  resetMode?: SessionResetMode;
+}): Promise<void> {
+  const existingSession = memoryService.getSessionById(params.sessionId);
+  if (!existingSession) return;
+
+  const runtimeConfig = getRuntimeConfig();
+  const policy = resolveResetPolicy({
+    channelKind: params.channelId === 'heartbeat' ? 'heartbeat' : undefined,
+    config: runtimeConfig,
+  });
+  const effectivePolicy = params.resetMode
+    ? { ...policy, mode: params.resetMode }
+    : policy;
+  if (!isSessionExpired(effectivePolicy, existingSession.last_active)) return;
+  if (!runtimeConfig.sessionCompaction.preCompactionMemoryFlush.enabled) return;
+
+  const resolvedRuntime = resolveAgentForRequest({
+    agentId: params.agentId,
+    session: existingSession,
+    model: params.model,
+    chatbotId: params.chatbotId,
+  });
+
+  await runPreCompactionMemoryFlush({
+    sessionId: params.sessionId,
+    agentId: resolvedRuntime.agentId,
+    chatbotId: resolvedRuntime.chatbotId,
+    enableRag: params.enableRag ?? existingSession.enable_rag !== 0,
+    model: resolvedRuntime.model,
+    channelId: params.channelId,
+    sessionSummary: existingSession.session_summary,
+    olderMessages: memoryService.getRecentMessages(params.sessionId),
+  });
+}
+
 export async function handleGatewayMessage(
   req: GatewayChatRequest,
 ): Promise<GatewayChatResult> {
   const startedAt = Date.now();
   const runId = makeAuditRunId('turn');
   const source = req.source?.trim() || 'gateway.chat';
+  await maybeFlushSessionBeforeAutoReset({
+    sessionId: req.sessionId,
+    channelId: req.channelId,
+    agentId: req.agentId,
+    chatbotId: req.chatbotId,
+    model: req.model,
+    enableRag: req.enableRag,
+  });
   let session = memoryService.getOrCreateSession(
     req.sessionId,
     req.guildId,
@@ -3052,6 +3110,14 @@ export async function handleGatewayMessage(
   });
   const { agentId, model, chatbotId } = resolvedRequest;
   if (session.agent_id !== agentId) {
+    await maybeFlushSessionBeforeAutoReset({
+      sessionId: req.sessionId,
+      channelId: req.channelId,
+      agentId,
+      chatbotId,
+      model,
+      enableRag: req.enableRag ?? session.enable_rag === 1,
+    });
     session = memoryService.getOrCreateSession(
       req.sessionId,
       req.guildId,
@@ -3071,14 +3137,25 @@ export async function handleGatewayMessage(
     (session.message_count > 0 || Boolean(session.session_summary))
   ) {
     const clearedMessages = memoryService.clearSessionHistory(req.sessionId);
-    session =
-      memoryService.getSessionById(req.sessionId) ??
-      memoryService.getOrCreateSession(
+    const refreshedSession = memoryService.getSessionById(req.sessionId);
+    if (refreshedSession) {
+      session = refreshedSession;
+    } else {
+      await maybeFlushSessionBeforeAutoReset({
+        sessionId: req.sessionId,
+        channelId: req.channelId,
+        agentId,
+        chatbotId,
+        model,
+        enableRag,
+      });
+      session = memoryService.getOrCreateSession(
         req.sessionId,
         req.guildId,
         req.channelId,
         agentId,
       );
+    }
     logger.info(
       {
         sessionId: req.sessionId,
@@ -3700,10 +3777,17 @@ export async function runGatewayScheduledTask(
   onError: (error: unknown) => void,
   runKey?: string,
 ): Promise<void> {
+  await maybeFlushSessionBeforeAutoReset({
+    sessionId: origSessionId,
+    channelId,
+    resetMode: 'none',
+  });
   const session = memoryService.getOrCreateSession(
     origSessionId,
     null,
     channelId,
+    undefined,
+    { resetMode: 'none' },
   );
   const { agentId, chatbotId, model } = resolveAgentForRequest({ session });
   if (modelRequiresChatbotId(model) && !chatbotId) {
@@ -3740,6 +3824,10 @@ export async function handleGatewayCommand(
   req: GatewayCommandRequest,
 ): Promise<GatewayCommandResult> {
   const cmd = (req.args[0] || '').toLowerCase();
+  await maybeFlushSessionBeforeAutoReset({
+    sessionId: req.sessionId,
+    channelId: req.channelId,
+  });
   const session = memoryService.getOrCreateSession(
     req.sessionId,
     req.guildId,

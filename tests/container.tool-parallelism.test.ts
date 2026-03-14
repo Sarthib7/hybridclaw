@@ -60,15 +60,12 @@ describe('mapConcurrentInOrder', () => {
   test('returns results in input order', async () => {
     const items = [30, 5, 15, 0];
 
-    const results = await mapConcurrentInOrder(
-      items,
-      async (delayMs, index) => {
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
-        return `result-${index}`;
-      },
-    );
+    const results = await mapConcurrentInOrder(items, async (delayMs) => {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      return `result-${delayMs}`;
+    });
 
-    expect(results).toEqual(['result-0', 'result-1', 'result-2', 'result-3']);
+    expect(results).toEqual(['result-30', 'result-5', 'result-15', 'result-0']);
   });
 
   test('handles empty input', async () => {

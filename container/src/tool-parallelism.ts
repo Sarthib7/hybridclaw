@@ -26,7 +26,7 @@ export function takeCachedValue<TKey, TValue>(
 
 export async function mapConcurrentInOrder<TItem, TResult>(
   items: readonly TItem[],
-  worker: (item: TItem, index: number) => Promise<TResult>,
+  worker: (item: TItem) => Promise<TResult>,
 ): Promise<TResult[]> {
-  return Promise.all(items.map((item, index) => worker(item, index)));
+  return Promise.all(items.map((item) => worker(item)));
 }

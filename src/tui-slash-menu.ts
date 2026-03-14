@@ -595,15 +595,31 @@ export class TuiSlashMenuController {
     state: TuiSlashMenuState | null,
   ): TuiSlashMenuKeypressResult {
     if (!this.shouldShow()) return { handled: false };
-    if (!state) return { handled: false };
 
     if (key.name === 'escape') {
-      this.dismissedQuery = state.query;
-      this.lastQuery = '';
-      this.selectedIndex = 0;
-      this.clear();
-      return { handled: true, state: null };
+      if (this.renderedLineCount > 0 && state) {
+        this.dismissedQuery = state.query;
+        this.lastQuery = '';
+        this.selectedIndex = 0;
+        this.clear();
+        return { handled: true, state: null };
+      }
+
+      if (this.rl.line.length > 0) {
+        this.dismissedQuery = null;
+        this.lastQuery = '';
+        this.selectedIndex = 0;
+        this.clear();
+        this.rl.line = '';
+        this.rl.cursor = 0;
+        this.rl._refreshLine?.();
+        return { handled: true, state: null };
+      }
+
+      return { handled: false };
     }
+
+    if (!state) return { handled: false };
 
     if (key.name === 'down' || (key.ctrl === true && key.name === 'n')) {
       if (state.entries.length === 0) return { handled: true, state };

@@ -160,3 +160,20 @@ test('escape dismisses the menu until the query changes', () => {
 
   expect(operations.some((entry) => entry.includes('/model'))).toBe(true);
 });
+
+test('second escape clears the current prompt line after dismissing the menu', () => {
+  const { rl, operations } = buildControllerHarness();
+
+  (
+    rl as unknown as { _ttyWrite: (chunk: string, key: readline.Key) => void }
+  )._ttyWrite('', { name: 'escape' });
+
+  operations.length = 0;
+  (
+    rl as unknown as { _ttyWrite: (chunk: string, key: readline.Key) => void }
+  )._ttyWrite('', { name: 'escape' });
+
+  expect(rl.line).toBe('');
+  expect(rl.cursor).toBe(0);
+  expect(operations).toContain('refresh');
+});

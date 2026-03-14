@@ -253,6 +253,7 @@ const TUI_MULTILINE_PASTE_DEBOUNCE_MS = Math.max(
   20,
   parseInt(process.env.TUI_MULTILINE_PASTE_DEBOUNCE_MS || '90', 10) || 90,
 );
+const TUI_ESCAPE_CODE_TIMEOUT_MS = 10;
 const TUI_PROACTIVE_POLL_INTERVAL_MS = Math.max(
   500,
   parseInt(process.env.TUI_PROACTIVE_POLL_INTERVAL_MS || '2500', 10) || 2500,
@@ -1409,6 +1410,9 @@ async function main(): Promise<void> {
     input: process.stdin,
     output: process.stdout,
     prompt: buildPromptText(),
+    // Keep lone ESC responsive while still allowing readline to recognize
+    // multi-byte escape sequences like arrows.
+    escapeCodeTimeout: TUI_ESCAPE_CODE_TIMEOUT_MS,
     historySize: TUI_HISTORY_SIZE,
   });
   (rl as TuiReadlineInterface).history =

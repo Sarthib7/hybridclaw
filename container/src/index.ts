@@ -977,12 +977,13 @@ async function processRequest(
         cachedApproval || !allowConcurrentBatching ? 'sequential' : 'parallel';
 
       if (executionMode === 'parallel') {
-        const candidateCalls: ToolCall[] = [];
+        const candidateCalls: ToolCall[] = [call];
+        let nextOffset = 1;
         while (
-          callIndex + candidateCalls.length < toolCalls.length &&
+          callIndex + nextOffset < toolCalls.length &&
           candidateCalls.length < MAX_PARALLEL_TOOL_CALLS
         ) {
-          const candidate = toolCalls[callIndex + candidateCalls.length];
+          const candidate = toolCalls[callIndex + nextOffset];
           if (
             getToolExecutionMode(
               candidate.function.name,
@@ -992,6 +993,7 @@ async function processRequest(
             break;
           }
           candidateCalls.push(candidate);
+          nextOffset += 1;
         }
 
         const preparedBatch: PreparedToolCallExecution[] = [];

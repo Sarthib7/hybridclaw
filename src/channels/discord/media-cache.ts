@@ -198,12 +198,13 @@ function startDiscordMediaCacheCleanup(params?: {
   rootDir?: string;
   ttlMs?: number;
 }): Promise<void> | null {
-  const now = Date.now();
+  const now = params?.nowMs ?? Date.now();
   if (cleanupPromise) {
     return cleanupPromise;
   }
   if (
     !params?.force &&
+    lastCleanupStartedAt > 0 &&
     now - lastCleanupStartedAt < DISCORD_MEDIA_CACHE_CLEANUP_MIN_INTERVAL_MS
   ) {
     return null;

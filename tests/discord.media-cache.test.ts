@@ -203,4 +203,38 @@ describe('discord media cache helpers', () => {
 
     expect(fs.existsSync(expiredFile)).toBe(false);
   });
+
+  test('triggerDiscordMediaCacheCleanup uses nowMs for the throttle interval', async () => {
+    const dataDir = makeTempDataDir();
+
+    vi.doMock('../src/config/config.ts', () => ({
+      CONTAINER_SANDBOX_MODE: 'container',
+      DATA_DIR: dataDir,
+    }));
+    vi.doMock('../src/logger.js', () => ({
+      logger: {
+        debug: vi.fn(),
+        error: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+      },
+    }));
+
+    const { triggerDiscordMediaCacheCleanup } = await import(
+      '../src/channels/discord/media-cache.js'
+    );
+
+    const first = triggerDiscordMediaCacheCleanup({ nowMs: 10_000 });
+    expect(first).not.toBeNull();
+    await first;
+
+    const throttled = triggerDiscordMediaCacheCleanup({ nowMs: 10_100 });
+    expect(throttled).toBeNull();
+
+    const afterInterval = triggerDiscordMediaCacheCleanup({
+      nowMs: 10_000 + 5 * 60 * 1_000,
+    });
+    expect(afterInterval).not.toBeNull();
+    await afterInterval;
+  });
 });

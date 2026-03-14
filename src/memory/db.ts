@@ -2201,43 +2201,47 @@ export function queryKnowledgeGraph(
 
 // --- Sessions ---
 
+export function resetSessionIfExpired(
+  sessionId: string,
+  channelId: string,
+  opts?: {
+    resetMode?: SessionResetMode;
+    expiryEvaluation?: SessionExpiryEvaluation;
+  },
+): boolean {
+  const existing = getSessionById(sessionId);
+  if (!existing) return false;
+
+  let shouldReset: boolean;
+  if (opts?.expiryEvaluation?.lastActive === existing.last_active) {
+    shouldReset = opts.expiryEvaluation.isExpired;
+  } else {
+    const policy = resolveResetPolicy({
+      channelKind: resolveSessionResetChannelKind(channelId),
+      config: getRuntimeConfig(),
+    });
+    const effectivePolicy = opts?.resetMode
+      ? { ...policy, mode: opts.resetMode }
+      : policy;
+    shouldReset = isSessionExpired(effectivePolicy, existing.last_active);
+  }
+  if (!shouldReset) return false;
+
+  resetSessionState(sessionId);
+  return true;
+}
+
 export function getOrCreateSession(
   sessionId: string,
   guildId: string | null,
   channelId: string,
   agentId?: string,
-  opts?: {
-    resetMode?: SessionResetMode;
-    expiryEvaluation?: SessionExpiryEvaluation;
-  },
 ): Session {
   const existing = getSessionById(sessionId);
   const normalizedAgentId = agentId?.trim() || null;
 
   if (existing) {
-    let shouldReset: boolean;
-    if (opts?.expiryEvaluation?.lastActive === existing.last_active) {
-      shouldReset = opts.expiryEvaluation.isExpired;
-    } else {
-      const policy = resolveResetPolicy({
-        channelKind: resolveSessionResetChannelKind(channelId),
-        config: getRuntimeConfig(),
-      });
-      const effectivePolicy = opts?.resetMode
-        ? { ...policy, mode: opts.resetMode }
-        : policy;
-      shouldReset = isSessionExpired(effectivePolicy, existing.last_active);
-    }
-    let activeSession = existing;
-    let wasReset = false;
-
-    if (shouldReset) {
-      resetSessionState(sessionId);
-      activeSession = getSessionById(sessionId) as Session;
-      wasReset = true;
-    }
-
-    if (normalizedAgentId && activeSession.agent_id !== normalizedAgentId) {
+    if (normalizedAgentId && existing.agent_id !== normalizedAgentId) {
       db.prepare(
         `UPDATE sessions
          SET last_active = datetime('now'),
@@ -2246,13 +2250,10 @@ export function getOrCreateSession(
       ).run(normalizedAgentId, sessionId);
       return getSessionById(sessionId) as Session;
     }
-    if (!wasReset) {
-      db.prepare(
-        "UPDATE sessions SET last_active = datetime('now') WHERE id = ?",
-      ).run(sessionId);
-      return getSessionById(sessionId) as Session;
-    }
-    return activeSession;
+    db.prepare(
+      "UPDATE sessions SET last_active = datetime('now') WHERE id = ?",
+    ).run(sessionId);
+    return getSessionById(sessionId) as Session;
   }
 
   db.prepare(

@@ -39,6 +39,7 @@ import {
   markSessionMemoryFlush as dbMarkSessionMemoryFlush,
   queryKnowledgeGraph as dbQueryKnowledgeGraph,
   recallSemanticMemories as dbRecallSemanticMemories,
+  resetSessionIfExpired as dbResetSessionIfExpired,
   setMemoryValue as dbSetMemoryValue,
   storeMessage as dbStoreMessage,
   storeSemanticMemory as dbStoreSemanticMemory,
@@ -58,15 +59,19 @@ export interface CompactionCandidate {
 }
 
 export interface MemoryBackend {
+  resetSessionIfExpired: (
+    sessionId: string,
+    channelId: string,
+    opts?: {
+      resetMode?: SessionResetMode;
+      expiryEvaluation?: SessionExpiryEvaluation;
+    },
+  ) => boolean;
   getOrCreateSession: (
     sessionId: string,
     guildId: string | null,
     channelId: string,
     agentId?: string,
-    opts?: {
-      resetMode?: SessionResetMode;
-      expiryEvaluation?: SessionExpiryEvaluation;
-    },
   ) => Session;
   getSessionById: (sessionId: string) => Session | undefined;
   getConversationHistory: (
@@ -221,6 +226,7 @@ const DEFAULT_CONFIG: MemoryServiceConfig = {
 };
 
 const DEFAULT_BACKEND: MemoryBackend = {
+  resetSessionIfExpired: dbResetSessionIfExpired,
   getOrCreateSession: dbGetOrCreateSession,
   getSessionById: dbGetSessionById,
   getConversationHistory: dbGetConversationHistory,
@@ -365,18 +371,24 @@ export class MemoryService {
     guildId: string | null,
     channelId: string,
     agentId?: string,
-    opts?: {
-      resetMode?: SessionResetMode;
-      expiryEvaluation?: SessionExpiryEvaluation;
-    },
   ): Session {
     return this.backend.getOrCreateSession(
       sessionId,
       guildId,
       channelId,
       agentId,
-      opts,
     );
+  }
+
+  resetSessionIfExpired(
+    sessionId: string,
+    channelId: string,
+    opts?: {
+      resetMode?: SessionResetMode;
+      expiryEvaluation?: SessionExpiryEvaluation;
+    },
+  ): boolean {
+    return this.backend.resetSessionIfExpired(sessionId, channelId, opts);
   }
 
   getSessionById(sessionId: string): Session | undefined {

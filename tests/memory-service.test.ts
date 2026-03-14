@@ -649,6 +649,7 @@ describe('MemoryService', () => {
       },
     ];
     const backend: MemoryBackend = {
+      resetSessionIfExpired: () => false,
       getOrCreateSession: (sessionId, guildId, channelId) =>
         makeSession({
           id: sessionId,
@@ -731,6 +732,7 @@ describe('MemoryService', () => {
     const storedMessages: Array<{ role: string; content: string }> = [];
     let nextMessageId = 100;
     const backend: MemoryBackend = {
+      resetSessionIfExpired: () => false,
       getOrCreateSession: (sessionId, guildId, channelId) =>
         makeSession({
           id: sessionId,
@@ -822,6 +824,7 @@ describe('MemoryService', () => {
   test('storeMessage does not write semantic memory entries', () => {
     let semanticWrites = 0;
     const backend: MemoryBackend = {
+      resetSessionIfExpired: () => false,
       getOrCreateSession: (sessionId, guildId, channelId) =>
         makeSession({
           id: sessionId,
@@ -1027,6 +1030,7 @@ describe('MemoryService', () => {
       ],
     };
     const backend: MemoryBackend = {
+      resetSessionIfExpired: () => false,
       getOrCreateSession: (sessionId, guildId, channelId) =>
         makeSession({
           id: sessionId,

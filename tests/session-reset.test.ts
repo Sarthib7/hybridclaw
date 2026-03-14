@@ -294,7 +294,7 @@ test('resetSessionState clears messages and tracks the reset metadata', async ()
   expect(memoryService.getConversationHistory(sessionId, 10)).toHaveLength(0);
 });
 
-test('getOrCreateSession auto-resets expired sessions', async () => {
+test('resetSessionIfExpired auto-resets expired sessions', async () => {
   const { dbModule, memoryService, runtimeConfigModule, dbPath } =
     await initSessionTestContext();
   const sessionId = 'auto-reset';
@@ -322,12 +322,14 @@ test('getOrCreateSession auto-resets expired sessions', async () => {
     formatSqliteUtc(new Date(Date.now() - 2 * 60 * 60 * 1000)),
   );
 
-  const session = dbModule.getOrCreateSession(sessionId, null, 'tui');
+  const reset = dbModule.resetSessionIfExpired(sessionId, 'tui');
+  const session = dbModule.getSessionById(sessionId);
 
-  expect(session.message_count).toBe(0);
-  expect(session.session_summary).toBeNull();
-  expect(session.reset_count).toBe(1);
-  expect(session.reset_at).not.toBeNull();
+  expect(reset).toBe(true);
+  expect(session?.message_count).toBe(0);
+  expect(session?.session_summary).toBeNull();
+  expect(session?.reset_count).toBe(1);
+  expect(session?.reset_at).not.toBeNull();
   expect(memoryService.getConversationHistory(sessionId, 10)).toHaveLength(0);
 });
 
@@ -361,7 +363,42 @@ test('getOrCreateSession keeps recent sessions intact', async () => {
   expect(memoryService.getConversationHistory(sessionId, 10)).toHaveLength(1);
 });
 
-test('getOrCreateSession skips auto-reset when resetMode is none', async () => {
+test('getOrCreateSession leaves expired sessions untouched until resetSessionIfExpired runs', async () => {
+  const { dbModule, memoryService, runtimeConfigModule, dbPath } =
+    await initSessionTestContext();
+  const sessionId = 'expired-but-not-reset';
+
+  runtimeConfigModule.updateRuntimeConfig((draft) => {
+    draft.sessionReset.defaultPolicy = {
+      mode: 'idle',
+      atHour: 4,
+      idleMinutes: 60,
+    };
+  });
+
+  dbModule.getOrCreateSession(sessionId, null, 'tui');
+  memoryService.storeMessage({
+    sessionId,
+    userId: 'user-1',
+    username: 'user',
+    role: 'user',
+    content: 'stale context',
+  });
+  updateLastActive(
+    dbPath,
+    sessionId,
+    formatSqliteUtc(new Date(Date.now() - 2 * 60 * 60 * 1000)),
+  );
+
+  const session = dbModule.getOrCreateSession(sessionId, null, 'tui');
+
+  expect(session.message_count).toBe(1);
+  expect(session.reset_count).toBe(0);
+  expect(session.reset_at).toBeNull();
+  expect(memoryService.getConversationHistory(sessionId, 10)).toHaveLength(1);
+});
+
+test('resetSessionIfExpired skips auto-reset when resetMode is none', async () => {
   const { dbModule, memoryService, runtimeConfigModule, dbPath } =
     await initSessionTestContext();
   const sessionId = 'no-auto-reset';
@@ -388,21 +425,19 @@ test('getOrCreateSession skips auto-reset when resetMode is none', async () => {
     formatSqliteUtc(new Date(Date.now() - 2 * 60 * 60 * 1000)),
   );
 
-  const session = dbModule.getOrCreateSession(
-    sessionId,
-    null,
-    'tui',
-    undefined,
-    { resetMode: 'none' },
-  );
+  const reset = dbModule.resetSessionIfExpired(sessionId, 'tui', {
+    resetMode: 'none',
+  });
+  const session = dbModule.getSessionById(sessionId);
 
-  expect(session.message_count).toBe(1);
-  expect(session.reset_count).toBe(0);
-  expect(session.reset_at).toBeNull();
+  expect(reset).toBe(false);
+  expect(session?.message_count).toBe(1);
+  expect(session?.reset_count).toBe(0);
+  expect(session?.reset_at).toBeNull();
   expect(memoryService.getConversationHistory(sessionId, 10)).toHaveLength(1);
 });
 
-test('getOrCreateSession recomputes expiry when a cached evaluation is stale', async () => {
+test('resetSessionIfExpired recomputes expiry when a cached evaluation is stale', async () => {
   const { dbModule, memoryService, runtimeConfigModule, dbPath } =
     await initSessionTestContext();
   const sessionId = 'stale-expiry-evaluation';
@@ -431,21 +466,17 @@ test('getOrCreateSession recomputes expiry when a cached evaluation is stale', a
     formatSqliteUtc(new Date(Date.now() - 2 * 60 * 60 * 1000)),
   );
 
-  const session = dbModule.getOrCreateSession(
-    sessionId,
-    null,
-    'tui',
-    undefined,
-    {
-      expiryEvaluation: {
-        lastActive: beforeExpiry?.last_active ?? '',
-        isExpired: false,
-      },
+  const reset = dbModule.resetSessionIfExpired(sessionId, 'tui', {
+    expiryEvaluation: {
+      lastActive: beforeExpiry?.last_active ?? '',
+      isExpired: false,
     },
-  );
+  });
+  const session = dbModule.getSessionById(sessionId);
 
-  expect(session.message_count).toBe(0);
-  expect(session.reset_count).toBe(1);
+  expect(reset).toBe(true);
+  expect(session?.message_count).toBe(0);
+  expect(session?.reset_count).toBe(1);
   expect(memoryService.getConversationHistory(sessionId, 10)).toHaveLength(0);
 });
 

@@ -3090,12 +3090,14 @@ export async function handleGatewayMessage(
     model: req.model,
     enableRag: req.enableRag,
   });
+  memoryService.resetSessionIfExpired(req.sessionId, req.channelId, {
+    expiryEvaluation,
+  });
   let session = memoryService.getOrCreateSession(
     req.sessionId,
     req.guildId,
     req.channelId,
     req.agentId ?? undefined,
-    { expiryEvaluation },
   );
   if (source !== 'fullauto') {
     preemptRunningFullAutoTurn(req.sessionId, source);
@@ -3128,12 +3130,14 @@ export async function handleGatewayMessage(
       model,
       enableRag: req.enableRag ?? session.enable_rag === 1,
     });
+    memoryService.resetSessionIfExpired(req.sessionId, req.channelId, {
+      expiryEvaluation: reboundExpiryEvaluation,
+    });
     session = memoryService.getOrCreateSession(
       req.sessionId,
       req.guildId,
       req.channelId,
       agentId,
-      { expiryEvaluation: reboundExpiryEvaluation },
     );
   }
   const showMode = normalizeSessionShowMode(session.show_mode);
@@ -3160,12 +3164,14 @@ export async function handleGatewayMessage(
         model,
         enableRag,
       });
+      memoryService.resetSessionIfExpired(req.sessionId, req.channelId, {
+        expiryEvaluation: workspaceResetExpiryEvaluation,
+      });
       session = memoryService.getOrCreateSession(
         req.sessionId,
         req.guildId,
         req.channelId,
         agentId,
-        { expiryEvaluation: workspaceResetExpiryEvaluation },
       );
     }
     logger.info(
@@ -3794,12 +3800,15 @@ export async function runGatewayScheduledTask(
     channelId,
     resetMode: 'none',
   });
+  memoryService.resetSessionIfExpired(origSessionId, channelId, {
+    resetMode: 'none',
+    expiryEvaluation,
+  });
   const session = memoryService.getOrCreateSession(
     origSessionId,
     null,
     channelId,
     undefined,
-    { resetMode: 'none', expiryEvaluation },
   );
   const { agentId, chatbotId, model } = resolveAgentForRequest({ session });
   if (modelRequiresChatbotId(model) && !chatbotId) {
@@ -3840,12 +3849,14 @@ export async function handleGatewayCommand(
     sessionId: req.sessionId,
     channelId: req.channelId,
   });
+  memoryService.resetSessionIfExpired(req.sessionId, req.channelId, {
+    expiryEvaluation,
+  });
   const session = memoryService.getOrCreateSession(
     req.sessionId,
     req.guildId,
     req.channelId,
     undefined,
-    { expiryEvaluation },
   );
 
   switch (cmd) {

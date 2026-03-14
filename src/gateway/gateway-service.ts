@@ -3153,27 +3153,14 @@ export async function handleGatewayMessage(
   ) {
     const clearedMessages = memoryService.clearSessionHistory(req.sessionId);
     const refreshedSession = memoryService.getSessionById(req.sessionId);
-    if (refreshedSession) {
-      session = refreshedSession;
-    } else {
-      const workspaceResetExpiryEvaluation = await prepareSessionAutoReset({
-        sessionId: req.sessionId,
-        channelId: req.channelId,
-        agentId,
-        chatbotId,
-        model,
-        enableRag,
-      });
-      memoryService.resetSessionIfExpired(req.sessionId, req.channelId, {
-        expiryEvaluation: workspaceResetExpiryEvaluation,
-      });
-      session = memoryService.getOrCreateSession(
-        req.sessionId,
-        req.guildId,
-        req.channelId,
-        agentId,
+    // clearSessionHistory only deletes messages and updates the existing session row.
+    // If the row is missing here, another code path deleted the session unexpectedly.
+    if (!refreshedSession) {
+      throw new Error(
+        `Session ${req.sessionId} disappeared after clearSessionHistory`,
       );
     }
+    session = refreshedSession;
     logger.info(
       {
         sessionId: req.sessionId,

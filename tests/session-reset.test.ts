@@ -195,10 +195,20 @@ test('resolveResetPolicy returns the default constant when config is missing', (
   expect(resolveResetPolicy()).toBe(DEFAULT_RESET_POLICY);
 });
 
-test('resolveSessionResetChannelKind maps heartbeat sessions explicitly', () => {
+test('resolveSessionResetChannelKind infers real channel kinds from channel ids', () => {
   expect(resolveSessionResetChannelKind('heartbeat')).toBe('heartbeat');
   expect(resolveSessionResetChannelKind(' heartbeat ')).toBe('heartbeat');
-  expect(resolveSessionResetChannelKind('tui')).toBeUndefined();
+  expect(resolveSessionResetChannelKind('123456789012345678')).toBe('discord');
+  expect(resolveSessionResetChannelKind('491234567890@s.whatsapp.net')).toBe(
+    'whatsapp',
+  );
+  expect(resolveSessionResetChannelKind('peer@example.com')).toBe('email');
+  expect(resolveSessionResetChannelKind('tui')).toBe('tui');
+  expect(resolveSessionResetChannelKind('web')).toBe('web');
+  expect(resolveSessionResetChannelKind('cli')).toBe('cli');
+  expect(
+    resolveSessionResetChannelKind('not-a-known-channel-kind'),
+  ).toBeUndefined();
   expect(resolveSessionResetChannelKind(undefined)).toBeUndefined();
 });
 
@@ -228,7 +238,12 @@ test('resolveResetPolicy returns channel overrides when configured', async () =>
     atHour: 6,
     idleMinutes: 240,
   });
-  expect(resolveResetPolicy({ channelKind: 'discord', config })).toEqual({
+  expect(
+    resolveResetPolicy({
+      channelKind: resolveSessionResetChannelKind('123456789012345678'),
+      config,
+    }),
+  ).toEqual({
     mode: 'idle',
     atHour: 8,
     idleMinutes: 30,
@@ -257,6 +272,49 @@ test('resolveResetPolicy falls back to the default policy when a channel overrid
     atHour: 7,
     idleMinutes: 90,
   });
+});
+
+test('resetSessionIfExpired applies byChannelKind overrides for real transport channel ids', async () => {
+  const { dbModule, memoryService, runtimeConfigModule, dbPath } =
+    await initSessionTestContext();
+  const sessionId = 'discord-reset';
+  const channelId = '123456789012345678';
+
+  runtimeConfigModule.updateRuntimeConfig((draft) => {
+    draft.sessionReset.defaultPolicy = {
+      mode: 'none',
+      atHour: 4,
+      idleMinutes: 1440,
+    };
+    draft.sessionReset.byChannelKind = {
+      discord: {
+        mode: 'idle',
+        idleMinutes: 60,
+      },
+    };
+  });
+
+  dbModule.getOrCreateSession(sessionId, null, channelId);
+  memoryService.storeMessage({
+    sessionId,
+    userId: 'user-1',
+    username: 'user',
+    role: 'user',
+    content: 'discord context',
+  });
+  updateLastActive(
+    dbPath,
+    sessionId,
+    formatSqliteUtc(new Date(Date.now() - 2 * 60 * 60 * 1000)),
+  );
+
+  const reset = dbModule.resetSessionIfExpired(sessionId, channelId);
+  const session = dbModule.getSessionById(sessionId);
+
+  expect(reset).toBe(true);
+  expect(session?.message_count).toBe(0);
+  expect(session?.reset_count).toBe(1);
+  expect(memoryService.getConversationHistory(sessionId, 10)).toHaveLength(0);
 });
 
 test('resetSessionState clears messages and tracks the reset metadata', async () => {

@@ -1,3 +1,5 @@
+import { isEmailAddress } from '../channels/email/allowlist.js';
+import { isWhatsAppJid } from '../channels/whatsapp/phone.js';
 import type { RuntimeConfig } from '../config/runtime-config.js';
 
 export type SessionResetMode = 'daily' | 'idle' | 'both' | 'none';
@@ -19,11 +21,24 @@ export const DEFAULT_RESET_POLICY: SessionResetPolicy = Object.freeze({
   idleMinutes: 1440,
 });
 
+const DISCORD_CHANNEL_ID_RE = /^\d{16,22}$/;
+const LOCAL_SESSION_RESET_CHANNEL_KINDS = new Set([
+  'heartbeat',
+  'tui',
+  'web',
+  'cli',
+]);
+
 export function resolveSessionResetChannelKind(
   channelId?: string | null,
 ): string | undefined {
   const normalized = typeof channelId === 'string' ? channelId.trim() : '';
-  return normalized === 'heartbeat' ? 'heartbeat' : undefined;
+  if (!normalized) return undefined;
+  if (LOCAL_SESSION_RESET_CHANNEL_KINDS.has(normalized)) return normalized;
+  if (isWhatsAppJid(normalized)) return 'whatsapp';
+  if (isEmailAddress(normalized)) return 'email';
+  if (DISCORD_CHANNEL_ID_RE.test(normalized)) return 'discord';
+  return undefined;
 }
 
 export function normalizeSessionResetMode(

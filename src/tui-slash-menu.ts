@@ -280,6 +280,28 @@ const EXTRA_ROOT_ENTRIES: ManualMenuEntrySeed[] = [
 ];
 
 const MAX_RESULTS = 12;
+const SCORE_WEIGHTS = {
+  // Match precedence from strongest to weakest:
+  // exact normalized > exact compact > prefix normalized > substring normalized
+  // > prefix compact > subsequence compact. The base values keep these buckets
+  // disjoint so later tuning can adjust one tier without accidentally outranking
+  // another.
+  exactNormalizedBase: 2200,
+  exactCompactBase: 2000,
+  prefixNormalizedBase: 1800,
+  substringNormalizedBase: 1600,
+  prefixCompactBase: 1500,
+  subsequenceBase: 1000,
+  emptyQueryBase: 1000,
+  exactLengthPenalty: 1,
+  prefixLengthPenalty: 1,
+  substringIndexPenalty: 5,
+  subsequenceGapPenalty: 10,
+  subsequenceStartPenalty: 2,
+  emptyQueryDepthPenalty: 10,
+  depthBonusBase: 20,
+  depthBonusPenalty: 3,
+} as const;
 
 function normalizeSearchText(value: string): string {
   return value
@@ -429,7 +451,11 @@ function subsequenceScore(query: string, target: string): number | null {
 
   const span = lastMatch - firstMatch + 1;
   const gaps = span - query.length;
-  return 1000 - gaps * 10 - firstMatch * 2;
+  return (
+    SCORE_WEIGHTS.subsequenceBase -
+    gaps * SCORE_WEIGHTS.subsequenceGapPenalty -
+    firstMatch * SCORE_WEIGHTS.subsequenceStartPenalty
+  );
 }
 
 function scoreSearchTerm(query: string, searchTerm: string): number | null {
@@ -440,15 +466,25 @@ function scoreSearchTerm(query: string, searchTerm: string): number | null {
   if (!normalizedQuery || !normalizedSearchTerm) return null;
 
   if (normalizedSearchTerm === normalizedQuery) {
-    return 2200 - normalizedSearchTerm.length;
+    return (
+      SCORE_WEIGHTS.exactNormalizedBase -
+      normalizedSearchTerm.length * SCORE_WEIGHTS.exactLengthPenalty
+    );
   }
   if (normalizedSearchTerm.startsWith(normalizedQuery)) {
-    return 1800 - (normalizedSearchTerm.length - normalizedQuery.length);
+    return (
+      SCORE_WEIGHTS.prefixNormalizedBase -
+      (normalizedSearchTerm.length - normalizedQuery.length) *
+        SCORE_WEIGHTS.prefixLengthPenalty
+    );
   }
 
   const substringIndex = normalizedSearchTerm.indexOf(normalizedQuery);
   if (substringIndex >= 0) {
-    return 1600 - substringIndex * 5;
+    return (
+      SCORE_WEIGHTS.substringNormalizedBase -
+      substringIndex * SCORE_WEIGHTS.substringIndexPenalty
+    );
   }
 
   const compactQuery = compactSearchText(normalizedQuery);
@@ -456,10 +492,17 @@ function scoreSearchTerm(query: string, searchTerm: string): number | null {
   if (!compactQuery || !compactSearchTerm) return null;
 
   if (compactSearchTerm === compactQuery) {
-    return 2000 - compactSearchTerm.length;
+    return (
+      SCORE_WEIGHTS.exactCompactBase -
+      compactSearchTerm.length * SCORE_WEIGHTS.exactLengthPenalty
+    );
   }
   if (compactSearchTerm.startsWith(compactQuery)) {
-    return 1500 - (compactSearchTerm.length - compactQuery.length);
+    return (
+      SCORE_WEIGHTS.prefixCompactBase -
+      (compactSearchTerm.length - compactQuery.length) *
+        SCORE_WEIGHTS.prefixLengthPenalty
+    );
   }
 
   return subsequenceScore(compactQuery, compactSearchTerm);
@@ -549,13 +592,22 @@ export function rankTuiSlashMenuEntries(
           if (currentBest == null || nextScore > currentBest) return nextScore;
           return currentBest;
         },
-        trimmedQuery ? null : 1000 - entry.depth * 10,
+        trimmedQuery
+          ? null
+          : SCORE_WEIGHTS.emptyQueryBase -
+              entry.depth * SCORE_WEIGHTS.emptyQueryDepthPenalty,
       );
 
       if (bestScore == null) return null;
       return {
         entry,
-        score: bestScore + Math.max(0, 20 - entry.depth * 3),
+        score:
+          bestScore +
+          Math.max(
+            0,
+            SCORE_WEIGHTS.depthBonusBase -
+              entry.depth * SCORE_WEIGHTS.depthBonusPenalty,
+          ),
       };
     })
     .filter((entry): entry is { entry: TuiSlashMenuEntry; score: number } =>

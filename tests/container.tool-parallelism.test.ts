@@ -57,25 +57,18 @@ describe('isLoopGuardedToolName', () => {
 });
 
 describe('mapConcurrentInOrder', () => {
-  test('returns results in input order while running up to the concurrency limit', async () => {
+  test('returns results in input order', async () => {
     const items = [30, 5, 15, 0];
-    let inFlight = 0;
-    let maxInFlight = 0;
 
     const results = await mapConcurrentInOrder(
       items,
       async (delayMs, index) => {
-        inFlight += 1;
-        maxInFlight = Math.max(maxInFlight, inFlight);
         await new Promise((resolve) => setTimeout(resolve, delayMs));
-        inFlight -= 1;
         return `result-${index}`;
       },
-      2,
     );
 
     expect(results).toEqual(['result-0', 'result-1', 'result-2', 'result-3']);
-    expect(maxInFlight).toBe(2);
   });
 
   test('handles empty input', async () => {

@@ -29,27 +29,6 @@ export function takeCachedValue<TKey, TValue>(
 export async function mapConcurrentInOrder<TItem, TResult>(
   items: readonly TItem[],
   worker: (item: TItem, index: number) => Promise<TResult>,
-  maxConcurrency = MAX_PARALLEL_TOOL_CALLS,
 ): Promise<TResult[]> {
-  if (items.length === 0) return [];
-
-  const results = new Array<TResult>(items.length);
-  const workerCount = Math.max(
-    1,
-    Math.min(Math.trunc(maxConcurrency) || 1, items.length),
-  );
-  let nextIndex = 0;
-
-  await Promise.all(
-    Array.from({ length: workerCount }, async () => {
-      while (true) {
-        const currentIndex = nextIndex;
-        nextIndex += 1;
-        if (currentIndex >= items.length) return;
-        results[currentIndex] = await worker(items[currentIndex], currentIndex);
-      }
-    }),
-  );
-
-  return results;
+  return Promise.all(items.map((item, index) => worker(item, index)));
 }

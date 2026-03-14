@@ -58,6 +58,7 @@ import {
 } from './tool-loop-detection.js';
 import {
   getToolExecutionMode,
+  MAX_PARALLEL_TOOL_CALLS,
   mapConcurrentInOrder,
   takeCachedValue,
 } from './tool-parallelism.js';
@@ -977,7 +978,10 @@ async function processRequest(
 
       if (executionMode === 'parallel') {
         const candidateCalls: ToolCall[] = [];
-        while (callIndex + candidateCalls.length < toolCalls.length) {
+        while (
+          callIndex + candidateCalls.length < toolCalls.length &&
+          candidateCalls.length < MAX_PARALLEL_TOOL_CALLS
+        ) {
           const candidate = toolCalls[callIndex + candidateCalls.length];
           if (
             getToolExecutionMode(

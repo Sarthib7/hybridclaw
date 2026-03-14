@@ -441,8 +441,9 @@ function printHelp(): void {
   console.log(
     `  ${TEAL}/agent [info|list|switch|create|model] [id] [--model <model>]${RESET} Inspect or manage agents`,
   );
-  console.log(`  ${TEAL}/bots${RESET}             List available bots`);
-  console.log(`  ${TEAL}/bot <id|name>${RESET}    Switch bot for this session`);
+  console.log(
+    `  ${TEAL}/bot [info|list|set <id|name>]${RESET} Manage the chatbot for this session`,
+  );
   console.log(
     `  ${TEAL}/model [<name>|info|list [provider]|set <name>|clear|default [name]]${RESET} Inspect or set session/default model`,
   );

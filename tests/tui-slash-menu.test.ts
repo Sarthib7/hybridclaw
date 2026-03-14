@@ -17,7 +17,7 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
   expect(labels).toContain('/model select');
   expect(labels).toContain('/approve yes [approval_id]');
   expect(labels).toContain('/fullauto on [prompt]');
-  expect(labels).toContain('/bots');
+  expect(labels).toContain('/bot list');
 });
 
 test('resolves slash menu queries only at the end of the active line', () => {

@@ -153,9 +153,6 @@ export function mapCanonicalCommandToGatewayArgs(
   if (!cmd) return null;
 
   switch (cmd) {
-    case 'bots':
-      return ['bot', 'list'];
-
     case 'bot': {
       const sub = (parts[1] || '').trim().toLowerCase();
       if (!sub || sub === 'info') return ['bot', 'info'];
@@ -594,8 +591,7 @@ function buildSlashCommandCatalogDefinitions(
           id: 'rag.on',
           label: '/rag on',
           insertText: '/rag on',
-          description:
-            'Enable retrieval-augmented generation for this session',
+          description: 'Enable retrieval-augmented generation for this session',
         },
         {
           id: 'rag.off',
@@ -890,11 +886,6 @@ function buildSlashCommandCatalogDefinitions(
           ],
         },
       ],
-    },
-    {
-      name: 'bots',
-      description: 'List available bots for this session',
-      tuiOnly: true,
     },
     {
       name: 'fullauto',

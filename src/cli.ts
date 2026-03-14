@@ -333,7 +333,7 @@ If gateway is not running, it is started in backend mode automatically.
 Interactive slash commands inside TUI:
   /help   /status   /approve [view|yes|session|agent|no] [approval_id]
   /show [all|thinking|tools|none]
-  /agent [list|switch|create|model]   /bots   /bot [info|list|set <id|name>]
+  /agent [list|switch|create|model]   /bot [info|list|set <id|name>]
   /model [name]   /model info|list [provider]|set <name>|clear|default [name]
   /channel-mode <off|mention|free>   /channel-policy <open|allowlist|disabled>
   /rag [on|off]   /ralph [info|on|off|set n]   /mcp list

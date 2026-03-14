@@ -105,7 +105,6 @@ const RESERVED_SKILL_COMMAND_NAMES = new Set<string>([
   'new',
   'status',
   'bot',
-  'bots',
   'rag',
   'info',
   'stop',

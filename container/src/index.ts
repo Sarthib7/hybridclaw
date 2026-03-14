@@ -502,12 +502,14 @@ function logToolCallStart(
 
 function appendCompletedToolCall(params: {
   completed: CompletedToolCallExecution;
+  toolsUsed: string[];
   toolExecutions: ToolExecution[];
   history: ChatMessage[];
   toolCallHistory: ToolCallHistoryEntry[];
   artifacts: ArtifactMetadata[];
   artifactPaths: Set<string>;
 }): void {
+  params.toolsUsed.push(params.completed.toolName);
   params.toolExecutions.push(params.completed.execution);
   for (const artifact of params.completed.artifacts) {
     const artifactKey = normalizeArtifactKey(artifact.path);
@@ -1002,7 +1004,6 @@ async function processRequest(
             cachedApprovals.set(candidate.id, candidateApproval);
             break;
           }
-          toolsUsed.push(candidate.function.name);
           logToolCallStart(
             candidate.function.name,
             candidate.function.arguments,
@@ -1061,6 +1062,7 @@ async function processRequest(
             }
             appendCompletedToolCall({
               completed,
+              toolsUsed,
               toolExecutions,
               history,
               toolCallHistory,
@@ -1082,6 +1084,7 @@ async function processRequest(
           }
           appendCompletedToolCall({
             completed,
+            toolsUsed,
             toolExecutions,
             history,
             toolCallHistory,
@@ -1100,10 +1103,10 @@ async function processRequest(
           argsJson: call.function.arguments,
           latestUserPrompt: effectiveUserPrompt,
         });
-      toolsUsed.push(toolName);
       logToolCallStart(toolName, call.function.arguments, approval);
 
       if (approval.decision === 'required') {
+        toolsUsed.push(toolName);
         const prompt = approvalRuntime.formatApprovalRequest(approval);
         toolExecutions.push({
           name: toolName,
@@ -1139,6 +1142,7 @@ async function processRequest(
       }
 
       if (approval.decision === 'denied') {
+        toolsUsed.push(toolName);
         const denialText = `Approval denied: ${approval.reason}`;
         toolExecutions.push({
           name: toolName,
@@ -1185,6 +1189,7 @@ async function processRequest(
       }
       appendCompletedToolCall({
         completed,
+        toolsUsed,
         toolExecutions,
         history,
         toolCallHistory,

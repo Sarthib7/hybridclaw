@@ -20,6 +20,7 @@ import {
   gatewayChat,
   gatewayChatStream,
   gatewayCommand,
+  gatewayHistory,
   gatewayPullProactive,
   gatewayStatus,
   renderGatewayCommand,
@@ -53,6 +54,12 @@ import {
   mapTuiSlashCommandToGatewayArgs,
   parseTuiSlashCommand,
 } from './tui-slash-command.js';
+import { buildTuiReadlineHistory } from './tui-history.js';
+import {
+  buildTuiSlashMenuEntries,
+  TuiSlashMenuController,
+  type TuiSlashMenuPalette,
+} from './tui-slash-menu.js';
 import {
   countTerminalRows,
   createTuiStreamFormatState,
@@ -70,6 +77,10 @@ const HIDE_CURSOR = '\x1b[?25l';
 const SHOW_CURSOR = '\x1b[?25h';
 
 type TuiTheme = 'dark' | 'light';
+type TuiReadlineInterface = readline.Interface & {
+  history: string[];
+  _refreshLine?: () => void;
+};
 
 interface TuiPalette {
   muted: string;
@@ -243,6 +254,7 @@ const TUI_PROACTIVE_POLL_INTERVAL_MS = Math.max(
   500,
   parseInt(process.env.TUI_PROACTIVE_POLL_INTERVAL_MS || '2500', 10) || 2500,
 );
+const TUI_HISTORY_SIZE = 100;
 const TOOL_PREVIEW_MAX_CHARS = 140;
 
 let activeRunAbortController: AbortController | null = null;
@@ -258,6 +270,7 @@ let tuiPendingApproval: {
   allowAgent: boolean;
 } | null = null;
 let tuiShowMode: SessionShowMode = DEFAULT_SESSION_SHOW_MODE;
+let tuiSlashMenu: TuiSlashMenuController | null = null;
 
 function mapApprovalSelectionToCommand(
   selection: string,
@@ -318,7 +331,7 @@ async function promptApprovalSelection(
   if (allowSession) options.push('session');
   if (allowAgent) options.push('agent');
   options.push('skip');
-
+  clearTuiSlashMenu();
   console.log(
     `  ${BOLD}${GOLD}Approval options${RESET} ${MUTED}(request ${requestId})${RESET}`,
   );
@@ -355,6 +368,7 @@ function printBanner(
   },
   sandboxMode: 'container' | 'host',
 ): void {
+  clearTuiSlashMenu();
   const T = TEAL;
   const N = NAVY;
   const logo = [
@@ -409,8 +423,12 @@ function printBanner(
 }
 
 function printHelp(): void {
+  clearTuiSlashMenu();
   console.log();
   console.log(`  ${BOLD}${GOLD}Commands${RESET}`);
+  console.log(
+    `  ${TEAL}TAB${RESET} accept suggestion ${MUTED}|${RESET} ${TEAL}↑↓${RESET} navigate slash menu ${MUTED}|${RESET} ${TEAL}ESC${RESET} close menu`,
+  );
   console.log(`  ${TEAL}/help${RESET}             Show this help`);
   console.log(
     `  ${TEAL}/agent [info|list|switch|create|model] [id] [--model <model>]${RESET} Inspect or manage agents`,
@@ -476,6 +494,7 @@ function printResponse(
     leadingBlank?: boolean;
   },
 ): void {
+  clearTuiSlashMenu();
   if (options?.leadingBlank !== false) {
     console.log();
   }
@@ -489,6 +508,7 @@ function printError(
     leadingBlank?: boolean;
   },
 ): void {
+  clearTuiSlashMenu();
   const prefix = options?.leadingBlank === false ? '' : '\n';
   const wrapped = formatTuiOutput(`Error: ${text}`);
   const colored = wrapped
@@ -499,6 +519,7 @@ function printError(
 }
 
 function printInfo(text: string): void {
+  clearTuiSlashMenu();
   console.log();
   for (const line of formatTuiOutput(text).split('\n')) {
     console.log(`${GOLD}${line}${RESET}`);
@@ -512,6 +533,7 @@ function isModelCatalogCommandResult(result: GatewayCommandResult): boolean {
 }
 
 function printModelCatalogCommandResult(result: GatewayCommandResult): void {
+  clearTuiSlashMenu();
   console.log();
   if (result.title) {
     console.log(`  ${GOLD}${result.title}${RESET}`);
@@ -532,6 +554,7 @@ function printModelCatalogCommandResult(result: GatewayCommandResult): void {
 
 function printToolUsage(tools: string[]): void {
   if (tools.length === 0) return;
+  clearTuiSlashMenu();
   console.log(
     `  ${MUTED}${JELLYFISH} tools:${RESET} ${GREEN}${tools.join(', ')}${RESET}`,
   );
@@ -787,8 +810,24 @@ function buildPromptText(): string {
   return `${separator}\n  ${TEAL}>${RESET} `;
 }
 
+function clearTuiSlashMenu(): void {
+  tuiSlashMenu?.clear();
+}
+
+function syncTuiSlashMenu(): void {
+  tuiSlashMenu?.sync();
+}
+
+function promptTuiInput(rl: readline.Interface): void {
+  rl.prompt();
+  syncTuiSlashMenu();
+}
+
 function refreshPrompt(rl: readline.Interface): void {
   rl.setPrompt(buildPromptText());
+  const internal = rl as TuiReadlineInterface;
+  internal._refreshLine?.();
+  syncTuiSlashMenu();
 }
 
 function parseShowModeFromResult(
@@ -813,6 +852,18 @@ async function fetchInitialFullAutoState(): Promise<TuiFullAutoState> {
     return parseFullAutoStatusText(result.text) || DEFAULT_TUI_FULLAUTO_STATE;
   } catch {
     return DEFAULT_TUI_FULLAUTO_STATE;
+  }
+}
+
+async function fetchTuiInputHistory(limit = TUI_HISTORY_SIZE): Promise<string[]> {
+  try {
+    const response = await gatewayHistory(
+      SESSION_ID,
+      Math.min(200, Math.max(limit, limit * 2)),
+    );
+    return buildTuiReadlineHistory(response.history, limit);
+  } catch {
+    return [];
   }
 }
 
@@ -946,6 +997,7 @@ async function fetchSessionAndDefaultModel(): Promise<{
 async function promptModelSelection(
   rl: readline.Interface,
 ): Promise<string | null> {
+  clearTuiSlashMenu();
   const models = await fetchSelectableModels();
   if (models.length === 0) {
     printError('No models configured.');
@@ -1006,6 +1058,7 @@ async function handleSlashCommand(
     case 'exit':
     case 'quit':
     case 'q':
+      clearTuiSlashMenu();
       console.log(`\n  ${GOLD}Goodbye!${RESET}\n`);
       rl.close();
       process.exit(0);
@@ -1301,7 +1354,7 @@ async function processFullAutoSteeringMessage(
         };
       }
       refreshPrompt(rl);
-      rl.prompt();
+      promptTuiInput(rl);
     }
   })();
 }
@@ -1316,6 +1369,7 @@ async function pollProactiveMessages(rl: readline.Interface): Promise<void> {
     const result = await gatewayPullProactive(CHANNEL_ID, 20);
     if (!Array.isArray(result.messages) || result.messages.length === 0) return;
 
+    clearTuiSlashMenu();
     console.log();
     for (const message of result.messages) {
       const suffix = proactiveSourceSuffix(message.source);
@@ -1325,7 +1379,7 @@ async function pollProactiveMessages(rl: readline.Interface): Promise<void> {
       );
     }
     console.log();
-    rl.prompt();
+    promptTuiInput(rl);
   } catch (error) {
     logger.debug(
       { error },
@@ -1348,8 +1402,28 @@ async function main(): Promise<void> {
     input: process.stdin,
     output: process.stdout,
     prompt: buildPromptText(),
-    historySize: 100,
+    historySize: TUI_HISTORY_SIZE,
   });
+  (rl as TuiReadlineInterface).history =
+    await fetchTuiInputHistory(TUI_HISTORY_SIZE);
+  const slashMenuPalette: TuiSlashMenuPalette = {
+    reset: RESET,
+    separator: MUTED,
+    marker: MUTED,
+    markerSelected: GOLD,
+    command: MUTED,
+    commandSelected: `${BOLD}${TEAL}`,
+    description: MUTED,
+    descriptionSelected: TEAL,
+  };
+  tuiSlashMenu = new TuiSlashMenuController({
+    rl,
+    entries: buildTuiSlashMenuEntries(),
+    palette: slashMenuPalette,
+    shouldShow: () =>
+      !activeRunAbortController || activeRunAbortController.signal.aborted,
+  });
+  tuiSlashMenu.install();
   refreshPrompt(rl);
 
   readline.emitKeypressEvents(process.stdin, rl);
@@ -1361,7 +1435,7 @@ async function main(): Promise<void> {
     activeRunAbortController.abort();
   });
 
-  rl.prompt();
+  promptTuiInput(rl);
   let pendingInputLines: string[] = [];
   let pendingInputTimer: ReturnType<typeof setTimeout> | null = null;
   let inputRunQueue = Promise.resolve();
@@ -1370,14 +1444,15 @@ async function main(): Promise<void> {
     inputRunQueue = inputRunQueue
       .then(async () => {
         const trimmed = input.trim();
+        clearTuiSlashMenu();
         if (!trimmed) {
-          rl.prompt();
+          promptTuiInput(rl);
           return;
         }
         if (!input.includes('\n') && trimmed.startsWith('/')) {
           const handled = await handleSlashCommand(trimmed, rl);
           if (handled) {
-            rl.prompt();
+            promptTuiInput(rl);
             return;
           }
         }
@@ -1385,21 +1460,21 @@ async function main(): Promise<void> {
           const liveFullAutoState = await syncFullAutoStateFromGateway(rl);
           if (shouldRouteTuiInputToFullAuto(liveFullAutoState)) {
             await processFullAutoSteeringMessage(input, rl);
-            rl.prompt();
+            promptTuiInput(rl);
             return;
           }
         }
         if (shouldRouteTuiInputToFullAuto(tuiFullAutoState)) {
           await processFullAutoSteeringMessage(input, rl);
-          rl.prompt();
+          promptTuiInput(rl);
           return;
         }
         await processMessage(input, rl);
-        rl.prompt();
+        promptTuiInput(rl);
       })
       .catch((err) => {
         printError(err instanceof Error ? err.message : String(err));
-        rl.prompt();
+        promptTuiInput(rl);
       });
   };
 
@@ -1432,6 +1507,8 @@ async function main(): Promise<void> {
     clearInterval(proactivePollTimer);
     if (pendingInputTimer) clearTimeout(pendingInputTimer);
     if (process.stdin.isTTY) process.stdin.setRawMode(false);
+    clearTuiSlashMenu();
+    tuiSlashMenu = null;
     console.log(`\n${MUTED}  Goodbye!${RESET}\n`);
     process.exit(0);
   });

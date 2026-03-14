@@ -6,6 +6,7 @@ import {
   type GatewayChatStreamEvent,
   type GatewayChatStreamResultEvent,
   type GatewayChatTextDeltaEvent,
+  type GatewayHistoryResponse,
   type GatewayChatToolProgressEvent,
   type GatewayCommandRequest,
   type GatewayCommandResult,
@@ -20,6 +21,7 @@ export type {
   GatewayStatus,
   GatewayChatApprovalEvent,
   GatewayChatStreamEvent,
+  GatewayHistoryResponse,
   GatewayProactivePullResponse,
 };
 export type GatewayChatRequest = GatewayChatRequestBody;
@@ -251,6 +253,23 @@ export async function gatewayPullProactive(
   });
   return requestJson<GatewayProactivePullResponse>(
     `/api/proactive/pull?${params.toString()}`,
+    {
+      method: 'GET',
+      headers: authHeaders(),
+    },
+  );
+}
+
+export async function gatewayHistory(
+  sessionId: string,
+  limit = 100,
+): Promise<GatewayHistoryResponse> {
+  const params = new URLSearchParams({
+    sessionId,
+    limit: String(Math.max(1, Math.floor(limit))),
+  });
+  return requestJson<GatewayHistoryResponse>(
+    `/api/history?${params.toString()}`,
     {
       method: 'GET',
       headers: authHeaders(),

@@ -20,6 +20,8 @@ describe('container model router', () => {
         expect(input).toBe('https://openrouter.ai/api/v1/chat/completions');
         expect(init?.headers).toMatchObject({
           Authorization: 'Bearer openrouter-test-key',
+          'X-OpenRouter-Title': 'HybridClaw',
+          'X-OpenRouter-Categories': 'cli-agent,general-chat',
           'X-Title': 'HybridClaw',
         });
         const body = JSON.parse(String(init?.body || '{}')) as Record<
@@ -57,7 +59,11 @@ describe('container model router', () => {
       apiKey: 'openrouter-test-key',
       model: 'openrouter/anthropic/claude-sonnet-4',
       chatbotId: '',
-      requestHeaders: { 'X-Title': 'HybridClaw' },
+      requestHeaders: {
+        'X-OpenRouter-Title': 'HybridClaw',
+        'X-OpenRouter-Categories': 'cli-agent,general-chat',
+        'X-Title': 'HybridClaw',
+      },
       messages: baseMessages,
       tools: [],
       maxTokens: 128,

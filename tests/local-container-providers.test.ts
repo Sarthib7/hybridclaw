@@ -334,6 +334,8 @@ describe('local container providers', () => {
       enableRag: false,
       requestHeaders: {
         'HTTP-Referer': 'https://github.com/hybridaione/hybridclaw',
+        'X-OpenRouter-Title': 'HybridClaw',
+        'X-OpenRouter-Categories': 'cli-agent,general-chat',
         'X-Title': 'HybridClaw',
       },
       messages: baseMessages,

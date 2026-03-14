@@ -76,10 +76,13 @@ op run --env-file=.env.1password -- your-command
 Inject a template into a throwaway runtime file:
 
 ```bash
-op inject -i .env.template -o /tmp/runtime.env
+RUNTIME_ENV="$(mktemp /tmp/runtime.env.XXXXXX)"
+chmod 600 "$RUNTIME_ENV"
+trap 'rm -f "$RUNTIME_ENV"' EXIT INT TERM
+op inject -i .env.template -o "$RUNTIME_ENV"
 ```
 
-Prefer `/tmp` or an untracked runtime path. Do not inject into tracked files unless the user explicitly asks.
+Prefer `/tmp` or an untracked runtime path. Do not inject into tracked files unless the user explicitly asks. If you are done before the shell exits, run `rm -f "$RUNTIME_ENV"` and `trap - EXIT INT TERM`.
 
 ## Rules
 

@@ -1,7 +1,7 @@
 ---
 name: code-simplification
-description: Use this skill when the user wants to simplify code, reduce complexity, remove duplication, refactor deeply nested logic, or make an implementation easier to read and maintain without changing behavior.
-user-invocable: true
+description: Use this skill for behavior-preserving code refactors that reduce complexity, remove duplication, simplify nested logic, or make an implementation materially easier to maintain.
+user-invocable: false
 metadata:
   hybridclaw:
     tags:
@@ -16,7 +16,12 @@ metadata:
 
 # Code Simplification
 
-Use this skill to simplify existing code while preserving current behavior.
+Use this skill for deeper code simplification work while preserving current
+behavior.
+
+This is intentionally narrower than a generic "simplify" skill: it is for
+behavior-preserving refactors in a live codebase, with explicit attention to
+tests, surrounding types, and incremental validation.
 
 ## Default Workflow
 

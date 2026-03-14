@@ -21,6 +21,7 @@ merge readiness.
 
 ## Default Sequence
 
+0. Verify GitHub CLI authentication if the workflow will use `gh`.
 1. Sync the base branch.
 2. Create a focused branch for one change.
 3. Implement and validate locally.
@@ -31,6 +32,16 @@ merge readiness.
 8. Merge only when the branch is green and approved.
 
 ## Core Commands
+
+### Verify GitHub CLI Auth
+
+```bash
+gh auth status
+```
+
+Run this before any git or PR workflow steps that depend on `gh`. If it fails,
+fix authentication first so the workflow does not stop later during `gh pr create`,
+`gh pr checks`, or other PR commands.
 
 ### Prepare the Branch
 

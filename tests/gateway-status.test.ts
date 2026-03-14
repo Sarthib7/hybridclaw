@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import { afterEach, expect, test, vi } from 'vitest';
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
+import { agentWorkspaceDir } from '../src/infra/ipc.js';
 
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY;
@@ -154,6 +155,9 @@ test('status command includes the current session agent', async () => {
   }
   expect(result.title).toBe('Status');
   expect(result.text).toContain('Agent: research');
+  expect(result.text).toContain(
+    `CWD: ${path.resolve(agentWorkspaceDir('research'))}`,
+  );
 });
 
 test('status uses OpenRouter context_length metadata for the context window', async () => {

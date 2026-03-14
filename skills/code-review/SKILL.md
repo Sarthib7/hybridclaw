@@ -40,12 +40,11 @@ git status --short
 git diff --stat
 git diff --name-only
 git diff --staged
-git diff main...HEAD
-git log --oneline main..HEAD
+git diff <base-branch>...HEAD
+git log --oneline <base-branch>..HEAD
 ```
 
-If the repo uses a different base branch, review against that branch instead of
-assuming `main`.
+Replace `<base-branch>` with the repository's actual review base branch.
 
 ### GitHub PR Review
 
@@ -108,9 +107,9 @@ as unrun integration tests or unverified deployment paths.
 Use targeted searches when helpful:
 
 ```bash
-git diff main...HEAD | rg "console\\.log|TODO|FIXME|HACK|debugger"
-git diff main...HEAD | rg "<<<<<<<|=======|>>>>>>>"
-git diff main...HEAD | rg -i "password|secret|token|api[_-]?key|private[_-]?key"
+git diff <base-branch>...HEAD | rg "console\\.log|TODO|FIXME|HACK|debugger"
+git diff <base-branch>...HEAD | rg "<<<<<<<|=======|>>>>>>>"
+git diff <base-branch>...HEAD | rg -i "password|secret|token|api[_-]?key|private[_-]?key"
 ```
 
 Prefer repo-native test commands over broad guesses. Run the smallest check set

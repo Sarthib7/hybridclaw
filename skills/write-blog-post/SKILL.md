@@ -11,7 +11,6 @@ metadata:
       - communication
     related_skills:
       - feature-planning
-      - project-manager
 ---
 
 # Write Blog Post

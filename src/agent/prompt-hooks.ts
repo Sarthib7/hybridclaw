@@ -11,7 +11,11 @@ import {
   SECURITY_POLICY_VERSION,
 } from '../config/runtime-config.js';
 import { readRuntimeInstructionFile } from '../security/instruction-integrity.js';
-import { buildSkillsPrompt, type Skill } from '../skills/skills.js';
+import {
+  buildSkillsPrompt,
+  type Skill,
+  type SkillInvocation,
+} from '../skills/skills.js';
 import { buildContextPrompt, loadBootstrapFiles } from '../workspace.js';
 import { SILENT_REPLY_TOKEN } from './silent-reply.js';
 import { buildToolsSummary } from './tool-summary.js';
@@ -35,6 +39,7 @@ export interface PromptHookContext {
   agentId: string;
   sessionSummary?: string | null;
   skills: Skill[];
+  explicitSkillInvocation?: SkillInvocation | null;
   purpose?: 'conversation' | 'memory-flush';
   promptMode?: PromptMode;
   extraSafetyText?: string;
@@ -78,10 +83,6 @@ function buildSkillsSection(skillsPrompt: string): string {
     '- If exactly one skill clearly applies: read its SKILL.md at `<location>` with `read`, then follow it.',
     '- If multiple could apply: choose the most specific one, then read/follow it.',
     '- If none clearly apply: do not read any SKILL.md.',
-    'Constraints: never read more than one skill up front; only read after selecting.',
-    '- Treat paths under `skills/` as bundled, read-only skill assets for normal user work.',
-    '- Use `skills/.../scripts/...` only as shipped helper entrypoints to run or read. Do not create new task files under `skills/`.',
-    '- For normal user work, put generated scripts in workspace `scripts/` or the workspace root. Only write under `skills/` when the user explicitly asked to create or edit a skill.',
     '',
     trimmed,
   ].join('\n');
@@ -90,7 +91,9 @@ function buildSkillsSection(skillsPrompt: string): string {
 function buildBootstrapHook(context: PromptHookContext): string {
   const contextFiles = loadBootstrapFiles(context.agentId);
   const contextPrompt = buildContextPrompt(contextFiles);
-  const skillsPrompt = buildSkillsSection(buildSkillsPrompt(context.skills));
+  const skillsPrompt = context.explicitSkillInvocation
+    ? ''
+    : buildSkillsSection(buildSkillsPrompt(context.skills));
   return [contextPrompt, skillsPrompt].filter(Boolean).join('\n\n');
 }
 

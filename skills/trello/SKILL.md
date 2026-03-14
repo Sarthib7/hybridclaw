@@ -32,10 +32,14 @@ If credentials are not already configured:
 
 Do not print the raw token back to the user.
 
-Before API calls, write a short temporary curl config so secrets stay off the shell command line:
+Before API calls, write a private temp curl config and register cleanup so
+secrets stay off the shell command line and the auth file is removed on exit:
 
 ```bash
-cat >/tmp/trello-auth.curl <<EOF
+AUTH_CURL="$(mktemp)"
+chmod 600 "$AUTH_CURL"
+trap 'rm -f "$AUTH_CURL"' EXIT INT TERM
+cat >"$AUTH_CURL" <<EOF
 data = "key=$TRELLO_API_KEY"
 data = "token=$TRELLO_TOKEN"
 EOF
@@ -46,25 +50,25 @@ EOF
 List boards:
 
 ```bash
-curl -s -G "https://api.trello.com/1/members/me/boards" -K /tmp/trello-auth.curl | jq '.[] | {name, id}'
+curl -s -G "https://api.trello.com/1/members/me/boards" -K "$AUTH_CURL" | jq '.[] | {name, id}'
 ```
 
 List lists in a board:
 
 ```bash
-curl -s -G "https://api.trello.com/1/boards/BOARD_ID/lists" -K /tmp/trello-auth.curl | jq '.[] | {name, id}'
+curl -s -G "https://api.trello.com/1/boards/BOARD_ID/lists" -K "$AUTH_CURL" | jq '.[] | {name, id}'
 ```
 
 List cards in a list:
 
 ```bash
-curl -s -G "https://api.trello.com/1/lists/LIST_ID/cards" -K /tmp/trello-auth.curl | jq '.[] | {name, id, desc}'
+curl -s -G "https://api.trello.com/1/lists/LIST_ID/cards" -K "$AUTH_CURL" | jq '.[] | {name, id, desc}'
 ```
 
 Create a card:
 
 ```bash
-curl -s -X POST "https://api.trello.com/1/cards" -K /tmp/trello-auth.curl \
+curl -s -X POST "https://api.trello.com/1/cards" -K "$AUTH_CURL" \
   -d "idList=LIST_ID" \
   -d "name=Card title" \
   -d "desc=Card description"
@@ -73,14 +77,14 @@ curl -s -X POST "https://api.trello.com/1/cards" -K /tmp/trello-auth.curl \
 Move a card:
 
 ```bash
-curl -s -X PUT "https://api.trello.com/1/cards/CARD_ID" -K /tmp/trello-auth.curl \
+curl -s -X PUT "https://api.trello.com/1/cards/CARD_ID" -K "$AUTH_CURL" \
   -d "idList=NEW_LIST_ID"
 ```
 
 Comment on a card:
 
 ```bash
-curl -s -X POST "https://api.trello.com/1/cards/CARD_ID/actions/comments" -K /tmp/trello-auth.curl \
+curl -s -X POST "https://api.trello.com/1/cards/CARD_ID/actions/comments" -K "$AUTH_CURL" \
   -d "text=Your comment here"
 ```
 
@@ -90,5 +94,6 @@ curl -s -X POST "https://api.trello.com/1/cards/CARD_ID/actions/comments" -K /tm
 - Read first, write second.
 - Confirm before archival or bulk card moves.
 - Keep API key and token out of logs and tracked files.
-- Remove `/tmp/trello-auth.curl` when you are done with a session that used it.
+- If you are done before the shell exits, run `rm -f "$AUTH_CURL"` and
+  `trap - EXIT INT TERM`.
 - Use `jq` to keep list and search output readable.

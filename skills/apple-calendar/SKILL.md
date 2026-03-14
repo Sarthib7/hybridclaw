@@ -38,24 +38,35 @@ Use this skill for macOS Calendar.app and `.ics` workflows.
 ## `.ics` Workflow
 
 Use `.ics` when the user wants a portable calendar event or invite draft.
+Generate a fresh UID and timestamp for each event so repeated imports do not
+collide and the file does not go stale.
 
 Minimal event template:
 
-```text
+```bash
+EVENT_UID="$(uuidgen)@hybridclaw"
+EVENT_STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+EVENT_START_UTC="YYYYMMDDTHHMMSSZ"
+EVENT_END_UTC="YYYYMMDDTHHMMSSZ"
+cat > event.ics <<EOF
 BEGIN:VCALENDAR
 VERSION:2.0
 PRODID:-//HybridClaw//Apple Calendar//EN
 BEGIN:VEVENT
-UID:example-uid
-DTSTAMP:20260314T090000Z
-DTSTART:20260318T090000Z
-DTEND:20260318T100000Z
+UID:${EVENT_UID}
+DTSTAMP:${EVENT_STAMP}
+DTSTART:${EVENT_START_UTC}
+DTEND:${EVENT_END_UTC}
 SUMMARY:Project Review
 DESCRIPTION:Review the release checklist.
 LOCATION:Berlin Office
 END:VEVENT
 END:VCALENDAR
+EOF
 ```
+
+Replace `EVENT_START_UTC` and `EVENT_END_UTC` with the actual event times in
+UTC before writing the file.
 
 After writing the file, import it with:
 

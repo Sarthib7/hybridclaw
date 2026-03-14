@@ -12,6 +12,7 @@ import {
   isSessionExpired,
   resolveResetPolicy,
   resolveSessionResetChannelKind,
+  type SessionExpiryEvaluation,
   type SessionResetMode,
 } from '../session/session-reset.js';
 import type {
@@ -2205,23 +2206,32 @@ export function getOrCreateSession(
   guildId: string | null,
   channelId: string,
   agentId?: string,
-  opts?: { resetMode?: SessionResetMode },
+  opts?: {
+    resetMode?: SessionResetMode;
+    expiryEvaluation?: SessionExpiryEvaluation;
+  },
 ): Session {
   const existing = getSessionById(sessionId);
   const normalizedAgentId = agentId?.trim() || null;
 
   if (existing) {
-    const policy = resolveResetPolicy({
-      channelKind: resolveSessionResetChannelKind(channelId),
-      config: getRuntimeConfig(),
-    });
-    const effectivePolicy = opts?.resetMode
-      ? { ...policy, mode: opts.resetMode }
-      : policy;
+    let shouldReset: boolean;
+    if (opts?.expiryEvaluation?.lastActive === existing.last_active) {
+      shouldReset = opts.expiryEvaluation.isExpired;
+    } else {
+      const policy = resolveResetPolicy({
+        channelKind: resolveSessionResetChannelKind(channelId),
+        config: getRuntimeConfig(),
+      });
+      const effectivePolicy = opts?.resetMode
+        ? { ...policy, mode: opts.resetMode }
+        : policy;
+      shouldReset = isSessionExpired(effectivePolicy, existing.last_active);
+    }
     let activeSession = existing;
     let wasReset = false;
 
-    if (isSessionExpired(effectivePolicy, existing.last_active)) {
+    if (shouldReset) {
       resetSessionState(sessionId);
       activeSession = getSessionById(sessionId) as Session;
       wasReset = true;

@@ -402,6 +402,53 @@ test('getOrCreateSession skips auto-reset when resetMode is none', async () => {
   expect(memoryService.getConversationHistory(sessionId, 10)).toHaveLength(1);
 });
 
+test('getOrCreateSession recomputes expiry when a cached evaluation is stale', async () => {
+  const { dbModule, memoryService, runtimeConfigModule, dbPath } =
+    await initSessionTestContext();
+  const sessionId = 'stale-expiry-evaluation';
+
+  runtimeConfigModule.updateRuntimeConfig((draft) => {
+    draft.sessionReset.defaultPolicy = {
+      mode: 'idle',
+      atHour: 4,
+      idleMinutes: 60,
+    };
+  });
+
+  dbModule.getOrCreateSession(sessionId, null, 'tui');
+  memoryService.storeMessage({
+    sessionId,
+    userId: 'user-1',
+    username: 'user',
+    role: 'user',
+    content: 'context to clear',
+  });
+  const beforeExpiry = dbModule.getSessionById(sessionId);
+  expect(beforeExpiry).toBeDefined();
+  updateLastActive(
+    dbPath,
+    sessionId,
+    formatSqliteUtc(new Date(Date.now() - 2 * 60 * 60 * 1000)),
+  );
+
+  const session = dbModule.getOrCreateSession(
+    sessionId,
+    null,
+    'tui',
+    undefined,
+    {
+      expiryEvaluation: {
+        lastActive: beforeExpiry?.last_active ?? '',
+        isExpired: false,
+      },
+    },
+  );
+
+  expect(session.message_count).toBe(0);
+  expect(session.reset_count).toBe(1);
+  expect(memoryService.getConversationHistory(sessionId, 10)).toHaveLength(0);
+});
+
 test('handleGatewayCommand flushes memories before auto-resetting an expired session', async () => {
   const { dbModule, memoryService, runtimeConfigModule, dbPath } =
     await initSessionTestContext();

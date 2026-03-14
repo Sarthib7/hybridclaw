@@ -142,6 +142,7 @@ import {
   isSessionExpired,
   resolveResetPolicy,
   resolveSessionResetChannelKind,
+  type SessionExpiryEvaluation,
   type SessionResetMode,
 } from '../session/session-reset.js';
 import { appendSessionTranscript } from '../session/session-transcripts.js';
@@ -3026,7 +3027,7 @@ function enqueueDelegationFromSideEffect(params: {
   });
 }
 
-async function maybeFlushSessionBeforeAutoReset(params: {
+async function prepareSessionAutoReset(params: {
   sessionId: string;
   channelId: string;
   agentId?: string | null;
@@ -3034,9 +3035,9 @@ async function maybeFlushSessionBeforeAutoReset(params: {
   model?: string | null;
   enableRag?: boolean;
   resetMode?: SessionResetMode;
-}): Promise<void> {
+}): Promise<SessionExpiryEvaluation | undefined> {
   const existingSession = memoryService.getSessionById(params.sessionId);
-  if (!existingSession) return;
+  if (!existingSession) return undefined;
 
   const runtimeConfig = getRuntimeConfig();
   const policy = resolveResetPolicy({
@@ -3046,8 +3047,14 @@ async function maybeFlushSessionBeforeAutoReset(params: {
   const effectivePolicy = params.resetMode
     ? { ...policy, mode: params.resetMode }
     : policy;
-  if (!isSessionExpired(effectivePolicy, existingSession.last_active)) return;
-  if (!runtimeConfig.sessionCompaction.preCompactionMemoryFlush.enabled) return;
+  const expiryEvaluation: SessionExpiryEvaluation = {
+    lastActive: existingSession.last_active,
+    isExpired: isSessionExpired(effectivePolicy, existingSession.last_active),
+  };
+  if (!expiryEvaluation.isExpired) return expiryEvaluation;
+  if (!runtimeConfig.sessionCompaction.preCompactionMemoryFlush.enabled) {
+    return expiryEvaluation;
+  }
 
   const resolvedRuntime = resolveAgentForRequest({
     agentId: params.agentId,
@@ -3066,6 +3073,7 @@ async function maybeFlushSessionBeforeAutoReset(params: {
     sessionSummary: existingSession.session_summary,
     olderMessages: memoryService.getRecentMessages(params.sessionId),
   });
+  return expiryEvaluation;
 }
 
 export async function handleGatewayMessage(
@@ -3074,7 +3082,7 @@ export async function handleGatewayMessage(
   const startedAt = Date.now();
   const runId = makeAuditRunId('turn');
   const source = req.source?.trim() || 'gateway.chat';
-  await maybeFlushSessionBeforeAutoReset({
+  const expiryEvaluation = await prepareSessionAutoReset({
     sessionId: req.sessionId,
     channelId: req.channelId,
     agentId: req.agentId,
@@ -3087,6 +3095,7 @@ export async function handleGatewayMessage(
     req.guildId,
     req.channelId,
     req.agentId ?? undefined,
+    { expiryEvaluation },
   );
   if (source !== 'fullauto') {
     preemptRunningFullAutoTurn(req.sessionId, source);
@@ -3111,7 +3120,7 @@ export async function handleGatewayMessage(
   });
   const { agentId, model, chatbotId } = resolvedRequest;
   if (session.agent_id !== agentId) {
-    await maybeFlushSessionBeforeAutoReset({
+    const reboundExpiryEvaluation = await prepareSessionAutoReset({
       sessionId: req.sessionId,
       channelId: req.channelId,
       agentId,
@@ -3124,6 +3133,7 @@ export async function handleGatewayMessage(
       req.guildId,
       req.channelId,
       agentId,
+      { expiryEvaluation: reboundExpiryEvaluation },
     );
   }
   const showMode = normalizeSessionShowMode(session.show_mode);
@@ -3142,7 +3152,7 @@ export async function handleGatewayMessage(
     if (refreshedSession) {
       session = refreshedSession;
     } else {
-      await maybeFlushSessionBeforeAutoReset({
+      const workspaceResetExpiryEvaluation = await prepareSessionAutoReset({
         sessionId: req.sessionId,
         channelId: req.channelId,
         agentId,
@@ -3155,6 +3165,7 @@ export async function handleGatewayMessage(
         req.guildId,
         req.channelId,
         agentId,
+        { expiryEvaluation: workspaceResetExpiryEvaluation },
       );
     }
     logger.info(
@@ -3778,7 +3789,7 @@ export async function runGatewayScheduledTask(
   onError: (error: unknown) => void,
   runKey?: string,
 ): Promise<void> {
-  await maybeFlushSessionBeforeAutoReset({
+  const expiryEvaluation = await prepareSessionAutoReset({
     sessionId: origSessionId,
     channelId,
     resetMode: 'none',
@@ -3788,7 +3799,7 @@ export async function runGatewayScheduledTask(
     null,
     channelId,
     undefined,
-    { resetMode: 'none' },
+    { resetMode: 'none', expiryEvaluation },
   );
   const { agentId, chatbotId, model } = resolveAgentForRequest({ session });
   if (modelRequiresChatbotId(model) && !chatbotId) {
@@ -3825,7 +3836,7 @@ export async function handleGatewayCommand(
   req: GatewayCommandRequest,
 ): Promise<GatewayCommandResult> {
   const cmd = (req.args[0] || '').toLowerCase();
-  await maybeFlushSessionBeforeAutoReset({
+  const expiryEvaluation = await prepareSessionAutoReset({
     sessionId: req.sessionId,
     channelId: req.channelId,
   });
@@ -3833,6 +3844,8 @@ export async function handleGatewayCommand(
     req.sessionId,
     req.guildId,
     req.channelId,
+    undefined,
+    { expiryEvaluation },
   );
 
   switch (cmd) {

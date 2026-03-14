@@ -1,7 +1,10 @@
 import { resolveAgentForRequest } from '../agents/agent-registry.js';
 import { SESSION_COMPACTION_SUMMARY_MAX_CHARS } from '../config/config.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
-import type { SessionResetMode } from '../session/session-reset.js';
+import type {
+  SessionExpiryEvaluation,
+  SessionResetMode,
+} from '../session/session-reset.js';
 import type {
   CanonicalSession,
   CanonicalSessionContext,
@@ -60,7 +63,10 @@ export interface MemoryBackend {
     guildId: string | null,
     channelId: string,
     agentId?: string,
-    opts?: { resetMode?: SessionResetMode },
+    opts?: {
+      resetMode?: SessionResetMode;
+      expiryEvaluation?: SessionExpiryEvaluation;
+    },
   ) => Session;
   getSessionById: (sessionId: string) => Session | undefined;
   getConversationHistory: (
@@ -359,7 +365,10 @@ export class MemoryService {
     guildId: string | null,
     channelId: string,
     agentId?: string,
-    opts?: { resetMode?: SessionResetMode },
+    opts?: {
+      resetMode?: SessionResetMode;
+      expiryEvaluation?: SessionExpiryEvaluation;
+    },
   ): Session {
     return this.backend.getOrCreateSession(
       sessionId,

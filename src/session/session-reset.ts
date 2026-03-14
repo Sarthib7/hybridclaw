@@ -8,6 +8,11 @@ export interface SessionResetPolicy {
   idleMinutes: number;
 }
 
+export interface SessionExpiryEvaluation {
+  lastActive: string;
+  isExpired: boolean;
+}
+
 export const DEFAULT_RESET_POLICY: SessionResetPolicy = Object.freeze({
   mode: 'both',
   atHour: 4,

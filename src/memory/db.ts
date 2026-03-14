@@ -2232,6 +2232,14 @@ export function resetSessionIfExpired(
   return true;
 }
 
+function requireSessionById(sessionId: string): Session {
+  const session = getSessionById(sessionId);
+  if (!session) {
+    throw new Error(`Session ${sessionId} disappeared during database update`);
+  }
+  return session;
+}
+
 export function getOrCreateSession(
   sessionId: string,
   guildId: string | null,
@@ -2249,19 +2257,19 @@ export function getOrCreateSession(
              agent_id = ?
          WHERE id = ?`,
       ).run(normalizedAgentId, sessionId);
-      return getSessionById(sessionId) as Session;
+      return requireSessionById(sessionId);
     }
     db.prepare(
       "UPDATE sessions SET last_active = datetime('now') WHERE id = ?",
     ).run(sessionId);
-    return getSessionById(sessionId) as Session;
+    return requireSessionById(sessionId);
   }
 
   db.prepare(
     'INSERT INTO sessions (id, guild_id, channel_id, agent_id) VALUES (?, ?, ?, ?)',
   ).run(sessionId, guildId, channelId, normalizedAgentId || DEFAULT_AGENT_ID);
 
-  return getSessionById(sessionId) as Session;
+  return requireSessionById(sessionId);
 }
 
 export function getSessionById(sessionId: string): Session | undefined {

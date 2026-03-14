@@ -153,10 +153,10 @@ export function renderTuiSlashMenuLines(params: {
     const descriptionLines = isSelected
       ? selectedDescriptionLines
       : [
-          truncateToWidth(
-            entry.description,
+          truncateToWidth(entry.description, descriptionWidth).padEnd(
             descriptionWidth,
-          ).padEnd(descriptionWidth, ' '),
+            ' ',
+          ),
         ];
     const marker = isSelected ? '› ' : '  ';
     const commandText = truncateToWidth(entry.label, commandWidth);
@@ -168,9 +168,7 @@ export function renderTuiSlashMenuLines(params: {
     if (!isSelected || descriptionLines.length <= 1) continue;
 
     const continuationPrefix =
-      ' '.repeat(markerWidth) +
-      ' '.repeat(commandWidth) +
-      ' '.repeat(gapWidth);
+      ' '.repeat(markerWidth) + ' '.repeat(commandWidth) + ' '.repeat(gapWidth);
     for (const descriptionLine of descriptionLines.slice(1)) {
       lines.push(
         `${continuationPrefix}${params.palette.descriptionSelected}${descriptionLine}${params.palette.reset}`,

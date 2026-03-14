@@ -310,7 +310,7 @@ describe.sequential('schema migrations', () => {
     inspect.close();
 
     expect(String(journalMode).toLowerCase()).toBe('wal');
-    expect(Number(schemaVersion)).toBe(7);
+    expect(Number(schemaVersion)).toBe(8);
   });
 
   test('migrates legacy memory_kv rows and creates knowledge graph tables', () => {
@@ -394,7 +394,7 @@ describe.sequential('schema migrations', () => {
       .get() as { name: string } | undefined;
     inspect.close();
 
-    expect(Number(schemaVersion)).toBe(7);
+    expect(Number(schemaVersion)).toBe(8);
     expect(hasEntities?.name).toBe('entities');
     expect(hasRelations?.name).toBe('relations');
     expect(hasCanonical?.name).toBe('canonical_sessions');

@@ -234,6 +234,57 @@ test('status uses OpenRouter context_length metadata for the context window', as
   expect(result.text).toContain('📚 Context: 12k/262k');
 });
 
+test('status shows zero cache usage when the provider reports zero cache tokens', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { makeAuditRunId, recordAuditEvent } = await import(
+    '../src/audit/audit-events.ts'
+  );
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  recordAuditEvent({
+    sessionId: 'session-status-zero-cache',
+    runId: makeAuditRunId('test'),
+    event: {
+      type: 'model.usage',
+      provider: 'openrouter',
+      model: 'openrouter/nvidia/nemotron-3-super-120b-a12b:free',
+      promptTokens: 53_211,
+      completionTokens: 952,
+      apiUsageAvailable: true,
+      apiPromptTokens: 53_211,
+      apiCompletionTokens: 952,
+      apiTotalTokens: 54_163,
+      apiCacheUsageAvailable: true,
+      apiCacheReadTokens: 0,
+      apiCacheWriteTokens: 0,
+      cacheReadTokens: 0,
+      cacheReadInputTokens: 0,
+      cacheWriteTokens: 0,
+      cacheWriteInputTokens: 0,
+    },
+  });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-status-zero-cache',
+    guildId: null,
+    channelId: 'channel-status-zero-cache',
+    args: ['status'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.text).toContain('🗄️ Cache: 0% hit · 0 cached, 0 new');
+});
+
 test('agent create warns when model validation is skipped because no models are available', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;

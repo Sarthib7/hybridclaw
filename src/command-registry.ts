@@ -255,6 +255,8 @@ export function mapCanonicalCommandToGatewayArgs(
       return ['stop'];
 
     case 'help':
+    case 'h':
+    case '?':
       return ['help'];
 
     default:

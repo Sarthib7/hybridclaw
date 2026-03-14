@@ -1,6 +1,9 @@
 import { expect, test } from 'vitest';
 
-import { buildTuiReadlineHistory } from '../src/tui-history.js';
+import {
+  buildTuiReadlineHistory,
+  resolveTuiHistoryFetchLimit,
+} from '../src/tui-history.js';
 
 test('builds readline history from recent single-line user inputs', () => {
   const history = buildTuiReadlineHistory(
@@ -111,4 +114,10 @@ test('strips ANSI escape sequences before seeding readline history', () => {
   );
 
   expect(history).toEqual(['/status']);
+});
+
+test('over-fetches history to compensate for assistant turns', () => {
+  expect(resolveTuiHistoryFetchLimit(1)).toBe(2);
+  expect(resolveTuiHistoryFetchLimit(100)).toBe(200);
+  expect(resolveTuiHistoryFetchLimit(150)).toBe(300);
 });

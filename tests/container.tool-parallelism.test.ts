@@ -3,6 +3,7 @@ import { isLoopGuardedToolName } from '../container/src/tool-loop-detection.js';
 import {
   getToolExecutionMode,
   mapConcurrentInOrder,
+  takeCachedValue,
 } from '../container/src/tool-parallelism.js';
 
 describe('getToolExecutionMode', () => {
@@ -81,5 +82,19 @@ describe('mapConcurrentInOrder', () => {
     await expect(
       mapConcurrentInOrder([], async () => 'unused'),
     ).resolves.toEqual([]);
+  });
+});
+
+describe('takeCachedValue', () => {
+  test('returns and removes a cached value', () => {
+    const cache = new Map<string, string>([['call-1', 'cached']]);
+
+    expect(takeCachedValue(cache, 'call-1')).toBe('cached');
+    expect(takeCachedValue(cache, 'call-1')).toBeNull();
+    expect(cache.size).toBe(0);
+  });
+
+  test('returns null when no cached value exists', () => {
+    expect(takeCachedValue(new Map<string, string>(), 'missing')).toBeNull();
   });
 });

@@ -16,6 +16,16 @@ export function getToolExecutionMode(
     : 'parallel';
 }
 
+export function takeCachedValue<TKey, TValue>(
+  cache: Map<TKey, TValue>,
+  key: TKey,
+): TValue | null {
+  if (!cache.has(key)) return null;
+  const value = cache.get(key) as TValue;
+  cache.delete(key);
+  return value;
+}
+
 export async function mapConcurrentInOrder<TItem, TResult>(
   items: readonly TItem[],
   worker: (item: TItem, index: number) => Promise<TResult>,

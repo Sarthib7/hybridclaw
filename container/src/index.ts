@@ -59,6 +59,7 @@ import {
 import {
   getToolExecutionMode,
   mapConcurrentInOrder,
+  takeCachedValue,
 } from './tool-parallelism.js';
 import {
   executeToolWithMetadata,
@@ -964,10 +965,13 @@ async function processRequest(
             entry.function.arguments,
           ) === 'parallel',
       );
+    const cachedApprovals = new Map<string, ToolApprovalEvaluation>();
     for (let callIndex = 0; callIndex < toolCalls.length; ) {
       const call = toolCalls[callIndex];
       const toolName = call.function.name;
-      const executionMode = allowConcurrentBatching ? 'parallel' : 'sequential';
+      const cachedApproval = takeCachedValue(cachedApprovals, call.id);
+      const executionMode =
+        cachedApproval || !allowConcurrentBatching ? 'sequential' : 'parallel';
 
       if (executionMode === 'parallel') {
         const candidateCalls: ToolCall[] = [];
@@ -995,6 +999,7 @@ async function processRequest(
             candidateApproval.decision === 'required' ||
             candidateApproval.decision === 'denied'
           ) {
+            cachedApprovals.set(candidate.id, candidateApproval);
             break;
           }
           toolsUsed.push(candidate.function.name);
@@ -1088,11 +1093,13 @@ async function processRequest(
         }
       }
 
-      const approval = approvalRuntime.evaluateToolCall({
-        toolName,
-        argsJson: call.function.arguments,
-        latestUserPrompt: effectiveUserPrompt,
-      });
+      const approval =
+        cachedApproval ||
+        approvalRuntime.evaluateToolCall({
+          toolName,
+          argsJson: call.function.arguments,
+          latestUserPrompt: effectiveUserPrompt,
+        });
       toolsUsed.push(toolName);
       logToolCallStart(toolName, call.function.arguments, approval);
 

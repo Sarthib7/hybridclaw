@@ -19,6 +19,11 @@ interface TuiSlashMenuState {
   entries: TuiSlashMenuEntry[];
 }
 
+interface TuiSlashMenuKeypressResult {
+  handled: boolean;
+  state?: TuiSlashMenuState | null;
+}
+
 type InternalReadline = readline.Interface & {
   // The slash menu hooks into Node 22 readline internals (`_ttyWrite`,
   // `_refreshLine`, `line`, `cursor`) because the public API does not expose a
@@ -444,8 +449,10 @@ export class TuiSlashMenuController {
     // on the current Node.js 22 readline implementation calling `_ttyWrite`
     // for raw-mode keypress handling before prompt redraw.
     this.rl._ttyWrite = (chunk: string, key: readline.Key) => {
-      if (this.handleKeypress(key)) {
-        this.sync();
+      const state = buildMenuState(this.entries, this.rl.line, this.rl.cursor);
+      const result = this.handleKeypress(key, state);
+      if (result.handled) {
+        this.sync(result.state);
         return;
       }
       this.originalTtyWrite?.(chunk, key);
@@ -483,7 +490,7 @@ export class TuiSlashMenuController {
     this.lastRenderSignature = '';
   }
 
-  sync(): void {
+  sync(state?: TuiSlashMenuState | null): void {
     if (!this.output.isTTY || !this.shouldShow()) {
       this.lastQuery = '';
       this.selectedIndex = 0;
@@ -491,41 +498,42 @@ export class TuiSlashMenuController {
       return;
     }
 
-    const state = buildMenuState(this.entries, this.rl.line, this.rl.cursor);
-    if (!state) {
+    const nextState =
+      state ?? buildMenuState(this.entries, this.rl.line, this.rl.cursor);
+    if (!nextState) {
       this.lastQuery = '';
       this.selectedIndex = 0;
       this.clear();
       return;
     }
 
-    if (state.query !== this.lastQuery) {
+    if (nextState.query !== this.lastQuery) {
       this.selectedIndex = 0;
-      this.lastQuery = state.query;
+      this.lastQuery = nextState.query;
     }
 
-    if (state.entries.length > 0) {
+    if (nextState.entries.length > 0) {
       this.selectedIndex = Math.max(
         0,
-        Math.min(this.selectedIndex, state.entries.length - 1),
+        Math.min(this.selectedIndex, nextState.entries.length - 1),
       );
     } else {
       this.selectedIndex = 0;
     }
 
     const lines = renderTuiSlashMenuLines({
-      query: state.query,
-      entries: state.entries,
+      query: nextState.query,
+      entries: nextState.entries,
       selectedIndex: this.selectedIndex,
       width: this.output.columns || 80,
       palette: this.palette,
     });
 
     const renderSignature = JSON.stringify({
-      query: state.query,
+      query: nextState.query,
       selectedIndex: this.selectedIndex,
       width: this.output.columns || 80,
-      entryIds: state.entries.map((entry) => entry.id),
+      entryIds: nextState.entries.map((entry) => entry.id),
     });
     if (renderSignature === this.lastRenderSignature) return;
 
@@ -541,26 +549,27 @@ export class TuiSlashMenuController {
     this.lastRenderSignature = renderSignature;
   }
 
-  private handleKeypress(key: readline.Key): boolean {
-    if (!this.shouldShow()) return false;
-
-    const state = buildMenuState(this.entries, this.rl.line, this.rl.cursor);
-    if (!state) return false;
+  private handleKeypress(
+    key: readline.Key,
+    state: TuiSlashMenuState | null,
+  ): TuiSlashMenuKeypressResult {
+    if (!this.shouldShow()) return { handled: false };
+    if (!state) return { handled: false };
 
     if (key.name === 'escape') {
       this.lastQuery = '';
       this.selectedIndex = 0;
       this.clear();
-      return true;
+      return { handled: true, state };
     }
 
     if (
       key.name === 'down' ||
       (key.ctrl === true && key.name === 'n')
     ) {
-      if (state.entries.length === 0) return true;
+      if (state.entries.length === 0) return { handled: true, state };
       this.selectedIndex = (this.selectedIndex + 1) % state.entries.length;
-      return true;
+      return { handled: true, state };
     }
 
     if (
@@ -568,17 +577,17 @@ export class TuiSlashMenuController {
       (key.ctrl === true && key.name === 'p') ||
       (key.name === 'tab' && key.shift === true)
     ) {
-      if (state.entries.length === 0) return true;
+      if (state.entries.length === 0) return { handled: true, state };
       this.selectedIndex =
         (this.selectedIndex - 1 + state.entries.length) % state.entries.length;
-      return true;
+      return { handled: true, state };
     }
 
-    if (key.name !== 'right' && key.name !== 'tab') return false;
-    if (state.entries.length === 0) return true;
+    if (key.name !== 'right' && key.name !== 'tab') return { handled: false };
+    if (state.entries.length === 0) return { handled: true, state };
 
     const selectedEntry = state.entries[this.selectedIndex];
-    if (!selectedEntry) return true;
+    if (!selectedEntry) return { handled: true, state };
 
     // Mutating `line`/`cursor` keeps readline history and prompt state intact,
     // but it is also part of the same Node.js-internal contract documented
@@ -586,6 +595,9 @@ export class TuiSlashMenuController {
     this.rl.line = selectedEntry.insertText;
     this.rl.cursor = selectedEntry.insertText.length;
     this.rl._refreshLine?.();
-    return true;
+    return {
+      handled: true,
+      state: buildMenuState(this.entries, this.rl.line, this.rl.cursor),
+    };
   }
 }

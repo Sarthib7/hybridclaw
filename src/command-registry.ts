@@ -1,7 +1,25 @@
+export interface CanonicalTuiMenuPresentation {
+  label?: string;
+  insertText?: string;
+  aliases?: string[];
+}
+
+export interface CanonicalTuiMenuEntryDefinition {
+  id: string;
+  label: string;
+  insertText: string;
+  description: string;
+  aliases?: string[];
+  depth?: number;
+}
+
 export interface CanonicalSlashCommandDefinition {
   name: string;
   description: string;
   options?: CanonicalSlashCommandOptionDefinition[];
+  tuiMenu?: CanonicalTuiMenuPresentation;
+  tuiMenuEntries?: CanonicalTuiMenuEntryDefinition[];
+  tuiOnly?: boolean;
 }
 
 export type CanonicalSlashStringOptionDefinition = {
@@ -17,6 +35,8 @@ export type CanonicalSlashSubcommandOptionDefinition = {
   name: string;
   description: string;
   options?: CanonicalSlashStringOptionDefinition[];
+  tuiMenu?: CanonicalTuiMenuPresentation;
+  tuiMenuEntries?: CanonicalTuiMenuEntryDefinition[];
 };
 
 export type CanonicalSlashCommandOptionDefinition =
@@ -242,7 +262,7 @@ export function mapCanonicalCommandToGatewayArgs(
   }
 }
 
-export function buildCanonicalSlashCommandDefinitions(
+function buildSlashCommandCatalogDefinitions(
   modelChoices: Array<{ name: string; value: string }>,
 ): CanonicalSlashCommandDefinition[] {
   return [
@@ -280,6 +300,41 @@ export function buildCanonicalSlashCommandDefinitions(
     {
       name: 'approve',
       description: 'View/respond to pending tool approval requests (private)',
+      tuiMenuEntries: [
+        {
+          id: 'approve.view',
+          label: '/approve view [approval_id]',
+          insertText: '/approve view ',
+          description:
+            'Show the latest pending approval prompt, or a specific request id',
+        },
+        {
+          id: 'approve.yes',
+          label: '/approve yes [approval_id]',
+          insertText: '/approve yes',
+          description: 'Approve the pending request once',
+        },
+        {
+          id: 'approve.session',
+          label: '/approve session [approval_id]',
+          insertText: '/approve session',
+          description:
+            'Approve the pending request for the rest of the session',
+        },
+        {
+          id: 'approve.agent',
+          label: '/approve agent [approval_id]',
+          insertText: '/approve agent',
+          description:
+            'Approve the pending request for the current agent workspace',
+        },
+        {
+          id: 'approve.no',
+          label: '/approve no [approval_id]',
+          insertText: '/approve no',
+          description: 'Deny or skip the pending approval request',
+        },
+      ],
       options: [
         {
           kind: 'string',
@@ -301,6 +356,26 @@ export function buildCanonicalSlashCommandDefinitions(
     {
       name: 'channel-mode',
       description: 'Set this channel to off, mention-only, or free-response',
+      tuiMenuEntries: [
+        {
+          id: 'channel-mode.off',
+          label: '/channel-mode off',
+          insertText: '/channel-mode off',
+          description: 'Disable channel replies until explicitly invoked',
+        },
+        {
+          id: 'channel-mode.mention',
+          label: '/channel-mode mention',
+          insertText: '/channel-mode mention',
+          description: 'Reply only when the assistant is mentioned',
+        },
+        {
+          id: 'channel-mode.free',
+          label: '/channel-mode free',
+          insertText: '/channel-mode free',
+          description: 'Allow free-response mode in the current channel',
+        },
+      ],
       options: [
         {
           kind: 'string',
@@ -314,6 +389,26 @@ export function buildCanonicalSlashCommandDefinitions(
     {
       name: 'channel-policy',
       description: 'Set guild channel policy to open, allowlist, or disabled',
+      tuiMenuEntries: [
+        {
+          id: 'channel-policy.open',
+          label: '/channel-policy open',
+          insertText: '/channel-policy open',
+          description: 'Allow the bot in all channels in the guild',
+        },
+        {
+          id: 'channel-policy.allowlist',
+          label: '/channel-policy allowlist',
+          insertText: '/channel-policy allowlist',
+          description: 'Restrict the bot to approved channels only',
+        },
+        {
+          id: 'channel-policy.disabled',
+          label: '/channel-policy disabled',
+          insertText: '/channel-policy disabled',
+          description: 'Disable guild-wide channel access',
+        },
+      ],
       options: [
         {
           kind: 'string',
@@ -327,6 +422,14 @@ export function buildCanonicalSlashCommandDefinitions(
     {
       name: 'model',
       description: 'Inspect or set session/default runtime models',
+      tuiMenuEntries: [
+        {
+          id: 'model.select',
+          label: '/model select',
+          insertText: '/model select',
+          description: 'Open the interactive model selector for this session',
+        },
+      ],
       options: [
         {
           kind: 'subcommand',
@@ -365,6 +468,9 @@ export function buildCanonicalSlashCommandDefinitions(
           kind: 'subcommand',
           name: 'clear',
           description: 'Clear the session model override',
+          tuiMenu: {
+            aliases: ['auto'],
+          },
         },
         {
           kind: 'subcommand',
@@ -445,6 +551,9 @@ export function buildCanonicalSlashCommandDefinitions(
     {
       name: 'help',
       description: 'Show available HybridClaw commands',
+      tuiMenu: {
+        aliases: ['h', '?'],
+      },
     },
     {
       name: 'bot',
@@ -479,6 +588,22 @@ export function buildCanonicalSlashCommandDefinitions(
       name: 'rag',
       description:
         'Toggle or set retrieval-augmented generation for this session',
+      tuiMenuEntries: [
+        {
+          id: 'rag.on',
+          label: '/rag on',
+          insertText: '/rag on',
+          description:
+            'Enable retrieval-augmented generation for this session',
+        },
+        {
+          id: 'rag.off',
+          label: '/rag off',
+          insertText: '/rag off',
+          description:
+            'Disable retrieval-augmented generation for this session',
+        },
+      ],
       options: [
         {
           kind: 'string',
@@ -599,6 +724,20 @@ export function buildCanonicalSlashCommandDefinitions(
       name: 'reset',
       description:
         'Clear session history, reset session settings, and remove the current agent workspace',
+      tuiMenuEntries: [
+        {
+          id: 'reset.yes',
+          label: '/reset yes',
+          insertText: '/reset yes',
+          description: 'Confirm a full session reset and remove the workspace',
+        },
+        {
+          id: 'reset.no',
+          label: '/reset no',
+          insertText: '/reset no',
+          description: 'Cancel a pending reset command',
+        },
+      ],
       options: [
         {
           kind: 'string',
@@ -611,6 +750,49 @@ export function buildCanonicalSlashCommandDefinitions(
     {
       name: 'usage',
       description: 'Show usage and cost aggregates',
+      tuiMenuEntries: [
+        {
+          id: 'usage.summary',
+          label: '/usage summary',
+          insertText: '/usage summary',
+          description: 'Show the current usage summary',
+        },
+        {
+          id: 'usage.daily',
+          label: '/usage daily',
+          insertText: '/usage daily',
+          description: 'Show daily usage totals',
+        },
+        {
+          id: 'usage.monthly',
+          label: '/usage monthly',
+          insertText: '/usage monthly',
+          description: 'Show monthly usage totals',
+        },
+        {
+          id: 'usage.model',
+          label: '/usage model [daily|monthly] [agent_id]',
+          insertText: '/usage model ',
+          description:
+            'Show per-model usage, optionally scoped to a window and agent id',
+        },
+        {
+          id: 'usage.model.daily',
+          label: '/usage model daily [agent_id]',
+          insertText: '/usage model daily ',
+          description:
+            'Show per-model daily usage, optionally filtered by agent',
+          depth: 3,
+        },
+        {
+          id: 'usage.model.monthly',
+          label: '/usage model monthly [agent_id]',
+          insertText: '/usage model monthly ',
+          description:
+            'Show per-model monthly usage, optionally filtered by agent',
+          depth: 3,
+        },
+      ],
       options: [
         {
           kind: 'string',
@@ -708,7 +890,81 @@ export function buildCanonicalSlashCommandDefinitions(
         },
       ],
     },
+    {
+      name: 'bots',
+      description: 'List available bots for this session',
+      tuiOnly: true,
+    },
+    {
+      name: 'fullauto',
+      description: 'Enable, inspect, disable, or steer session full-auto mode',
+      tuiMenu: {
+        label: '/fullauto [status|off|on [prompt]|<prompt>]',
+        insertText: '/fullauto ',
+      },
+      tuiOnly: true,
+      options: [
+        {
+          kind: 'subcommand',
+          name: 'status',
+          description: 'Show the current full-auto runtime status',
+        },
+        {
+          kind: 'subcommand',
+          name: 'on',
+          description:
+            'Enable full-auto, optionally with a custom objective prompt',
+          options: [
+            {
+              kind: 'string',
+              name: 'prompt',
+              description: 'Optional full-auto objective prompt',
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'off',
+          description: 'Disable full-auto for the current session',
+        },
+      ],
+    },
+    {
+      name: 'info',
+      description: 'Show current bot, model, and runtime settings together',
+      tuiOnly: true,
+    },
+    {
+      name: 'stop',
+      description: 'Interrupt the current request and disable full-auto',
+      tuiMenu: {
+        aliases: ['abort'],
+      },
+      tuiOnly: true,
+    },
+    {
+      name: 'exit',
+      description: 'Quit the TUI',
+      tuiMenu: {
+        aliases: ['quit', 'q'],
+      },
+      tuiOnly: true,
+    },
   ];
+}
+
+export function buildCanonicalSlashCommandDefinitions(
+  modelChoices: Array<{ name: string; value: string }>,
+): CanonicalSlashCommandDefinition[] {
+  return buildSlashCommandCatalogDefinitions(modelChoices).filter(
+    (definition) => !definition.tuiOnly,
+  );
+}
+
+export function buildTuiSlashCommandDefinitions(
+  modelChoices: Array<{ name: string; value: string }>,
+): CanonicalSlashCommandDefinition[] {
+  return buildSlashCommandCatalogDefinitions(modelChoices);
 }
 
 export function parseCanonicalSlashCommandArgs(

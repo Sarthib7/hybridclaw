@@ -1,9 +1,11 @@
 import readline from 'node:readline';
 
 import {
-  buildCanonicalSlashCommandDefinitions,
+  buildTuiSlashCommandDefinitions,
   type CanonicalSlashCommandDefinition,
   type CanonicalSlashStringOptionDefinition,
+  type CanonicalSlashSubcommandOptionDefinition,
+  type CanonicalTuiMenuEntryDefinition,
 } from './command-registry.js';
 import { renderTuiSlashMenuLines } from './tui-slash-menu-render.js';
 import type {
@@ -28,256 +30,6 @@ type InternalReadline = readline.Interface & {
   _refreshLine?: () => void;
   _ttyWrite?: (s: string, key: readline.Key) => void;
 };
-
-interface ManualMenuEntrySeed {
-  id: string;
-  label: string;
-  insertText: string;
-  description: string;
-  aliases?: string[];
-  depth?: number;
-}
-
-const TOP_LEVEL_ALIASES = new Map<string, string[]>([['help', ['h', '?']]]);
-
-const CHILD_ENTRY_ALIASES = new Map<string, string[]>([
-  ['model.clear', ['auto']],
-]);
-
-const MANUAL_CHILD_ENTRIES = new Map<string, ManualMenuEntrySeed[]>([
-  [
-    'model',
-    [
-      {
-        id: 'model.select',
-        label: '/model select',
-        insertText: '/model select',
-        description: 'Open the interactive model selector for this session',
-      },
-    ],
-  ],
-  [
-    'approve',
-    [
-      {
-        id: 'approve.view',
-        label: '/approve view [approval_id]',
-        insertText: '/approve view ',
-        description:
-          'Show the latest pending approval prompt, or a specific request id',
-      },
-      {
-        id: 'approve.yes',
-        label: '/approve yes [approval_id]',
-        insertText: '/approve yes',
-        description: 'Approve the pending request once',
-      },
-      {
-        id: 'approve.session',
-        label: '/approve session [approval_id]',
-        insertText: '/approve session',
-        description: 'Approve the pending request for the rest of the session',
-      },
-      {
-        id: 'approve.agent',
-        label: '/approve agent [approval_id]',
-        insertText: '/approve agent',
-        description:
-          'Approve the pending request for the current agent workspace',
-      },
-      {
-        id: 'approve.no',
-        label: '/approve no [approval_id]',
-        insertText: '/approve no',
-        description: 'Deny or skip the pending approval request',
-      },
-    ],
-  ],
-  [
-    'channel-mode',
-    [
-      {
-        id: 'channel-mode.off',
-        label: '/channel-mode off',
-        insertText: '/channel-mode off',
-        description: 'Disable channel replies until explicitly invoked',
-      },
-      {
-        id: 'channel-mode.mention',
-        label: '/channel-mode mention',
-        insertText: '/channel-mode mention',
-        description: 'Reply only when the assistant is mentioned',
-      },
-      {
-        id: 'channel-mode.free',
-        label: '/channel-mode free',
-        insertText: '/channel-mode free',
-        description: 'Allow free-response mode in the current channel',
-      },
-    ],
-  ],
-  [
-    'channel-policy',
-    [
-      {
-        id: 'channel-policy.open',
-        label: '/channel-policy open',
-        insertText: '/channel-policy open',
-        description: 'Allow the bot in all channels in the guild',
-      },
-      {
-        id: 'channel-policy.allowlist',
-        label: '/channel-policy allowlist',
-        insertText: '/channel-policy allowlist',
-        description: 'Restrict the bot to approved channels only',
-      },
-      {
-        id: 'channel-policy.disabled',
-        label: '/channel-policy disabled',
-        insertText: '/channel-policy disabled',
-        description: 'Disable guild-wide channel access',
-      },
-    ],
-  ],
-  [
-    'rag',
-    [
-      {
-        id: 'rag.on',
-        label: '/rag on',
-        insertText: '/rag on',
-        description: 'Enable retrieval-augmented generation for this session',
-      },
-      {
-        id: 'rag.off',
-        label: '/rag off',
-        insertText: '/rag off',
-        description: 'Disable retrieval-augmented generation for this session',
-      },
-    ],
-  ],
-  [
-    'reset',
-    [
-      {
-        id: 'reset.yes',
-        label: '/reset yes',
-        insertText: '/reset yes',
-        description: 'Confirm a full session reset and remove the workspace',
-      },
-      {
-        id: 'reset.no',
-        label: '/reset no',
-        insertText: '/reset no',
-        description: 'Cancel a pending reset command',
-      },
-    ],
-  ],
-  [
-    'usage',
-    [
-      {
-        id: 'usage.summary',
-        label: '/usage summary',
-        insertText: '/usage summary',
-        description: 'Show the current usage summary',
-      },
-      {
-        id: 'usage.daily',
-        label: '/usage daily',
-        insertText: '/usage daily',
-        description: 'Show daily usage totals',
-      },
-      {
-        id: 'usage.monthly',
-        label: '/usage monthly',
-        insertText: '/usage monthly',
-        description: 'Show monthly usage totals',
-      },
-      {
-        id: 'usage.model',
-        label: '/usage model [daily|monthly] [agent_id]',
-        insertText: '/usage model ',
-        description:
-          'Show per-model usage, optionally scoped to a window and agent id',
-      },
-    ],
-  ],
-  [
-    'usage.model',
-    [
-      {
-        id: 'usage.model.daily',
-        label: '/usage model daily [agent_id]',
-        insertText: '/usage model daily ',
-        description: 'Show per-model daily usage, optionally filtered by agent',
-      },
-      {
-        id: 'usage.model.monthly',
-        label: '/usage model monthly [agent_id]',
-        insertText: '/usage model monthly ',
-        description:
-          'Show per-model monthly usage, optionally filtered by agent',
-      },
-    ],
-  ],
-]);
-
-const EXTRA_ROOT_ENTRIES: ManualMenuEntrySeed[] = [
-  {
-    id: 'bots',
-    label: '/bots',
-    insertText: '/bots',
-    description: 'List available bots for this session',
-  },
-  {
-    id: 'fullauto',
-    label: '/fullauto [status|off|on [prompt]|<prompt>]',
-    insertText: '/fullauto ',
-    description: 'Enable, inspect, disable, or steer session full-auto mode',
-  },
-  {
-    id: 'fullauto.status',
-    label: '/fullauto status',
-    insertText: '/fullauto status',
-    description: 'Show the current full-auto runtime status',
-    depth: 2,
-  },
-  {
-    id: 'fullauto.on',
-    label: '/fullauto on [prompt]',
-    insertText: '/fullauto on ',
-    description: 'Enable full-auto, optionally with a custom objective prompt',
-    depth: 2,
-  },
-  {
-    id: 'fullauto.off',
-    label: '/fullauto off',
-    insertText: '/fullauto off',
-    description: 'Disable full-auto for the current session',
-    depth: 2,
-  },
-  {
-    id: 'info',
-    label: '/info',
-    insertText: '/info',
-    description: 'Show current bot, model, and runtime settings together',
-  },
-  {
-    id: 'stop',
-    label: '/stop',
-    insertText: '/stop',
-    description: 'Interrupt the current request and disable full-auto',
-    aliases: ['abort'],
-  },
-  {
-    id: 'exit',
-    label: '/exit',
-    insertText: '/exit',
-    description: 'Quit the TUI',
-    aliases: ['quit', 'q'],
-  },
-];
 
 const MAX_RESULTS = 12;
 const SCORE_WEIGHTS = {
@@ -328,6 +80,17 @@ function isStringOption(
     value !== null &&
     'kind' in value &&
     (value as { kind?: unknown }).kind === 'string'
+  );
+}
+
+function isSubcommandOption(
+  value: unknown,
+): value is CanonicalSlashSubcommandOptionDefinition {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'kind' in value &&
+    (value as { kind?: unknown }).kind === 'subcommand'
   );
 }
 
@@ -387,20 +150,20 @@ function buildGenericRootEntry(
   definition: CanonicalSlashCommandDefinition,
   sortIndex: number,
 ): TuiSlashMenuEntry {
-  const subcommands =
-    definition.options?.filter(
-      (option) => typeof option === 'object' && option?.kind === 'subcommand',
-    ) ?? [];
+  const subcommands = definition.options?.filter(isSubcommandOption) ?? [];
   const stringOptions = definition.options?.filter(isStringOption) ?? [];
+  const label = definition.tuiMenu?.label ?? `/${definition.name}`;
+  const insertText =
+    definition.tuiMenu?.insertText ??
+    (subcommands.length > 0 || stringOptions.length > 0
+      ? `/${definition.name} `
+      : `/${definition.name}`);
   return createMenuEntry({
     id: definition.name,
-    label: `/${definition.name}`,
-    insertText:
-      subcommands.length > 0 || stringOptions.length > 0
-        ? `/${definition.name} `
-        : `/${definition.name}`,
+    label,
+    insertText,
     description: definition.description,
-    aliases: TOP_LEVEL_ALIASES.get(definition.name),
+    aliases: definition.tuiMenu?.aliases,
     depth: 1,
     sortIndex,
   });
@@ -408,28 +171,44 @@ function buildGenericRootEntry(
 
 function buildGenericSubcommandEntry(
   commandName: string,
-  subcommand: {
-    name: string;
-    description: string;
-    options?: CanonicalSlashStringOptionDefinition[];
-  },
+  subcommand: CanonicalSlashSubcommandOptionDefinition,
   sortIndex: number,
 ): TuiSlashMenuEntry {
   const optionSuffix = formatOptionSuffix(subcommand.options);
-  const label = optionSuffix
-    ? `/${commandName} ${subcommand.name} ${optionSuffix}`
-    : `/${commandName} ${subcommand.name}`;
+  const label =
+    subcommand.tuiMenu?.label ??
+    (optionSuffix
+      ? `/${commandName} ${subcommand.name} ${optionSuffix}`
+      : `/${commandName} ${subcommand.name}`);
   return createMenuEntry({
     id: `${commandName}.${subcommand.name}`,
     label,
-    insertText: subcommand.options?.length
-      ? `/${commandName} ${subcommand.name} `
-      : `/${commandName} ${subcommand.name}`,
+    insertText:
+      subcommand.tuiMenu?.insertText ??
+      (subcommand.options?.length
+        ? `/${commandName} ${subcommand.name} `
+        : `/${commandName} ${subcommand.name}`),
     description: subcommand.description,
-    aliases: CHILD_ENTRY_ALIASES.get(`${commandName}.${subcommand.name}`),
+    aliases: subcommand.tuiMenu?.aliases,
     depth: 2,
     sortIndex,
   });
+}
+
+function appendSyntheticMenuEntry(params: {
+  entries: TuiSlashMenuEntry[];
+  entry: CanonicalTuiMenuEntryDefinition;
+  defaultDepth: number;
+  sortIndex: number;
+}): number {
+  params.entries.push(
+    createMenuEntry({
+      ...params.entry,
+      depth: params.entry.depth ?? params.defaultDepth,
+      sortIndex: params.sortIndex,
+    }),
+  );
+  return params.sortIndex + 1;
 }
 
 function subsequenceScore(query: string, target: string): number | null {
@@ -511,7 +290,7 @@ function scoreSearchTerm(query: string, searchTerm: string): number | null {
 }
 
 export function buildTuiSlashMenuEntries(): TuiSlashMenuEntry[] {
-  const definitions = buildCanonicalSlashCommandDefinitions([]);
+  const definitions = buildTuiSlashCommandDefinitions([]);
   const entries: TuiSlashMenuEntry[] = [];
   let sortIndex = 0;
 
@@ -519,15 +298,7 @@ export function buildTuiSlashMenuEntries(): TuiSlashMenuEntry[] {
     entries.push(buildGenericRootEntry(definition, sortIndex));
     sortIndex += 1;
 
-    const subcommands =
-      definition.options?.filter(
-        (option): option is {
-          kind: 'subcommand';
-          name: string;
-          description: string;
-          options?: CanonicalSlashStringOptionDefinition[];
-        } => typeof option === 'object' && option?.kind === 'subcommand',
-      ) ?? [];
+    const subcommands = definition.options?.filter(isSubcommandOption) ?? [];
 
     for (const subcommand of subcommands) {
       entries.push(
@@ -535,44 +306,24 @@ export function buildTuiSlashMenuEntries(): TuiSlashMenuEntry[] {
       );
       sortIndex += 1;
 
-      for (const manualEntry of MANUAL_CHILD_ENTRIES.get(
-        `${definition.name}.${subcommand.name}`,
-      ) || []) {
-        entries.push(
-          createMenuEntry({
-            ...manualEntry,
-            aliases: manualEntry.aliases,
-            depth: manualEntry.depth ?? 3,
-            sortIndex,
-          }),
-        );
-        sortIndex += 1;
+      for (const menuEntry of subcommand.tuiMenuEntries || []) {
+        sortIndex = appendSyntheticMenuEntry({
+          entries,
+          entry: menuEntry,
+          defaultDepth: 3,
+          sortIndex,
+        });
       }
     }
 
-    for (const manualEntry of MANUAL_CHILD_ENTRIES.get(definition.name) || []) {
-      entries.push(
-        createMenuEntry({
-          ...manualEntry,
-          aliases: manualEntry.aliases,
-          depth: manualEntry.depth ?? 2,
-          sortIndex,
-        }),
-      );
-      sortIndex += 1;
-    }
-  }
-
-  for (const manualEntry of EXTRA_ROOT_ENTRIES) {
-    entries.push(
-      createMenuEntry({
-        ...manualEntry,
-        aliases: manualEntry.aliases,
-        depth: manualEntry.depth ?? 1,
+    for (const menuEntry of definition.tuiMenuEntries || []) {
+      sortIndex = appendSyntheticMenuEntry({
+        entries,
+        entry: menuEntry,
+        defaultDepth: 2,
         sortIndex,
-      }),
-    );
-    sortIndex += 1;
+      });
+    }
   }
 
   return entries;

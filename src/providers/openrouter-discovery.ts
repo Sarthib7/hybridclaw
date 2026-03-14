@@ -1,8 +1,7 @@
 import { OPENROUTER_BASE_URL, OPENROUTER_ENABLED } from '../config/config.js';
 import {
+  buildOpenRouterAttributionHeaders,
   OPENROUTER_MODEL_PREFIX,
-  OPENROUTER_REFERER,
-  OPENROUTER_TITLE,
   readOpenRouterApiKey,
 } from './openrouter-utils.js';
 import { isRecord, normalizeBaseUrl } from './utils.js';
@@ -105,8 +104,7 @@ export function createOpenRouterDiscoveryStore(): OpenRouterDiscoveryStore {
       {
         headers: {
           Authorization: `Bearer ${apiKey}`,
-          'HTTP-Referer': OPENROUTER_REFERER,
-          'X-Title': OPENROUTER_TITLE,
+          ...buildOpenRouterAttributionHeaders(),
         },
         signal: AbortSignal.timeout(5_000),
       },

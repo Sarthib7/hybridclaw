@@ -121,8 +121,15 @@ test('available model catalog reloads OpenRouter discovery after 60 minutes', as
     config.local.backends.vllm.enabled = false;
   });
 
-  const fetchMock = vi.fn(async (input: string) => {
+  const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
     if (input.endsWith('/models')) {
+      expect(init?.headers).toMatchObject({
+        Authorization: 'Bearer or-test-key',
+        'HTTP-Referer': 'https://github.com/hybridaione/hybridclaw',
+        'X-OpenRouter-Title': 'HybridClaw',
+        'X-OpenRouter-Categories': 'cli-agent,general-chat',
+        'X-Title': 'HybridClaw',
+      });
       return new Response(
         JSON.stringify({
           data: [

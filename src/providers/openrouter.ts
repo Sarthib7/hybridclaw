@@ -2,9 +2,8 @@ import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { OPENROUTER_BASE_URL } from '../config/config.js';
 import { getDiscoveredOpenRouterModelContextWindow } from './openrouter-discovery.js';
 import {
+  buildOpenRouterAttributionHeaders,
   OPENROUTER_MODEL_PREFIX,
-  OPENROUTER_REFERER,
-  OPENROUTER_TITLE,
   readOpenRouterApiKey,
 } from './openrouter-utils.js';
 import type {
@@ -30,10 +29,7 @@ async function resolveOpenRouterRuntimeCredentials(
     baseUrl: OPENROUTER_BASE_URL.trim().replace(/\/+$/g, ''),
     chatbotId: '',
     enableRag: false,
-    requestHeaders: {
-      'HTTP-Referer': OPENROUTER_REFERER,
-      'X-Title': OPENROUTER_TITLE,
-    },
+    requestHeaders: buildOpenRouterAttributionHeaders(),
     agentId,
     isLocal: false,
     contextWindow:

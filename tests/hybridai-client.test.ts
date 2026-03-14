@@ -103,6 +103,8 @@ test('callRoutedModel routes OpenRouter requests through the OpenAI-compatible t
     expect(init?.headers).toMatchObject({
       Authorization: 'Bearer or-test-key',
       'HTTP-Referer': 'https://github.com/hybridaione/hybridclaw',
+      'X-OpenRouter-Title': 'HybridClaw',
+      'X-OpenRouter-Categories': 'cli-agent,general-chat',
       'X-Title': 'HybridClaw',
     });
     const body = JSON.parse(String(init?.body || '{}')) as Record<
@@ -127,6 +129,8 @@ test('callRoutedModel routes OpenRouter requests through the OpenAI-compatible t
     enableRag: false,
     requestHeaders: {
       'HTTP-Referer': 'https://github.com/hybridaione/hybridclaw',
+      'X-OpenRouter-Title': 'HybridClaw',
+      'X-OpenRouter-Categories': 'cli-agent,general-chat',
       'X-Title': 'HybridClaw',
     },
     messages: [{ role: 'user', content: 'hello' }],

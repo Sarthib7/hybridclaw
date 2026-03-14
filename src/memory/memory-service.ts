@@ -2,6 +2,10 @@ import { resolveAgentForRequest } from '../agents/agent-registry.js';
 import { SESSION_COMPACTION_SUMMARY_MAX_CHARS } from '../config/config.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
 import type {
+  SessionExpiryEvaluation,
+  SessionResetPolicy,
+} from '../session/session-reset.js';
+import type {
   CanonicalSession,
   CanonicalSessionContext,
   CompactionResult,
@@ -35,6 +39,7 @@ import {
   markSessionMemoryFlush as dbMarkSessionMemoryFlush,
   queryKnowledgeGraph as dbQueryKnowledgeGraph,
   recallSemanticMemories as dbRecallSemanticMemories,
+  resetSessionIfExpired as dbResetSessionIfExpired,
   setMemoryValue as dbSetMemoryValue,
   storeMessage as dbStoreMessage,
   storeSemanticMemory as dbStoreSemanticMemory,
@@ -54,6 +59,13 @@ export interface CompactionCandidate {
 }
 
 export interface MemoryBackend {
+  resetSessionIfExpired: (
+    sessionId: string,
+    opts: {
+      policy: SessionResetPolicy;
+      expiryEvaluation?: SessionExpiryEvaluation;
+    },
+  ) => boolean;
   getOrCreateSession: (
     sessionId: string,
     guildId: string | null,
@@ -213,6 +225,7 @@ const DEFAULT_CONFIG: MemoryServiceConfig = {
 };
 
 const DEFAULT_BACKEND: MemoryBackend = {
+  resetSessionIfExpired: dbResetSessionIfExpired,
   getOrCreateSession: dbGetOrCreateSession,
   getSessionById: dbGetSessionById,
   getConversationHistory: dbGetConversationHistory,
@@ -364,6 +377,16 @@ export class MemoryService {
       channelId,
       agentId,
     );
+  }
+
+  resetSessionIfExpired(
+    sessionId: string,
+    opts: {
+      policy: SessionResetPolicy;
+      expiryEvaluation?: SessionExpiryEvaluation;
+    },
+  ): boolean {
+    return this.backend.resetSessionIfExpired(sessionId, opts);
   }
 
   getSessionById(sessionId: string): Session | undefined {

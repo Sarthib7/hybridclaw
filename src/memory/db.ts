@@ -7,6 +7,11 @@ import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import type { AuditEventPayload, WireRecord } from '../audit/audit-trail.js';
 import { DB_PATH } from '../config/config.js';
 import { logger } from '../logger.js';
+import {
+  evaluateSessionExpiry,
+  type SessionExpiryEvaluation,
+  type SessionResetPolicy,
+} from '../session/session-reset.js';
 import type {
   ApprovalAuditEntry,
   AuditEntry,
@@ -36,7 +41,7 @@ import { KnowledgeEntityType, KnowledgeRelationType } from '../types.js';
 let db: Database.Database;
 let databaseInitialized = false;
 
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 
 interface InitDatabaseOptions {
   quiet?: boolean;
@@ -823,6 +828,32 @@ function migrateV7(
   recordMigration(database, 7, 'Add per-session show mode column');
 }
 
+function migrateV8(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  const quiet = opts?.quiet === true;
+  addColumnIfMissing({
+    database,
+    table: 'sessions',
+    column: 'reset_count',
+    ddl: 'reset_count INTEGER NOT NULL DEFAULT 0',
+    quiet,
+  });
+  addColumnIfMissing({
+    database,
+    table: 'sessions',
+    column: 'reset_at',
+    ddl: 'reset_at TEXT',
+    quiet,
+  });
+  recordMigration(
+    database,
+    8,
+    'Track automatic session resets and reset timestamps',
+  );
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -846,6 +877,7 @@ function runMigrations(
   if (currentVersion < 5) migrateV5(database, opts);
   if (currentVersion < 6) migrateV6(database, opts);
   if (currentVersion < 7) migrateV7(database, opts);
+  if (currentVersion < 8) migrateV8(database, opts);
 
   setSchemaVersion(database, SCHEMA_VERSION);
   if (!quiet && currentVersion < SCHEMA_VERSION) {
@@ -2166,6 +2198,68 @@ export function queryKnowledgeGraph(
 
 // --- Sessions ---
 
+export function resetSessionIfExpired(
+  sessionId: string,
+  opts: {
+    policy: SessionResetPolicy;
+    expiryEvaluation?: SessionExpiryEvaluation;
+  },
+): boolean {
+  const existing = getSessionById(sessionId);
+  if (!existing) return false;
+
+  let expiryEvaluation: SessionExpiryEvaluation;
+  if (opts?.expiryEvaluation?.lastActive === existing.last_active) {
+    expiryEvaluation = opts.expiryEvaluation;
+  } else {
+    try {
+      const expiryStatus = evaluateSessionExpiry(
+        opts.policy,
+        existing.last_active,
+      );
+      expiryEvaluation = {
+        lastActive: existing.last_active,
+        isExpired: expiryStatus.isExpired,
+        reason: expiryStatus.reason,
+      };
+    } catch (err) {
+      logger.warn(
+        {
+          sessionId,
+          lastActive: existing.last_active,
+          err,
+        },
+        'Skipping session auto-reset due to invalid last_active timestamp',
+      );
+      expiryEvaluation = {
+        lastActive: existing.last_active,
+        isExpired: false,
+        reason: null,
+      };
+    }
+  }
+  if (!expiryEvaluation.isExpired) return false;
+
+  resetSessionState(sessionId);
+  logger.info(
+    {
+      sessionId,
+      resetCount: existing.reset_count + 1,
+      reason: expiryEvaluation.reason,
+    },
+    'Session auto-reset',
+  );
+  return true;
+}
+
+function requireSessionById(sessionId: string): Session {
+  const session = getSessionById(sessionId);
+  if (!session) {
+    throw new Error(`Session ${sessionId} disappeared during database update`);
+  }
+  return session;
+}
+
 export function getOrCreateSession(
   sessionId: string,
   guildId: string | null,
@@ -2183,19 +2277,19 @@ export function getOrCreateSession(
              agent_id = ?
          WHERE id = ?`,
       ).run(normalizedAgentId, sessionId);
-      return getSessionById(sessionId) as Session;
+      return requireSessionById(sessionId);
     }
     db.prepare(
       "UPDATE sessions SET last_active = datetime('now') WHERE id = ?",
     ).run(sessionId);
-    return getSessionById(sessionId) as Session;
+    return requireSessionById(sessionId);
   }
 
   db.prepare(
     'INSERT INTO sessions (id, guild_id, channel_id, agent_id) VALUES (?, ?, ?, ?)',
   ).run(sessionId, guildId, channelId, normalizedAgentId || DEFAULT_AGENT_ID);
 
-  return getSessionById(sessionId) as Session;
+  return requireSessionById(sessionId);
 }
 
 export function getSessionById(sessionId: string): Session | undefined {
@@ -2333,6 +2427,26 @@ export function clearSessionHistory(sessionId: string): number {
     'UPDATE sessions SET message_count = 0, session_summary = NULL, summary_updated_at = NULL, compaction_count = 0, memory_flush_at = NULL WHERE id = ?',
   ).run(sessionId);
   return result.changes;
+}
+
+export function resetSessionState(sessionId: string): void {
+  const transaction = db.transaction((value: string) => {
+    db.prepare(
+      `UPDATE sessions
+       SET message_count = 0,
+           session_summary = NULL,
+           summary_updated_at = NULL,
+           compaction_count = 0,
+           memory_flush_at = NULL,
+           reset_count = reset_count + 1,
+           reset_at = datetime('now'),
+           last_active = datetime('now')
+       WHERE id = ?`,
+    ).run(value);
+    db.prepare('DELETE FROM messages WHERE session_id = ?').run(value);
+    db.prepare('DELETE FROM semantic_memories WHERE session_id = ?').run(value);
+  });
+  transaction(sessionId);
 }
 
 export function deleteSessionData(sessionId: string): {

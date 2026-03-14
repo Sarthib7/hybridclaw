@@ -39,8 +39,6 @@ import {
 import { getObservabilityIngestState } from '../audit/observability-ingest.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
-import { isEmailAddress } from '../channels/email/allowlist.js';
-import { isWhatsAppJid } from '../channels/whatsapp/phone.js';
 import {
   APP_VERSION,
   DATA_DIR,
@@ -134,7 +132,17 @@ import {
   resumeConfigJob,
 } from '../scheduler/scheduler.js';
 import { exportSessionSnapshotJsonl } from '../session/session-export.js';
-import { maybeCompactSession } from '../session/session-maintenance.js';
+import {
+  maybeCompactSession,
+  runPreCompactionMemoryFlush,
+} from '../session/session-maintenance.js';
+import {
+  evaluateSessionExpiry,
+  resolveResetPolicy,
+  resolveSessionResetChannelKind,
+  type SessionExpiryEvaluation,
+  type SessionResetPolicy,
+} from '../session/session-reset.js';
 import { appendSessionTranscript } from '../session/session-transcripts.js';
 import {
   estimateTokenCountFromMessages,
@@ -363,10 +371,22 @@ function resolveChannelType(
   if (source === 'discord' || source === 'whatsapp' || source === 'email') {
     return source;
   }
-  if (isWhatsAppJid(req.channelId)) return 'whatsapp';
-  if (isEmailAddress(req.channelId)) return 'email';
-  if (isDiscordChannelId(req.channelId)) return 'discord';
+  const inferredChannelType = resolveSessionResetChannelKind(req.channelId);
+  if (
+    inferredChannelType === 'discord' ||
+    inferredChannelType === 'whatsapp' ||
+    inferredChannelType === 'email'
+  ) {
+    return inferredChannelType;
+  }
   return source || undefined;
+}
+
+function resolveSessionAutoResetPolicy(channelId: string): SessionResetPolicy {
+  return resolveResetPolicy({
+    channelKind: resolveSessionResetChannelKind(channelId),
+    config: getRuntimeConfig(),
+  });
 }
 
 export type {
@@ -3017,12 +3037,89 @@ function enqueueDelegationFromSideEffect(params: {
   });
 }
 
+async function prepareSessionAutoReset(params: {
+  sessionId: string;
+  channelId: string;
+  agentId?: string | null;
+  chatbotId?: string | null;
+  model?: string | null;
+  enableRag?: boolean;
+  policy: SessionResetPolicy;
+}): Promise<SessionExpiryEvaluation | undefined> {
+  const existingSession = memoryService.getSessionById(params.sessionId);
+  if (!existingSession) return undefined;
+  let expiryEvaluation: SessionExpiryEvaluation;
+  try {
+    const expiryStatus = evaluateSessionExpiry(
+      params.policy,
+      existingSession.last_active,
+    );
+    expiryEvaluation = {
+      lastActive: existingSession.last_active,
+      isExpired: expiryStatus.isExpired,
+      reason: expiryStatus.reason,
+    };
+  } catch (err) {
+    logger.warn(
+      {
+        sessionId: params.sessionId,
+        channelId: params.channelId,
+        lastActive: existingSession.last_active,
+        err,
+      },
+      'Skipping session auto-reset due to invalid last_active timestamp',
+    );
+    expiryEvaluation = {
+      lastActive: existingSession.last_active,
+      isExpired: false,
+      reason: null,
+    };
+  }
+  if (!expiryEvaluation.isExpired) return expiryEvaluation;
+  if (!getRuntimeConfig().sessionCompaction.preCompactionMemoryFlush.enabled) {
+    return expiryEvaluation;
+  }
+
+  const resolvedRuntime = resolveAgentForRequest({
+    agentId: params.agentId,
+    session: existingSession,
+    model: params.model,
+    chatbotId: params.chatbotId,
+  });
+
+  await runPreCompactionMemoryFlush({
+    sessionId: params.sessionId,
+    agentId: resolvedRuntime.agentId,
+    chatbotId: resolvedRuntime.chatbotId,
+    enableRag: params.enableRag ?? existingSession.enable_rag !== 0,
+    model: resolvedRuntime.model,
+    channelId: params.channelId,
+    sessionSummary: existingSession.session_summary,
+    olderMessages: memoryService.getRecentMessages(params.sessionId),
+  });
+  return expiryEvaluation;
+}
+
 export async function handleGatewayMessage(
   req: GatewayChatRequest,
 ): Promise<GatewayChatResult> {
   const startedAt = Date.now();
   const runId = makeAuditRunId('turn');
   const source = req.source?.trim() || 'gateway.chat';
+  const sessionResetPolicy = resolveSessionAutoResetPolicy(req.channelId);
+  const expiryEvaluation = await prepareSessionAutoReset({
+    sessionId: req.sessionId,
+    channelId: req.channelId,
+    agentId: req.agentId,
+    chatbotId: req.chatbotId,
+    model: req.model,
+    enableRag: req.enableRag,
+    policy: sessionResetPolicy,
+  });
+  memoryService.resetSessionIfExpired(req.sessionId, {
+    policy: sessionResetPolicy,
+    expiryEvaluation,
+  });
   let session = memoryService.getOrCreateSession(
     req.sessionId,
     req.guildId,
@@ -3052,6 +3149,19 @@ export async function handleGatewayMessage(
   });
   const { agentId, model, chatbotId } = resolvedRequest;
   if (session.agent_id !== agentId) {
+    const reboundExpiryEvaluation = await prepareSessionAutoReset({
+      sessionId: req.sessionId,
+      channelId: req.channelId,
+      agentId,
+      chatbotId,
+      model,
+      enableRag: req.enableRag ?? session.enable_rag === 1,
+      policy: sessionResetPolicy,
+    });
+    memoryService.resetSessionIfExpired(req.sessionId, {
+      policy: sessionResetPolicy,
+      expiryEvaluation: reboundExpiryEvaluation,
+    });
     session = memoryService.getOrCreateSession(
       req.sessionId,
       req.guildId,
@@ -3071,14 +3181,15 @@ export async function handleGatewayMessage(
     (session.message_count > 0 || Boolean(session.session_summary))
   ) {
     const clearedMessages = memoryService.clearSessionHistory(req.sessionId);
-    session =
-      memoryService.getSessionById(req.sessionId) ??
-      memoryService.getOrCreateSession(
-        req.sessionId,
-        req.guildId,
-        req.channelId,
-        agentId,
+    const refreshedSession = memoryService.getSessionById(req.sessionId);
+    // clearSessionHistory only deletes messages and updates the existing session row.
+    // If the row is missing here, another code path deleted the session unexpectedly.
+    if (!refreshedSession) {
+      throw new Error(
+        `Session ${req.sessionId} disappeared after clearSessionHistory`,
       );
+    }
+    session = refreshedSession;
     logger.info(
       {
         sessionId: req.sessionId,
@@ -3700,10 +3811,24 @@ export async function runGatewayScheduledTask(
   onError: (error: unknown) => void,
   runKey?: string,
 ): Promise<void> {
+  const sessionResetPolicy = {
+    ...resolveSessionAutoResetPolicy(channelId),
+    mode: 'none',
+  } satisfies SessionResetPolicy;
+  const expiryEvaluation = await prepareSessionAutoReset({
+    sessionId: origSessionId,
+    channelId,
+    policy: sessionResetPolicy,
+  });
+  memoryService.resetSessionIfExpired(origSessionId, {
+    policy: sessionResetPolicy,
+    expiryEvaluation,
+  });
   const session = memoryService.getOrCreateSession(
     origSessionId,
     null,
     channelId,
+    undefined,
   );
   const { agentId, chatbotId, model } = resolveAgentForRequest({ session });
   if (modelRequiresChatbotId(model) && !chatbotId) {
@@ -3740,10 +3865,21 @@ export async function handleGatewayCommand(
   req: GatewayCommandRequest,
 ): Promise<GatewayCommandResult> {
   const cmd = (req.args[0] || '').toLowerCase();
+  const sessionResetPolicy = resolveSessionAutoResetPolicy(req.channelId);
+  const expiryEvaluation = await prepareSessionAutoReset({
+    sessionId: req.sessionId,
+    channelId: req.channelId,
+    policy: sessionResetPolicy,
+  });
+  memoryService.resetSessionIfExpired(req.sessionId, {
+    policy: sessionResetPolicy,
+    expiryEvaluation,
+  });
   const session = memoryService.getOrCreateSession(
     req.sessionId,
     req.guildId,
     req.channelId,
+    undefined,
   );
 
   switch (cmd) {

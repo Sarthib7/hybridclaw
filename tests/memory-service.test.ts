@@ -310,7 +310,7 @@ describe.sequential('schema migrations', () => {
     inspect.close();
 
     expect(String(journalMode).toLowerCase()).toBe('wal');
-    expect(Number(schemaVersion)).toBe(7);
+    expect(Number(schemaVersion)).toBe(8);
   });
 
   test('migrates legacy memory_kv rows and creates knowledge graph tables', () => {
@@ -394,7 +394,7 @@ describe.sequential('schema migrations', () => {
       .get() as { name: string } | undefined;
     inspect.close();
 
-    expect(Number(schemaVersion)).toBe(7);
+    expect(Number(schemaVersion)).toBe(8);
     expect(hasEntities?.name).toBe('entities');
     expect(hasRelations?.name).toBe('relations');
     expect(hasCanonical?.name).toBe('canonical_sessions');
@@ -649,6 +649,7 @@ describe('MemoryService', () => {
       },
     ];
     const backend: MemoryBackend = {
+      resetSessionIfExpired: () => false,
       getOrCreateSession: (sessionId, guildId, channelId) =>
         makeSession({
           id: sessionId,
@@ -731,6 +732,7 @@ describe('MemoryService', () => {
     const storedMessages: Array<{ role: string; content: string }> = [];
     let nextMessageId = 100;
     const backend: MemoryBackend = {
+      resetSessionIfExpired: () => false,
       getOrCreateSession: (sessionId, guildId, channelId) =>
         makeSession({
           id: sessionId,
@@ -822,6 +824,7 @@ describe('MemoryService', () => {
   test('storeMessage does not write semantic memory entries', () => {
     let semanticWrites = 0;
     const backend: MemoryBackend = {
+      resetSessionIfExpired: () => false,
       getOrCreateSession: (sessionId, guildId, channelId) =>
         makeSession({
           id: sessionId,
@@ -1027,6 +1030,7 @@ describe('MemoryService', () => {
       ],
     };
     const backend: MemoryBackend = {
+      resetSessionIfExpired: () => false,
       getOrCreateSession: (sessionId, guildId, channelId) =>
         makeSession({
           id: sessionId,

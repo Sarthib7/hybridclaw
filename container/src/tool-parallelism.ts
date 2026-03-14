@@ -2,8 +2,6 @@
 // small explicit denylist for interactive tools that must preserve turn order.
 const NEVER_PARALLEL_TOOL_NAMES = new Set(['clarify']);
 
-export const MAX_PARALLEL_TOOL_CALLS = 8;
-
 export function getToolExecutionMode(
   toolName: string,
   _argsJson: string,

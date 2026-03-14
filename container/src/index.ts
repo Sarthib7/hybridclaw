@@ -58,7 +58,6 @@ import {
 } from './tool-loop-detection.js';
 import {
   getToolExecutionMode,
-  MAX_PARALLEL_TOOL_CALLS,
   mapConcurrentInOrder,
   takeCachedValue,
 } from './tool-parallelism.js';
@@ -106,6 +105,7 @@ const RETRY_MAX_DELAY_MS = Math.max(
   RETRY_BASE_DELAY_MS,
   parseInt(process.env.HYBRIDCLAW_RETRY_MAX_DELAY_MS || '8000', 10),
 );
+const MAX_PARALLEL_TOOL_CALLS = 8;
 const RAW_DEFAULT_RALPH_MAX_EXTRA_ITERATIONS = Number.parseInt(
   process.env.HYBRIDCLAW_RALPH_MAX_ITERATIONS || '0',
   10,

@@ -23,7 +23,6 @@ describe('runManagedMediaCleanup', () => {
       triggerDiscordMediaCacheCleanup,
     }));
     vi.doMock('../src/media/managed-temp-media.ts', () => ({
-      MANAGED_TEMP_MEDIA_DIR_PREFIXES: ['hybridclaw-wa-'],
       cleanupManagedTempMediaDirectories,
     }));
     vi.doMock('../src/logger.js', () => ({ logger }));
@@ -37,9 +36,7 @@ describe('runManagedMediaCleanup', () => {
     expect(triggerDiscordMediaCacheCleanup).toHaveBeenCalledWith({
       force: true,
     });
-    expect(cleanupManagedTempMediaDirectories).toHaveBeenCalledWith({
-      prefixes: ['hybridclaw-wa-'],
-    });
+    expect(cleanupManagedTempMediaDirectories).toHaveBeenCalledWith();
     expect(logger.warn).not.toHaveBeenCalled();
   });
 
@@ -51,7 +48,6 @@ describe('runManagedMediaCleanup', () => {
       triggerDiscordMediaCacheCleanup,
     }));
     vi.doMock('../src/media/managed-temp-media.ts', () => ({
-      MANAGED_TEMP_MEDIA_DIR_PREFIXES: ['hybridclaw-wa-'],
       cleanupManagedTempMediaDirectories,
     }));
     vi.doMock('../src/logger.js', () => ({
@@ -95,7 +91,6 @@ describe('runManagedMediaCleanup', () => {
       triggerDiscordMediaCacheCleanup,
     }));
     vi.doMock('../src/media/managed-temp-media.ts', () => ({
-      MANAGED_TEMP_MEDIA_DIR_PREFIXES: ['hybridclaw-wa-'],
       cleanupManagedTempMediaDirectories,
     }));
     vi.doMock('../src/logger.js', () => ({ logger }));

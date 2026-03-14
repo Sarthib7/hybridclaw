@@ -185,17 +185,25 @@ export async function cleanupDiscordMediaCache(params?: {
   }
 }
 
-export function scheduleDiscordMediaCacheCleanup(): void {
+function startDiscordMediaCacheCleanup(params?: {
+  force?: boolean;
+  nowMs?: number;
+  rootDir?: string;
+  ttlMs?: number;
+}): Promise<void> | null {
   const now = Date.now();
+  if (cleanupPromise) {
+    return cleanupPromise;
+  }
   if (
-    cleanupPromise ||
+    !params?.force &&
     now - lastCleanupStartedAt < DISCORD_MEDIA_CACHE_CLEANUP_MIN_INTERVAL_MS
   ) {
-    return;
+    return null;
   }
 
   lastCleanupStartedAt = now;
-  cleanupPromise = cleanupDiscordMediaCache()
+  cleanupPromise = cleanupDiscordMediaCache(params)
     .catch((error) => {
       logger.warn(
         {
@@ -208,6 +216,20 @@ export function scheduleDiscordMediaCacheCleanup(): void {
     .finally(() => {
       cleanupPromise = null;
     });
+  return cleanupPromise;
+}
+
+export function triggerDiscordMediaCacheCleanup(params?: {
+  force?: boolean;
+  nowMs?: number;
+  rootDir?: string;
+  ttlMs?: number;
+}): Promise<void> | null {
+  return startDiscordMediaCacheCleanup(params);
+}
+
+export function scheduleDiscordMediaCacheCleanup(): void {
+  void startDiscordMediaCacheCleanup();
 }
 
 export async function writeDiscordMediaCacheFile(params: {

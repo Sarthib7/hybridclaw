@@ -1,0 +1,77 @@
+import { afterEach, describe, expect, test, vi } from 'vitest';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.doUnmock('../src/channels/discord/media-cache.ts');
+  vi.doUnmock('../src/logger.js');
+  vi.doUnmock('../src/media/managed-temp-media.ts');
+  vi.resetModules();
+});
+
+describe('runManagedMediaCleanup', () => {
+  test('runs Discord cache and managed temp cleanup on startup', async () => {
+    const triggerDiscordMediaCacheCleanup = vi.fn(() => Promise.resolve());
+    const cleanupManagedTempMediaDirectories = vi.fn(() => Promise.resolve());
+    const logger = {
+      debug: vi.fn(),
+      error: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+    };
+
+    vi.doMock('../src/channels/discord/media-cache.ts', () => ({
+      triggerDiscordMediaCacheCleanup,
+    }));
+    vi.doMock('../src/media/managed-temp-media.ts', () => ({
+      MANAGED_TEMP_MEDIA_DIR_PREFIXES: ['hybridclaw-wa-'],
+      cleanupManagedTempMediaDirectories,
+    }));
+    vi.doMock('../src/logger.js', () => ({ logger }));
+
+    const { runManagedMediaCleanup } = await import(
+      '../src/gateway/managed-media-cleanup.js'
+    );
+
+    await runManagedMediaCleanup('startup');
+
+    expect(triggerDiscordMediaCacheCleanup).toHaveBeenCalledWith({
+      force: true,
+    });
+    expect(cleanupManagedTempMediaDirectories).toHaveBeenCalledWith({
+      prefixes: ['hybridclaw-wa-'],
+    });
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  test('runs only Discord cache cleanup on shutdown', async () => {
+    const triggerDiscordMediaCacheCleanup = vi.fn(() => Promise.resolve());
+    const cleanupManagedTempMediaDirectories = vi.fn(() => Promise.resolve());
+
+    vi.doMock('../src/channels/discord/media-cache.ts', () => ({
+      triggerDiscordMediaCacheCleanup,
+    }));
+    vi.doMock('../src/media/managed-temp-media.ts', () => ({
+      MANAGED_TEMP_MEDIA_DIR_PREFIXES: ['hybridclaw-wa-'],
+      cleanupManagedTempMediaDirectories,
+    }));
+    vi.doMock('../src/logger.js', () => ({
+      logger: {
+        debug: vi.fn(),
+        error: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+      },
+    }));
+
+    const { runManagedMediaCleanup } = await import(
+      '../src/gateway/managed-media-cleanup.js'
+    );
+
+    await runManagedMediaCleanup('shutdown');
+
+    expect(triggerDiscordMediaCacheCleanup).toHaveBeenCalledWith({
+      force: true,
+    });
+    expect(cleanupManagedTempMediaDirectories).not.toHaveBeenCalled();
+  });
+});

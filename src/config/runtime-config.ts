@@ -1820,6 +1820,56 @@ function normalizeContainerSandboxMode(
   return normalized === 'host' ? 'host' : 'container';
 }
 
+function normalizeSessionResetPolicyOverride(
+  value: unknown,
+  fallback: RuntimeConfig['sessionReset']['defaultPolicy'],
+): NonNullable<RuntimeConfig['sessionReset']['byChannelKind']>[string] | null {
+  if (!isRecord(value)) return null;
+  return {
+    mode:
+      hasOwn(value, 'mode') && value.mode != null
+        ? normalizeSessionResetMode(value.mode, fallback.mode)
+        : undefined,
+    atHour:
+      hasOwn(value, 'atHour') && value.atHour != null
+        ? normalizeInteger(value.atHour, fallback.atHour, {
+            min: 0,
+            max: 23,
+          })
+        : undefined,
+    idleMinutes:
+      hasOwn(value, 'idleMinutes') && value.idleMinutes != null
+        ? normalizeInteger(value.idleMinutes, fallback.idleMinutes, {
+            min: 1,
+          })
+        : undefined,
+  };
+}
+
+function normalizeSessionResetByChannelKind(
+  value: unknown,
+  fallback: RuntimeConfig['sessionReset']['defaultPolicy'],
+): Record<
+  string,
+  NonNullable<RuntimeConfig['sessionReset']['byChannelKind']>[string]
+> {
+  const rawByChannelKind = isRecord(value) ? value : {};
+  return Object.fromEntries(
+    Object.entries(rawByChannelKind).flatMap(([key, rawOverride]) => {
+      const normalizedKey = normalizeString(key, '', { allowEmpty: false });
+      if (!normalizedKey) return [];
+
+      const normalizedOverride = normalizeSessionResetPolicyOverride(
+        rawOverride,
+        fallback,
+      );
+      if (!normalizedOverride) return [];
+
+      return [[normalizedKey, normalizedOverride]];
+    }),
+  );
+}
+
 function normalizeAuxiliaryProviderSelection(
   value: unknown,
   fallback: RuntimeAuxiliaryProviderSelection,
@@ -2803,44 +2853,9 @@ function normalizeRuntimeConfig(
           { min: 1 },
         ),
       },
-      byChannelKind: Object.fromEntries(
-        Object.entries(rawResetByChannelKind).flatMap(([key, value]) => {
-          if (!isRecord(value)) return [];
-          const normalizedKey = normalizeString(key, '', { allowEmpty: false });
-          if (!normalizedKey) return [];
-          return [
-            [
-              normalizedKey,
-              {
-                mode:
-                  hasOwn(value, 'mode') && value.mode != null
-                    ? normalizeSessionResetMode(
-                        value.mode,
-                        DEFAULT_RUNTIME_CONFIG.sessionReset.defaultPolicy.mode,
-                      )
-                    : undefined,
-                atHour:
-                  hasOwn(value, 'atHour') && value.atHour != null
-                    ? normalizeInteger(
-                        value.atHour,
-                        DEFAULT_RUNTIME_CONFIG.sessionReset.defaultPolicy
-                          .atHour,
-                        { min: 0, max: 23 },
-                      )
-                    : undefined,
-                idleMinutes:
-                  hasOwn(value, 'idleMinutes') && value.idleMinutes != null
-                    ? normalizeInteger(
-                        value.idleMinutes,
-                        DEFAULT_RUNTIME_CONFIG.sessionReset.defaultPolicy
-                          .idleMinutes,
-                        { min: 1 },
-                      )
-                    : undefined,
-              },
-            ],
-          ];
-        }),
+      byChannelKind: normalizeSessionResetByChannelKind(
+        rawResetByChannelKind,
+        DEFAULT_RUNTIME_CONFIG.sessionReset.defaultPolicy,
       ),
     },
     promptHooks: {

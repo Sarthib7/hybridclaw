@@ -615,8 +615,10 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     ],
     mediaAuthAllowHosts: [
       'graph.microsoft.com',
+      '*.teams.microsoft.com',
       'api.botframework.com',
       'botframework.com',
+      'teams.microsoft.com',
     ],
   },
   whatsapp: {

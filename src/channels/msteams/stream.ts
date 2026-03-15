@@ -159,8 +159,8 @@ export class MSTeamsStreamManager {
       });
 
       if (!existing) {
-        const responses = await this.turnContext.sendActivities([outgoing]);
-        const activityId = String(responses[0]?.id || '').trim();
+        const response = await this.turnContext.sendActivity(outgoing);
+        const activityId = String(response?.id || '').trim();
         if (!activityId) {
           throw new Error('Teams sendActivity did not return an activity id.');
         }

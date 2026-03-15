@@ -1,12 +1,16 @@
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import type { TurnContext } from 'botbuilder-core';
 import type { ConnectorClient } from 'botframework-connector';
 import type { Activity, Attachment, AttachmentData } from 'botframework-schema';
 import {
+  MSTEAMS_APP_ID,
+  MSTEAMS_APP_PASSWORD,
   MSTEAMS_MEDIA_ALLOW_HOSTS,
   MSTEAMS_MEDIA_AUTH_ALLOW_HOSTS,
   MSTEAMS_MEDIA_MAX_MB,
+  MSTEAMS_TENANT_ID,
 } from '../../config/config.js';
 import { logger } from '../../logger.js';
 import type { ArtifactMetadata, MediaContextItem } from '../../types.js';
@@ -33,6 +37,30 @@ const TEAMS_FILE_DOWNLOAD_INFO_CONTENT_TYPE =
   'application/vnd.microsoft.teams.file.download.info';
 
 const PERSONAL_INLINE_IMAGE_MAX_BYTES = 4 * 1024 * 1024;
+const PERSONAL_INLINE_IMAGE_MAX_DIMENSION = 4_096;
+const MSTEAMS_MEDIA_TMP_PREFIX = 'hybridclaw-msteams-';
+const REMOTE_MEDIA_FETCH_TIMEOUT_MS = 15_000;
+const ACCESS_TOKEN_SCOPE_SUFFIX = '/.default';
+const OUTBOUND_EXTENSION_BY_MIME_TYPE: Record<string, string> = {
+  'application/pdf': '.pdf',
+  'audio/mp4': '.m4a',
+  'audio/mpeg': '.mp3',
+  'audio/ogg': '.ogg',
+  'audio/wav': '.wav',
+  'image/gif': '.gif',
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/webp': '.webp',
+};
+const clientCredentialsTokenCache = new Map<
+  string,
+  { accessToken: string; expiresAt: number }
+>();
+
+interface OAuthTokenResponse {
+  access_token?: string;
+  expires_in?: number;
+}
 
 function normalizeValue(value: string | null | undefined): string {
   return String(value || '').trim();
@@ -135,7 +163,26 @@ function estimateDataUrlSize(url: string): number {
   return payload ? Buffer.from(payload, 'base64').length : 0;
 }
 
-function buildMediaItem(params: {
+function sanitizeFilename(name: string): string {
+  return name.replace(/[^a-zA-Z0-9._-]+/g, '_');
+}
+
+function ensureFilenameWithExtension(
+  filename: string,
+  mimeType: string | null,
+): string {
+  const safeName = sanitizeFilename(filename || 'teams-attachment');
+  if (path.extname(safeName)) {
+    return safeName;
+  }
+  const extension =
+    mimeType && OUTBOUND_EXTENSION_BY_MIME_TYPE[mimeType.toLowerCase()]
+      ? OUTBOUND_EXTENSION_BY_MIME_TYPE[mimeType.toLowerCase()]
+      : '';
+  return `${safeName}${extension}`;
+}
+
+function buildRemoteFallbackMediaItem(params: {
   url: string;
   filename: string;
   mimeType?: string | null;
@@ -166,13 +213,6 @@ function buildMediaItem(params: {
     return null;
   }
 
-  if (isAllowedHost(host, MSTEAMS_MEDIA_AUTH_ALLOW_HOSTS)) {
-    logger.debug(
-      { host, name: params.filename || null },
-      'Skipping Teams attachment that would require scoped auth forwarding',
-    );
-    return null;
-  }
   if (!isAllowedHost(host, MSTEAMS_MEDIA_ALLOW_HOSTS)) {
     logger.debug(
       { host, name: params.filename || null },
@@ -195,17 +235,263 @@ function buildMediaItem(params: {
   };
 }
 
-function shouldInlinePersonalImageAttachment(params: {
+function resolveScopeCandidatesForUrl(url: string): string[] {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    const looksLikeGraph =
+      host.endsWith('graph.microsoft.com') ||
+      host.endsWith('sharepoint.com') ||
+      host.endsWith('1drv.ms') ||
+      host.includes('sharepoint');
+    return looksLikeGraph
+      ? ['https://graph.microsoft.com', 'https://api.botframework.com']
+      : ['https://api.botframework.com', 'https://graph.microsoft.com'];
+  } catch {
+    return ['https://api.botframework.com', 'https://graph.microsoft.com'];
+  }
+}
+
+async function acquireClientCredentialsToken(
+  scopeBase: string,
+): Promise<string> {
+  const scope = `${scopeBase}${ACCESS_TOKEN_SCOPE_SUFFIX}`;
+  const now = Date.now();
+  const cached = clientCredentialsTokenCache.get(scope);
+  if (cached && now < cached.expiresAt - 60_000) {
+    return cached.accessToken;
+  }
+
+  if (!MSTEAMS_APP_ID || !MSTEAMS_APP_PASSWORD || !MSTEAMS_TENANT_ID) {
+    throw new Error(
+      'Teams client credentials are unavailable for inbound media download.',
+    );
+  }
+
+  const form = new URLSearchParams({
+    client_id: MSTEAMS_APP_ID,
+    client_secret: MSTEAMS_APP_PASSWORD,
+    grant_type: 'client_credentials',
+    scope,
+  });
+  const response = await fetch(
+    `https://login.microsoftonline.com/${encodeURIComponent(
+      MSTEAMS_TENANT_ID,
+    )}/oauth2/v2.0/token`,
+    {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+      body: form.toString(),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(
+      `Teams token request failed (${response.status} ${response.statusText})`,
+    );
+  }
+  const payload = (await response.json()) as OAuthTokenResponse;
+  const accessToken = normalizeValue(payload.access_token);
+  if (!accessToken) {
+    throw new Error('Teams token response did not include access_token.');
+  }
+  const expiresIn = Math.max(60, Number(payload.expires_in || 3_600));
+  clientCredentialsTokenCache.set(scope, {
+    accessToken,
+    expiresAt: now + expiresIn * 1_000,
+  });
+  return accessToken;
+}
+
+async function fetchTeamsMediaResponse(url: string): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    REMOTE_MEDIA_FETCH_TIMEOUT_MS,
+  );
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Accept: '*/*',
+      },
+      signal: controller.signal,
+    });
+    if (response.ok || (response.status !== 401 && response.status !== 403)) {
+      return response;
+    }
+
+    const host = new URL(url).hostname;
+    if (!isAllowedHost(host, MSTEAMS_MEDIA_AUTH_ALLOW_HOSTS)) {
+      return response;
+    }
+
+    for (const scopeBase of resolveScopeCandidatesForUrl(url)) {
+      try {
+        const accessToken = await acquireClientCredentialsToken(scopeBase);
+        const retryResponse = await fetch(url, {
+          headers: {
+            Accept: '*/*',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          signal: controller.signal,
+        });
+        if (
+          retryResponse.ok ||
+          (retryResponse.status !== 401 && retryResponse.status !== 403)
+        ) {
+          return retryResponse;
+        }
+      } catch {
+        // Try the next scope.
+      }
+    }
+
+    return response;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function decodeDataUrl(
+  url: string,
+): { buffer: Buffer; mimeType: string | null } | null {
+  const match = /^data:([^;,]+)?(;base64)?,(.*)$/i.exec(url);
+  if (!match || !match[2]) {
+    return null;
+  }
+  try {
+    return {
+      buffer: Buffer.from(match[3] || '', 'base64'),
+      mimeType: normalizeValue(match[1]).toLowerCase() || null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function stageInboundTeamsBuffer(params: {
+  buffer: Buffer;
+  filename: string;
+  mimeType: string | null;
+}): Promise<string> {
+  const directory = await fs.mkdtemp(
+    path.join(os.tmpdir(), MSTEAMS_MEDIA_TMP_PREFIX),
+  );
+  const fileName = ensureFilenameWithExtension(
+    params.filename,
+    params.mimeType,
+  );
+  const filePath = path.join(directory, fileName);
+  await fs.writeFile(filePath, params.buffer);
+  return filePath;
+}
+
+async function buildMediaItem(params: {
+  url: string;
+  filename: string;
+  mimeType?: string | null;
+  sizeBytes?: number;
+}): Promise<MediaContextItem | null> {
+  const fallback = buildRemoteFallbackMediaItem(params);
+  if (!fallback) {
+    return null;
+  }
+
+  if (fallback.url.startsWith('data:')) {
+    const decoded = decodeDataUrl(fallback.url);
+    if (!decoded) {
+      return fallback;
+    }
+    const filePath = await stageInboundTeamsBuffer({
+      buffer: decoded.buffer,
+      filename: fallback.filename,
+      mimeType: fallback.mimeType || decoded.mimeType,
+    });
+    return {
+      ...fallback,
+      path: filePath,
+      mimeType: fallback.mimeType || decoded.mimeType,
+      sizeBytes: decoded.buffer.length,
+    };
+  }
+
+  try {
+    const response = await fetchTeamsMediaResponse(fallback.url);
+    if (!response.ok) {
+      throw new Error(
+        `Teams attachment fetch failed (${response.status} ${response.statusText})`,
+      );
+    }
+    const contentLength = Number(response.headers.get('content-length') || 0);
+    if (
+      Number.isFinite(contentLength) &&
+      contentLength > 0 &&
+      contentLength > Math.max(1, MSTEAMS_MEDIA_MAX_MB) * 1024 * 1024
+    ) {
+      throw new Error('Teams attachment exceeds configured media limit.');
+    }
+    const buffer = Buffer.from(await response.arrayBuffer());
+    const resolvedMimeType =
+      normalizeValue(response.headers.get('content-type'))
+        .split(';')[0]
+        .trim()
+        .toLowerCase() || fallback.mimeType;
+    const filePath = await stageInboundTeamsBuffer({
+      buffer,
+      filename: fallback.filename,
+      mimeType: resolvedMimeType,
+    });
+    return {
+      ...fallback,
+      path: filePath,
+      mimeType: resolvedMimeType || null,
+      sizeBytes: buffer.length,
+    };
+  } catch (error) {
+    logger.debug(
+      { error, url: fallback.url, name: fallback.filename },
+      'Failed to stage Teams attachment locally; using remote URL fallback',
+    );
+    return fallback;
+  }
+}
+
+async function shouldInlinePersonalImageAttachment(params: {
   conversationType: string;
   contentType: string;
   sizeBytes: number;
-}): boolean {
-  return (
+  fileBuffer: Buffer;
+  filename: string;
+}): Promise<boolean> {
+  const shouldInline =
     params.conversationType === 'personal' &&
     params.contentType.startsWith('image/') &&
     params.sizeBytes > 0 &&
-    params.sizeBytes < PERSONAL_INLINE_IMAGE_MAX_BYTES
-  );
+    params.sizeBytes < PERSONAL_INLINE_IMAGE_MAX_BYTES;
+  if (!shouldInline) {
+    return false;
+  }
+
+  try {
+    const { loadImage } = await import('@napi-rs/canvas');
+    const image = await loadImage(params.fileBuffer);
+    const width = Math.round(Number(image.width || 0));
+    const height = Math.round(Number(image.height || 0));
+    if (
+      width > PERSONAL_INLINE_IMAGE_MAX_DIMENSION ||
+      height > PERSONAL_INLINE_IMAGE_MAX_DIMENSION
+    ) {
+      logger.debug(
+        { filename: params.filename, height, width },
+        'Sending Teams personal image via uploaded attachment due to oversized dimensions',
+      );
+      return false;
+    }
+  } catch {
+    // Fall back to inline delivery when image metadata cannot be inspected.
+  }
+
+  return true;
 }
 
 function requireConnectorClient(turnContext: TurnContext): ConnectorClient {
@@ -260,9 +546,11 @@ export async function buildTeamsUploadedFileAttachment(params: {
     params.turnContext.activity.conversation?.conversationType,
   ).toLowerCase();
   if (
-    shouldInlinePersonalImageAttachment({
+    await shouldInlinePersonalImageAttachment({
       conversationType,
       contentType,
+      fileBuffer,
+      filename,
       sizeBytes: fileBuffer.byteLength,
     })
   ) {
@@ -315,9 +603,9 @@ export async function buildTeamsArtifactAttachments(params: {
   return attachments;
 }
 
-export function buildTeamsAttachmentContext(params: {
+export async function buildTeamsAttachmentContext(params: {
   activity: Partial<Activity>;
-}): MediaContextItem[] {
+}): Promise<MediaContextItem[]> {
   const attachments = Array.isArray(params.activity.attachments)
     ? params.activity.attachments
     : [];
@@ -337,7 +625,7 @@ export function buildTeamsAttachmentContext(params: {
       looksLikeSupportedAttachment(attachment) &&
       normalizeValue(attachment.contentUrl)
     ) {
-      const mediaItem = buildMediaItem({
+      const mediaItem = await buildMediaItem({
         url: normalizeValue(attachment.contentUrl),
         filename: extractAttachmentFilename(
           normalizeValue(attachment.contentUrl),
@@ -363,7 +651,7 @@ export function buildTeamsAttachmentContext(params: {
             : fallbackName;
         const fileType =
           typeof record.fileType === 'string' ? record.fileType.trim() : '';
-        const mediaItem = buildMediaItem({
+        const mediaItem = await buildMediaItem({
           url: downloadUrl,
           filename: fileName,
           mimeType:
@@ -385,7 +673,7 @@ export function buildTeamsAttachmentContext(params: {
         const src = normalizeValue(match[1]);
         if (src && !src.startsWith('cid:')) {
           const filename = extractAttachmentFilename(src, fallbackName);
-          const mediaItem = buildMediaItem({
+          const mediaItem = await buildMediaItem({
             url: src,
             filename,
             mimeType: inferMimeTypeFromFilename(filename, 'image/png'),

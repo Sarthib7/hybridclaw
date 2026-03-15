@@ -9,6 +9,7 @@ const typingStartMock = vi.fn();
 const typingStopMock = vi.fn();
 const sendChunkedReplyMock = vi.fn(async () => {});
 const continueConversationAsyncMock = vi.fn();
+const buildTeamsAttachmentContextMock = vi.fn(async () => []);
 const parseCommandMock = vi.fn(() => ({
   args: [],
   command: '',
@@ -105,7 +106,7 @@ async function importRuntime() {
     },
   }));
   vi.doMock('../src/channels/msteams/attachments.js', () => ({
-    buildTeamsAttachmentContext: vi.fn(() => []),
+    buildTeamsAttachmentContext: buildTeamsAttachmentContextMock,
     buildTeamsUploadedFileAttachment: vi.fn(async () => ({
       contentType: 'image/png',
       contentUrl: 'https://example.com/attachment.png',
@@ -164,6 +165,8 @@ afterEach(() => {
   typingStopMock.mockReset();
   sendChunkedReplyMock.mockReset();
   continueConversationAsyncMock.mockReset();
+  buildTeamsAttachmentContextMock.mockReset();
+  buildTeamsAttachmentContextMock.mockResolvedValue([]);
   parseCommandMock.mockReset();
   parseCommandMock.mockReturnValue({
     args: [],
@@ -318,6 +321,67 @@ describe('Microsoft Teams runtime webhook adapter', () => {
     );
     expect(typingStartMock).not.toHaveBeenCalled();
     expect(typingStopMock).not.toHaveBeenCalled();
+  });
+
+  test('awaits Teams attachment context before invoking the message handler', async () => {
+    processMock.mockImplementation(
+      async (_req, _res, logic: (context: unknown) => Promise<void>) => {
+        await logic({
+          activity: {
+            type: 'message',
+            text: 'What is on this image?',
+            conversation: { id: 'conversation-123' },
+            recipient: { id: 'bot-id' },
+          },
+          sendActivity: vi.fn(async () => ({ id: 'reply-1' })),
+          turnState: new Map(),
+        });
+      },
+    );
+    buildTeamsAttachmentContextMock.mockResolvedValueOnce([
+      {
+        filename: 'teams-image.png',
+        mimeType: 'image/png',
+        originalUrl: 'https://example.com/teams-image.png',
+        path: '/tmp/teams-image.png',
+        sizeBytes: 3,
+        url: 'https://example.com/teams-image.png',
+      },
+    ]);
+
+    const runtime = await importRuntime();
+    const onMessage = vi.fn(async () => {});
+    const onCommand = vi.fn(async () => {});
+    runtime.initMSTeams(onMessage, onCommand);
+
+    const req = makeRequest({
+      type: 'message',
+      text: 'What is on this image?',
+    });
+    const res = makeResponse();
+
+    await runtime.handleMSTeamsWebhook(req as never, res as never);
+
+    expect(onMessage).toHaveBeenCalledWith(
+      'teams:dm:user',
+      null,
+      'conversation-123',
+      'user-id',
+      'User',
+      'Hi!',
+      [
+        {
+          filename: 'teams-image.png',
+          mimeType: 'image/png',
+          originalUrl: 'https://example.com/teams-image.png',
+          path: '/tmp/teams-image.png',
+          sizeBytes: 3,
+          url: 'https://example.com/teams-image.png',
+        },
+      ],
+      expect.any(Function),
+      expect.any(Object),
+    );
   });
 
   test('routes Teams DM attachment sends as top-level replies', async () => {

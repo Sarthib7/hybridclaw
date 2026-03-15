@@ -85,13 +85,13 @@ export async function sendChunkedReply(params: {
     text: params.text,
     attachments: params.attachments,
   });
-  await params.turnContext.sendActivities(
-    chunks.map((chunk) =>
+  for (const chunk of chunks) {
+    await params.turnContext.sendActivity(
       buildMessageActivity({
         chunk,
         replyStyle: params.replyStyle,
         replyToId: params.replyToId,
       }),
-    ),
-  );
+    );
+  }
 }

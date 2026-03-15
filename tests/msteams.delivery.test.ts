@@ -28,9 +28,9 @@ test('prepareChunkedActivities keeps attachment-only Teams sends empty', () => {
 });
 
 test('sendChunkedReply omits the text field for attachment-only Teams sends', async () => {
-  const sendActivities = vi.fn(async () => [{ id: 'activity-1' }]);
+  const sendActivity = vi.fn(async () => ({ id: 'activity-1' }));
   const turnContext = {
-    sendActivities,
+    sendActivity,
   };
   const attachments = [
     {
@@ -48,11 +48,9 @@ test('sendChunkedReply omits the text field for attachment-only Teams sends', as
     replyToId: 'incoming-1',
   });
 
-  expect(sendActivities).toHaveBeenCalledWith([
-    {
-      type: 'message',
-      attachments,
-      replyToId: 'incoming-1',
-    },
-  ]);
+  expect(sendActivity).toHaveBeenCalledWith({
+    type: 'message',
+    attachments,
+    replyToId: 'incoming-1',
+  });
 });

@@ -3,9 +3,9 @@ import { expect, test, vi } from 'vitest';
 import { MSTeamsStreamManager } from '../src/channels/msteams/stream.js';
 
 test('finalize omits the text field for attachment-only Teams stream sends', async () => {
-  const sendActivities = vi.fn(async () => [{ id: 'activity-1' }]);
+  const sendActivity = vi.fn(async () => ({ id: 'activity-1' }));
   const turnContext = {
-    sendActivities,
+    sendActivity,
     updateActivity: vi.fn(async () => {}),
     deleteActivity: vi.fn(async () => {}),
   };
@@ -23,11 +23,9 @@ test('finalize omits the text field for attachment-only Teams stream sends', asy
   });
   await stream.finalize('', attachments);
 
-  expect(sendActivities).toHaveBeenCalledWith([
-    {
-      type: 'message',
-      attachments,
-      replyToId: 'incoming-1',
-    },
-  ]);
+  expect(sendActivity).toHaveBeenCalledWith({
+    type: 'message',
+    attachments,
+    replyToId: 'incoming-1',
+  });
 });

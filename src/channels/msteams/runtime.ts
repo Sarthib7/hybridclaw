@@ -348,7 +348,7 @@ async function handleIncomingMessage(turnContext: TurnContext): Promise<void> {
 
   const hasMention = hasBotMention(activity, activity.recipient?.id);
   const content = cleanIncomingContent(activity);
-  const media = buildTeamsAttachmentContext({ activity });
+  const media = await buildTeamsAttachmentContext({ activity });
   const parsedCommand = parseCommand(content);
   if (
     !parsedCommand.isCommand &&

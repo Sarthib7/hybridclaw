@@ -172,7 +172,7 @@ async function importFreshCli(options?: {
       smtpPort: 587,
       smtpSecure: false,
       address: '',
-      pollIntervalMs: 15000,
+      pollIntervalMs: 30000,
       folders: ['INBOX'],
       allowFrom: [],
       textChunkLimit: 50000,

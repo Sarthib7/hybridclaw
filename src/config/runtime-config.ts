@@ -639,7 +639,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     smtpPort: 587,
     smtpSecure: false,
     address: '',
-    pollIntervalMs: 15_000,
+    pollIntervalMs: 30_000,
     folders: ['INBOX'],
     allowFrom: [],
     textChunkLimit: 50_000,

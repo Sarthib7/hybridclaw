@@ -773,13 +773,43 @@ async function startDiscordIntegration(): Promise<void> {
           await context.stream.fail(errorText);
           return;
         }
-        const bufferedDelta = streamFilter.flush();
-        if (bufferedDelta) {
-          await appendStreamText(bufferedDelta);
+        const pendingApproval = extractGatewayChatApprovalEvent(result);
+        if (!pendingApproval) {
+          const bufferedDelta = streamFilter.flush();
+          if (bufferedDelta) {
+            await appendStreamText(bufferedDelta);
+          }
         }
         if (streamFilter.isSilent() || isSilentReply(result.result)) {
           await clearPendingApproval(sessionId, { disableButtons: true });
           await context.stream.discard();
+          return;
+        }
+        if (pendingApproval) {
+          let cleanup: { disableButtons: () => Promise<void> } | null = null;
+          if (context.sendApprovalNotification) {
+            cleanup = await context.sendApprovalNotification({
+              text: 'Approval required — use buttons below or `/approve` to respond.',
+              approvalId: pendingApproval.approvalId,
+              userId,
+            });
+          } else {
+            await context.stream.finalize(
+              `<@${userId}> approval required. Use \`/approve\` to view and respond privately.`,
+            );
+          }
+          await rememberPendingApproval({
+            sessionId,
+            approvalId: pendingApproval.approvalId,
+            prompt:
+              pendingApproval.prompt || stripSilentToken(String(result.result)),
+            userId,
+            expiresAt: pendingApproval.expiresAt,
+            disableButtons: cleanup?.disableButtons ?? null,
+          });
+          if (cleanup) {
+            await context.stream.discard();
+          }
           return;
         }
         const attachments = buildArtifactAttachments(result.artifacts);
@@ -805,33 +835,6 @@ async function startDiscordIntegration(): Promise<void> {
           renderedText,
           sessionShowModeShowsTools(showMode) ? result.toolsUsed : undefined,
         );
-        const pendingApproval = extractGatewayChatApprovalEvent(result);
-        if (pendingApproval) {
-          let cleanup: { disableButtons: () => Promise<void> } | null = null;
-          if (context.sendApprovalNotification) {
-            cleanup = await context.sendApprovalNotification({
-              text: 'Approval required — use buttons below or `/approve` to respond.',
-              approvalId: pendingApproval.approvalId,
-              userId,
-            });
-          } else {
-            await context.stream.finalize(
-              `<@${userId}> approval required. Use \`/approve\` to view and respond privately.`,
-            );
-          }
-          await rememberPendingApproval({
-            sessionId,
-            approvalId: pendingApproval.approvalId,
-            prompt: pendingApproval.prompt || responseText,
-            userId,
-            expiresAt: pendingApproval.expiresAt,
-            disableButtons: cleanup?.disableButtons ?? null,
-          });
-          if (cleanup) {
-            await context.stream.discard();
-          }
-          return;
-        }
         await clearPendingApproval(sessionId, { disableButtons: true });
         await context.stream.finalize(responseText, attachments);
       } catch (error) {

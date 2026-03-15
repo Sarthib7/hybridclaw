@@ -1686,9 +1686,11 @@ export function initDiscord(
           interaction.user.id,
           interaction.user.username,
           ['approve', parsed.action, parsed.approvalId],
-          async (text) => {
+          async (text, files, components) => {
             await interaction.followUp({
               content: text,
+              ...(files ? { files } : {}),
+              ...(components !== undefined ? { components } : {}),
               ...interactionVisibility,
             });
           },

@@ -165,3 +165,9 @@ test('interactive onboarding does not print the start hint when TUI is already l
 
   expect(output).not.toContain('Start HybridClaw now with `hybridclaw tui`.');
 });
+
+test('interactive onboarding does not print the start hint after auth login', async () => {
+  const output = await runHybridAIOnboarding('hybridclaw auth login');
+
+  expect(output).not.toContain('Start HybridClaw now with `hybridclaw tui`.');
+});

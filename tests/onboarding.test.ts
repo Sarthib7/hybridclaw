@@ -61,7 +61,13 @@ async function runHybridAIOnboarding(commandName: string): Promise<string> {
   vi.doMock('node:readline/promises', () => ({
     default: {
       createInterface: () => ({
-        question: vi.fn(async () => answers.shift() || ''),
+        question: vi.fn(async (prompt: string) => {
+          const answer = answers.shift();
+          if (answer === undefined) {
+            throw new Error(`Unexpected onboarding prompt: ${prompt}`);
+          }
+          return answer;
+        }),
         close: vi.fn(),
       }),
     },

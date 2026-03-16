@@ -13,6 +13,5 @@ export function shouldPrintTuiStartHint(commandLabel: string): boolean {
     token.toLowerCase(),
   );
   if (tokens.length < 2) return false;
-  if (tokens[1] === 'onboarding') return true;
-  return tokens[1] === 'auth' && tokens.length >= 3 && tokens[2] === 'login';
+  return tokens[1] === 'onboarding';
 }

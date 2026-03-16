@@ -20,15 +20,15 @@ describe('shouldPrintTuiStartHint', () => {
     expect(shouldPrintTuiStartHint('hybridclaw auth status')).toBe(false);
   });
 
-  it('returns true for auth login with extra args', () => {
-    expect(shouldPrintTuiStartHint('hybridclaw auth login')).toBe(true);
+  it('returns false for auth login and later auth subcommands', () => {
+    expect(shouldPrintTuiStartHint('hybridclaw auth login')).toBe(false);
     expect(shouldPrintTuiStartHint('hybridclaw auth login hybridai')).toBe(
-      true,
+      false,
     );
   });
 
   it('matches command segments case-insensitively', () => {
-    expect(shouldPrintTuiStartHint('HYBRIDCLAW AUTH LOGIN')).toBe(true);
+    expect(shouldPrintTuiStartHint('HYBRIDCLAW ONBOARDING')).toBe(true);
   });
 });
 

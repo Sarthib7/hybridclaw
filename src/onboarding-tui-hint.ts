@@ -3,9 +3,13 @@ function tokenizeCommandLabel(commandLabel: string): string[] {
 }
 
 export function resolveTuiCommandLabel(commandLabel: string): string {
-  const tokens = tokenizeCommandLabel(commandLabel);
-  if (tokens.length === 0) return 'hybridclaw tui';
-  return `${tokens[0]} tui`;
+  const [command] = tokenizeCommandLabel(commandLabel);
+  if (command === undefined) {
+    throw new Error(
+      'resolveTuiCommandLabel requires a non-empty command label.',
+    );
+  }
+  return `${command} tui`;
 }
 
 export function shouldPrintTuiStartHint(commandLabel: string): boolean {

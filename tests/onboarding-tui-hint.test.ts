@@ -43,7 +43,7 @@ describe('resolveTuiCommandLabel', () => {
     expect(resolveTuiCommandLabel('hc auth login hybridai')).toBe('hc tui');
   });
 
-  it('falls back to hybridclaw for empty input', () => {
-    expect(resolveTuiCommandLabel('')).toBe('hybridclaw tui');
+  it('handles the single-token command label used by onboarding defaults', () => {
+    expect(resolveTuiCommandLabel('hybridclaw')).toBe('hybridclaw tui');
   });
 });

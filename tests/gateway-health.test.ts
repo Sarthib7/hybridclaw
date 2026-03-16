@@ -155,6 +155,25 @@ async function importFreshHealth(options?: {
     { role: 'user', content: 'hello' },
     { role: 'assistant', content: 'world' },
   ]);
+  const getGatewayHistorySummary = vi.fn(() => ({
+    messageCount: 2,
+    userMessageCount: 1,
+    toolCallCount: 3,
+    inputTokenCount: 12847,
+    outputTokenCount: 8203,
+    costUsd: 0.42,
+    toolBreakdown: [
+      { toolName: 'edit', count: 14 },
+      { toolName: 'bash', count: 6 },
+      { toolName: 'read', count: 3 },
+    ],
+    fileChanges: {
+      readCount: 3,
+      modifiedCount: 7,
+      createdCount: 2,
+      deletedCount: 1,
+    },
+  }));
   const getSessionById = vi.fn(() => ({ show_mode: 'all' }));
   const handleGatewayMessage = vi.fn(async () => ({
     status: 'success' as const,
@@ -522,6 +541,7 @@ async function importFreshHealth(options?: {
     getGatewayAdminSkills,
     getGatewayAdminTools,
     getGatewayHistory,
+    getGatewayHistorySummary,
     getGatewayStatus,
     handleGatewayCommand,
     handleGatewayMessage,
@@ -557,6 +577,7 @@ async function importFreshHealth(options?: {
     listenArgs,
     getGatewayStatus,
     getGatewayHistory,
+    getGatewayHistorySummary,
     getGatewayAdminOverview,
     getGatewayAgents,
     getGatewayAdminAgents,
@@ -673,6 +694,9 @@ describe('gateway health server', () => {
     await settle();
 
     expect(state.getGatewayHistory).toHaveBeenCalledWith('s1', 2);
+    expect(state.getGatewayHistorySummary).toHaveBeenCalledWith('s1', {
+      sinceMs: null,
+    });
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({
       sessionId: 's1',
@@ -680,6 +704,25 @@ describe('gateway health server', () => {
         { role: 'user', content: 'hello' },
         { role: 'assistant', content: 'world' },
       ],
+      summary: {
+        messageCount: 2,
+        userMessageCount: 1,
+        toolCallCount: 3,
+        inputTokenCount: 12847,
+        outputTokenCount: 8203,
+        costUsd: 0.42,
+        toolBreakdown: [
+          { toolName: 'edit', count: 14 },
+          { toolName: 'bash', count: 6 },
+          { toolName: 'read', count: 3 },
+        ],
+        fileChanges: {
+          readCount: 3,
+          modifiedCount: 7,
+          createdCount: 2,
+          deletedCount: 1,
+        },
+      },
     });
   });
 

@@ -84,6 +84,10 @@ import {
   getQueuedProactiveMessageCount,
   getRecentStructuredAuditForSession,
   getSessionCount,
+  getSessionFileChangeCounts,
+  getSessionMessageCounts,
+  getSessionToolCallBreakdown,
+  getSessionUsageTotalsSince,
   getTasksForSession,
   getUsageTotals,
   listStructuredAuditEntries,
@@ -223,6 +227,7 @@ import {
   type GatewayChatResult,
   type GatewayCommandRequest,
   type GatewayCommandResult,
+  type GatewayHistorySummary,
   type GatewayStatus,
   renderGatewayCommand,
 } from './gateway-types.js';
@@ -2505,6 +2510,45 @@ export function getGatewayHistory(
   return memoryService
     .getConversationHistory(sessionId, Math.max(1, Math.min(limit, 200)))
     .reverse();
+}
+
+function resolveHistorySummarySinceMs(
+  session: Session | undefined,
+  sinceMs?: number | null,
+): number {
+  if (typeof sinceMs === 'number' && Number.isFinite(sinceMs) && sinceMs > 0) {
+    return Math.floor(sinceMs);
+  }
+
+  const createdAtMs = parseTimestamp(session?.created_at)?.getTime() ?? 0;
+  if (createdAtMs > 0) return createdAtMs;
+  return Date.now();
+}
+
+export function getGatewayHistorySummary(
+  sessionId: string,
+  options?: {
+    sinceMs?: number | null;
+  },
+): GatewayHistorySummary {
+  const session = memoryService.getSessionById(sessionId);
+  const sinceMs = resolveHistorySummarySinceMs(session, options?.sinceMs);
+  const sinceTimestamp = new Date(sinceMs).toISOString();
+  const counts = getSessionMessageCounts(sessionId);
+  const usage = getSessionUsageTotalsSince(sessionId, sinceTimestamp);
+  const toolBreakdown = getSessionToolCallBreakdown(sessionId, sinceTimestamp);
+  const fileChanges = getSessionFileChangeCounts(sessionId, sinceTimestamp);
+
+  return {
+    messageCount: counts.totalMessages,
+    userMessageCount: counts.userMessages,
+    toolCallCount: usage.total_tool_calls,
+    inputTokenCount: usage.total_input_tokens,
+    outputTokenCount: usage.total_output_tokens,
+    costUsd: usage.total_cost_usd,
+    toolBreakdown,
+    fileChanges,
+  };
 }
 
 function extractDelegationDepth(sessionId: string): number {

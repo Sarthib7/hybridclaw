@@ -863,14 +863,40 @@ const listeners = new Set<RuntimeConfigChangeListener>();
 const WATCHER_RETRY_BASE_DELAY_MS = 1_000;
 const WATCHER_RETRY_MAX_DELAY_MS = 60_000;
 const WATCHER_RETRY_MAX_ATTEMPTS = 10;
+const NON_RETRYABLE_WATCHER_ERROR_CODES = new Set([
+  'EMFILE',
+  'ENFILE',
+  'ENOSPC',
+]);
 let watcherRetryAttempt = 0;
 let watcherRestartTimer: ReturnType<typeof setTimeout> | null = null;
+let watcherPermanentlyDisabled = false;
 
 function isRuntimeConfigWatcherDisabled(): boolean {
   const raw = String(process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER || '')
     .trim()
     .toLowerCase();
   return raw === '1' || raw === 'true' || raw === 'yes';
+}
+
+function getWatcherErrorCode(err: unknown): string {
+  if (!err || typeof err !== 'object') return '';
+  const code = (err as { code?: unknown }).code;
+  return typeof code === 'string' ? code.trim().toUpperCase() : '';
+}
+
+function disableWatcher(reason: string): void {
+  watcherPermanentlyDisabled = true;
+  if (watcherRestartTimer) {
+    clearTimeout(watcherRestartTimer);
+    watcherRestartTimer = null;
+  }
+  console.warn(`[runtime-config] watcher disabled: ${reason}`);
+}
+
+function shouldRetryWatcherError(err: unknown): boolean {
+  const code = getWatcherErrorCode(err);
+  return !NON_RETRYABLE_WATCHER_ERROR_CODES.has(code);
 }
 
 function cloneConfig<T>(value: T): T {
@@ -3380,7 +3406,7 @@ function scheduleReload(trigger: string): void {
 }
 
 function scheduleWatcherRestart(reason: string): void {
-  if (isRuntimeConfigWatcherDisabled()) return;
+  if (isRuntimeConfigWatcherDisabled() || watcherPermanentlyDisabled) return;
   if (watcherRestartTimer) return;
   if (watcherRetryAttempt >= WATCHER_RETRY_MAX_ATTEMPTS) {
     console.warn(
@@ -3404,7 +3430,7 @@ function scheduleWatcherRestart(reason: string): void {
 }
 
 function startWatcher(): void {
-  if (isRuntimeConfigWatcherDisabled()) return;
+  if (isRuntimeConfigWatcherDisabled() || watcherPermanentlyDisabled) return;
   if (configWatcher) return;
 
   try {
@@ -3428,13 +3454,21 @@ function startWatcher(): void {
 
     configWatcher.on('error', (err) => {
       const reason = err instanceof Error ? err.message : String(err);
-      console.warn(`[runtime-config] watcher error: ${reason}`);
       configWatcher?.close();
       configWatcher = null;
+      if (!shouldRetryWatcherError(err)) {
+        disableWatcher(reason);
+        return;
+      }
+      console.warn(`[runtime-config] watcher error: ${reason}`);
       scheduleWatcherRestart(`watcher error: ${reason}`);
     });
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
+    if (!shouldRetryWatcherError(err)) {
+      disableWatcher(reason);
+      return;
+    }
     console.warn(`[runtime-config] watcher setup failed: ${reason}`);
     scheduleWatcherRestart(`watcher setup failed: ${reason}`);
   }

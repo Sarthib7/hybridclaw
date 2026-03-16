@@ -296,4 +296,36 @@ describe('runtime config migration logging', () => {
 
     expect(watchSpy).not.toHaveBeenCalled();
   });
+
+  it('disables the fs watcher without retrying when watch descriptors are exhausted', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir);
+    delete process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
+    const watchError = Object.assign(
+      new Error('EMFILE: too many open files, watch'),
+      {
+        code: 'EMFILE',
+      },
+    );
+    const watchSpy = vi.spyOn(fs, 'watch').mockImplementation(() => {
+      throw watchError;
+    });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await importFreshRuntimeConfig(homeDir);
+
+    expect(watchSpy).toHaveBeenCalledTimes(1);
+    expect(
+      warnSpy.mock.calls.some(([message]) =>
+        String(message).includes(
+          '[runtime-config] watcher disabled: EMFILE: too many open files, watch',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      warnSpy.mock.calls.some(([message]) =>
+        String(message).includes('[runtime-config] watcher restart in'),
+      ),
+    ).toBe(false);
+  });
 });

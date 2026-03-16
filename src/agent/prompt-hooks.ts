@@ -1,4 +1,5 @@
 import os from 'node:os';
+import type { ChannelInfo } from '../channels/channel.js';
 import { resolveChannelMessageToolHints } from '../channels/prompt-adapters.js';
 import {
   APP_VERSION,
@@ -12,6 +13,10 @@ import {
 } from '../config/runtime-config.js';
 import { readRuntimeInstructionFile } from '../security/instruction-integrity.js';
 import {
+  buildSessionContextPrompt,
+  type SessionContext,
+} from '../session/session-context.js';
+import {
   buildSkillsPrompt,
   type Skill,
   type SkillInvocation,
@@ -20,7 +25,12 @@ import { buildContextPrompt, loadBootstrapFiles } from '../workspace.js';
 import { SILENT_REPLY_TOKEN } from './silent-reply.js';
 import { buildToolsSummary } from './tool-summary.js';
 
-export type PromptHookName = 'bootstrap' | 'memory' | 'safety' | 'runtime';
+export type PromptHookName =
+  | 'bootstrap'
+  | 'memory'
+  | 'safety'
+  | 'runtime'
+  | 'session-context';
 export type ExtendedPromptHookName = PromptHookName | 'proactivity';
 export type PromptMode = 'full' | 'minimal' | 'none';
 export const MESSAGE_SEND_SILENT_REPLY_TOKEN = SILENT_REPLY_TOKEN;
@@ -32,6 +42,8 @@ export interface PromptRuntimeInfo {
   channelType?: string;
   channelId?: string;
   guildId?: string | null;
+  channel?: ChannelInfo;
+  sessionContext?: SessionContext;
   workspacePath?: string;
 }
 
@@ -106,6 +118,12 @@ function buildMemoryHook(context: PromptHookContext): string {
   return buildSessionSummaryPrompt(context.sessionSummary);
 }
 
+function buildSessionContextHook(context: PromptHookContext): string {
+  const sessionContext = context.runtimeInfo?.sessionContext;
+  if (!sessionContext) return '';
+  return buildSessionContextPrompt(sessionContext);
+}
+
 function readSecurityPromptGuardrails(): string {
   return readRuntimeInstructionFile('SECURITY.md');
 }
@@ -120,6 +138,7 @@ function buildSafetyHook(context: PromptHookContext): string {
   });
   const channelMessageToolHints = resolveChannelMessageToolHints({
     runtimeInfo: {
+      channel: context.runtimeInfo?.channel,
       channelType: context.runtimeInfo?.channelType,
       channelId: context.runtimeInfo?.channelId,
       guildId: context.runtimeInfo?.guildId,
@@ -416,6 +435,11 @@ const PROMPT_HOOKS: PromptHook[] = [
     run: buildMemoryHook,
   },
   {
+    name: 'session-context',
+    isEnabled: () => true,
+    run: buildSessionContextHook,
+  },
+  {
     name: 'safety',
     isEnabled: (config) => config.promptHooks.safetyEnabled,
     run: buildSafetyHook,
@@ -446,7 +470,10 @@ function isHookAllowedForMode(
   if (mode === 'full') return true;
   // Minimal mode keeps only safety + memory durability context.
   return (
-    hookName === 'memory' || hookName === 'safety' || hookName === 'runtime'
+    hookName === 'memory' ||
+    hookName === 'safety' ||
+    hookName === 'runtime' ||
+    hookName === 'session-context'
   );
 }
 

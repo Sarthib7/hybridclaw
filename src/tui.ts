@@ -3,7 +3,8 @@
  * Usage: npm run tui
  */
 import readline from 'node:readline';
-
+import { TUI_CAPABILITIES } from './channels/channel.js';
+import { registerChannel } from './channels/channel-registry.js';
 import {
   APP_VERSION,
   CONFIGURED_MODELS,
@@ -1652,6 +1653,11 @@ async function main(): Promise<void> {
 }
 
 export async function runTui(options?: Partial<TuiRunOptions>): Promise<void> {
+  registerChannel({
+    kind: 'tui',
+    id: CHANNEL_ID,
+    capabilities: TUI_CAPABILITIES,
+  });
   const sessionId = String(options?.sessionId || '').trim();
   tuiSessionId = sessionId || generateTuiSessionId();
   tuiSessionStartedAtMs =

@@ -40,6 +40,11 @@ import { getObservabilityIngestState } from '../audit/observability-ingest.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
 import {
+  getChannel,
+  getChannelByContextId,
+  listChannels,
+} from '../channels/channel-registry.js';
+import {
   APP_VERSION,
   DATA_DIR,
   DISCORD_COMMANDS_ONLY,
@@ -135,6 +140,7 @@ import {
   rearmScheduler,
   resumeConfigJob,
 } from '../scheduler/scheduler.js';
+import { buildSessionContext } from '../session/session-context.js';
 import { exportSessionSnapshotJsonl } from '../session/session-export.js';
 import {
   maybeCompactSession,
@@ -3284,14 +3290,14 @@ async function prepareSessionAutoReset(params: {
   });
 
   await runPreCompactionMemoryFlush({
-    sessionId: params.sessionId,
+    sessionId: existingSession.id,
     agentId: resolvedRuntime.agentId,
     chatbotId: resolvedRuntime.chatbotId,
     enableRag: params.enableRag ?? existingSession.enable_rag !== 0,
     model: resolvedRuntime.model,
     channelId: params.channelId,
     sessionSummary: existingSession.session_summary,
-    olderMessages: memoryService.getRecentMessages(params.sessionId),
+    olderMessages: memoryService.getRecentMessages(existingSession.id),
   });
   return expiryEvaluation;
 }
@@ -3322,6 +3328,9 @@ export async function handleGatewayMessage(
     req.channelId,
     req.agentId ?? undefined,
   );
+  if (session.id !== req.sessionId) {
+    req.sessionId = session.id;
+  }
   if (source !== 'fullauto') {
     preemptRunningFullAutoTurn(req.sessionId, source);
     clearScheduledFullAutoContinuation(req.sessionId);
@@ -3344,6 +3353,33 @@ export async function handleGatewayMessage(
     chatbotId: req.chatbotId,
   });
   const { agentId, model, chatbotId } = resolvedRequest;
+  const channelType =
+    resolveChannelType(req) ||
+    resolveSessionResetChannelKind(req.channelId) ||
+    'unknown';
+  const connectedChannels = listChannels().map((channel) => channel.kind);
+  const channel =
+    getChannel(channelType) ||
+    getChannelByContextId(req.channelId) ||
+    undefined;
+  const sessionContext = buildSessionContext({
+    source: {
+      channelKind: channelType,
+      chatId: req.channelId,
+      chatType:
+        channelType === 'heartbeat' || channelType === 'scheduler'
+          ? 'system'
+          : req.guildId
+            ? 'channel'
+            : 'dm',
+      userId: req.userId,
+      userName: req.username ?? undefined,
+      guildId: req.guildId,
+    },
+    agentId,
+    sessionKey: req.sessionId,
+    connectedChannels,
+  });
   if (session.agent_id !== agentId) {
     const reboundExpiryEvaluation = await prepareSessionAutoReset({
       sessionId: req.sessionId,
@@ -3364,6 +3400,9 @@ export async function handleGatewayMessage(
       req.channelId,
       agentId,
     );
+    if (session.id !== req.sessionId) {
+      req.sessionId = session.id;
+    }
   }
   const showMode = normalizeSessionShowMode(session.show_mode);
   const shouldEmitTools = sessionShowModeShowsTools(showMode);
@@ -3604,9 +3643,11 @@ export async function handleGatewayMessage(
       chatbotId,
       model,
       defaultModel: HYBRIDAI_MODEL,
-      channelType: resolveChannelType(req),
+      channel,
+      channelType,
       channelId: req.channelId,
       guildId: req.guildId,
+      sessionContext,
       workspacePath,
     },
     blockedTools: mediaPolicy.blockedTools,
@@ -4126,6 +4167,9 @@ export async function handleGatewayCommand(
     req.channelId,
     undefined,
   );
+  if (session.id !== req.sessionId) {
+    req.sessionId = session.id;
+  }
 
   switch (cmd) {
     case 'help': {

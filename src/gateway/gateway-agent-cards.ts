@@ -12,6 +12,7 @@ import {
   getRecentMessages,
   getRecentStructuredAuditForSession,
 } from '../memory/db.js';
+import { parseSessionKey } from '../session/session-key.js';
 import type { Session, StoredMessage, StructuredAuditEntry } from '../types.js';
 import { isFullAutoEnabled } from './fullauto.js';
 import { formatRelativeTimeFromMs, parseTimestamp } from './gateway-time.js';
@@ -39,6 +40,13 @@ function trimPreviewText(raw: string, maxLength = 160): string {
 }
 
 function buildAgentName(session: Session): string {
+  const parsedKey = parseSessionKey(session.id);
+  if (parsedKey?.channelKind === 'heartbeat') {
+    return `Heartbeat ${parsedKey.agentId}`;
+  }
+  if (parsedKey?.channelKind === 'scheduler') {
+    return `Scheduler ${parsedKey.peerId}`;
+  }
   if (session.id.startsWith('heartbeat:')) {
     return `Heartbeat ${session.id.slice('heartbeat:'.length)}`;
   }
@@ -67,6 +75,13 @@ function buildAgentTask(session: Session, messages: StoredMessage[]): string {
   if (session.session_summary) {
     const preview = trimPreviewText(session.session_summary, 180);
     if (preview) return preview;
+  }
+  const parsedKey = parseSessionKey(session.id);
+  if (parsedKey?.channelKind === 'heartbeat') {
+    return 'Periodic heartbeat session using the configured runtime workspace.';
+  }
+  if (parsedKey?.channelKind === 'scheduler') {
+    return 'Config-backed scheduler job delivering an automated agent turn.';
   }
   if (session.id.startsWith('heartbeat:')) {
     return 'Periodic heartbeat session using the configured runtime workspace.';

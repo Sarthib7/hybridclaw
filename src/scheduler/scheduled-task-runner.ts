@@ -1,17 +1,29 @@
 import { runAgent } from '../agent/agent.js';
+import { buildConversationContext } from '../agent/conversation.js';
 import {
   emitToolExecutionAuditEvents,
   makeAuditRunId,
   recordAuditEvent,
 } from '../audit/audit-events.js';
+import { SYSTEM_CAPABILITIES } from '../channels/channel.js';
+import {
+  getChannel,
+  listChannels,
+  registerChannel,
+} from '../channels/channel-registry.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { recordUsageEvent } from '../memory/db.js';
 import { resolveModelProvider } from '../providers/factory.js';
+import { buildSessionContext } from '../session/session-context.js';
+import {
+  buildSessionKey,
+  isLegacySessionKey,
+  migrateLegacySessionKey,
+} from '../session/session-key.js';
 import {
   estimateTokenCountFromMessages,
   estimateTokenCountFromText,
 } from '../session/token-efficiency.js';
-import type { ChatMessage } from '../types.js';
 
 export async function runIsolatedScheduledTask(params: {
   taskId: number;
@@ -38,13 +50,54 @@ export async function runIsolatedScheduledTask(params: {
     onResult,
     onError,
   } = params;
-  const cronSessionId =
-    sessionKey && sessionKey.trim() ? sessionKey.trim() : `cron:${taskId}`;
+  registerChannel({
+    kind: 'scheduler',
+    id: 'scheduler',
+    capabilities: SYSTEM_CAPABILITIES,
+  });
+  const rawSessionKey = sessionKey?.trim()
+    ? sessionKey.trim()
+    : buildSessionKey(agentId, 'scheduler', 'cron', String(taskId));
+  const cronSessionId = isLegacySessionKey(rawSessionKey)
+    ? migrateLegacySessionKey(rawSessionKey, {
+        agent_id: agentId,
+      })
+    : rawSessionKey;
   const runId = makeAuditRunId('cron');
-  const messages: ChatMessage[] = [{ role: 'user', content: prompt }];
   const startedAt = Date.now();
   const provider = resolveModelProvider(model);
   const workspacePath = agentWorkspaceDir(agentId);
+  const sessionContext = buildSessionContext({
+    source: {
+      channelKind: 'scheduler',
+      chatId: channelId,
+      chatType: 'system',
+      userId: 'scheduler',
+      userName: 'scheduler',
+      guildId: null,
+    },
+    agentId,
+    sessionKey: cronSessionId,
+    connectedChannels: listChannels().map((channel) => channel.kind),
+  });
+  const { messages } = buildConversationContext({
+    agentId,
+    history: [],
+    currentUserContent: prompt,
+    runtimeInfo: {
+      channel: getChannel('scheduler'),
+      chatbotId,
+      model,
+      defaultModel: model,
+      channelType: 'scheduler',
+      channelId,
+      guildId: null,
+      sessionContext,
+      workspacePath,
+    },
+    blockedTools: ['cron'],
+  });
+  messages.push({ role: 'user', content: prompt });
 
   recordAuditEvent({
     sessionId: cronSessionId,

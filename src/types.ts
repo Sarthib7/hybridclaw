@@ -292,6 +292,7 @@ export type SessionShowMode = 'all' | 'thinking' | 'tools' | 'none';
 
 export interface Session {
   id: string;
+  legacy_session_id?: string | null;
   guild_id: string | null;
   channel_id: string;
   agent_id: string;

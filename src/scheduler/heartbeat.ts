@@ -16,6 +16,12 @@ import {
   makeAuditRunId,
   recordAuditEvent,
 } from '../audit/audit-events.js';
+import { SYSTEM_CAPABILITIES } from '../channels/channel.js';
+import {
+  getChannel,
+  listChannels,
+  registerChannel,
+} from '../channels/channel-registry.js';
 import {
   HEARTBEAT_CHANNEL,
   HEARTBEAT_ENABLED,
@@ -29,6 +35,8 @@ import {
   modelRequiresChatbotId,
   resolveModelProvider,
 } from '../providers/factory.js';
+import { buildSessionContext } from '../session/session-context.js';
+import { buildSessionKey } from '../session/session-key.js';
 import { maybeCompactSession } from '../session/session-maintenance.js';
 import { appendSessionTranscript } from '../session/session-transcripts.js';
 import {
@@ -96,6 +104,11 @@ export function startHeartbeat(
   }
 
   logger.info({ interval }, 'Heartbeat started');
+  registerChannel({
+    kind: 'heartbeat',
+    id: HEARTBEAT_CHANNEL || 'heartbeat',
+    capabilities: SYSTEM_CAPABILITIES,
+  });
 
   timer = setInterval(async () => {
     if (running) {
@@ -111,7 +124,12 @@ export function startHeartbeat(
     }
     running = true;
 
-    const sessionId = `heartbeat:${agentId}`;
+    const sessionId = buildSessionKey(
+      agentId,
+      'heartbeat',
+      'system',
+      'default',
+    );
     const channelId = 'heartbeat';
     const runId = makeAuditRunId('heartbeat');
     const startedAt = Date.now();
@@ -145,17 +163,32 @@ export function startHeartbeat(
       const resolvedAgentId = resolvedRuntime.agentId;
       const enableRag = session.enable_rag !== 0;
       const workspacePath = agentWorkspaceDir(resolvedAgentId);
+      const sessionContext = buildSessionContext({
+        source: {
+          channelKind: 'heartbeat',
+          chatId: channelId,
+          chatType: 'system',
+          userId: 'heartbeat',
+          userName: 'heartbeat',
+          guildId: null,
+        },
+        agentId: resolvedAgentId,
+        sessionKey: sessionId,
+        connectedChannels: listChannels().map((channel) => channel.kind),
+      });
       const { messages } = buildConversationContext({
         agentId: resolvedAgentId,
         sessionSummary: memoryContext.promptSummary,
         history,
         runtimeInfo: {
+          channel: getChannel('heartbeat'),
           chatbotId,
           model,
           defaultModel: model,
           channelType: 'heartbeat',
           channelId,
           guildId: null,
+          sessionContext,
           workspacePath,
         },
         allowedTools: HEARTBEAT_ALLOWED_TOOLS,

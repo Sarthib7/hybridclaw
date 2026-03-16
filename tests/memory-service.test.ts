@@ -15,6 +15,7 @@ import {
   getCanonicalContext,
   getMemoryValue,
   getOrCreateSession,
+  getSessionById,
   getUsageTotals,
   initDatabase,
   listMemoryValues,
@@ -400,6 +401,54 @@ describe.sequential('schema migrations', () => {
     expect(hasRelations?.name).toBe('relations');
     expect(hasCanonical?.name).toBe('canonical_sessions');
     expect(hasUsage?.name).toBe('usage_events');
+  });
+
+  test('migrates legacy session ids and related rows to hierarchical keys', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    const legacy = new Database(dbPath);
+    legacy
+      .prepare(
+        `INSERT INTO sessions
+          (id, guild_id, channel_id, agent_id, chatbot_id, model, enable_rag, message_count, session_summary, summary_updated_at, compaction_count, memory_flush_at, full_auto_enabled, full_auto_prompt, full_auto_started_at, show_mode, created_at, last_active, reset_count, reset_at, legacy_session_id)
+         VALUES (?, ?, ?, ?, NULL, NULL, 1, 1, NULL, NULL, 0, NULL, 0, NULL, NULL, 'all', datetime('now'), datetime('now'), 0, NULL, NULL)`,
+      )
+      .run('dm:439508376087560193', null, '439508376087560193', 'main');
+    legacy
+      .prepare(
+        `INSERT INTO messages (session_id, user_id, username, role, content)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run('dm:439508376087560193', 'u1', 'alice', 'user', 'hello');
+    legacy
+      .prepare(
+        `INSERT INTO tasks (session_id, channel_id, cron_expr, prompt)
+         VALUES (?, ?, ?, ?)`,
+      )
+      .run('dm:439508376087560193', '439508376087560193', '* * * * *', 'ping');
+    legacy.pragma('user_version = 9');
+    legacy.close();
+
+    initDatabase({ quiet: true, dbPath });
+
+    const migratedSessionId = 'agent:main:discord:dm:439508376087560193';
+    const migratedSession = getSessionById(migratedSessionId);
+    expect(migratedSession?.id).toBe(migratedSessionId);
+    expect(migratedSession?.legacy_session_id).toBe('dm:439508376087560193');
+
+    const inspect = new Database(dbPath, { readonly: true });
+    const migratedMessage = inspect
+      .prepare('SELECT session_id FROM messages LIMIT 1')
+      .get() as { session_id: string };
+    const migratedTask = inspect
+      .prepare('SELECT session_id FROM tasks LIMIT 1')
+      .get() as { session_id: string };
+    inspect.close();
+
+    expect(migratedMessage.session_id).toBe(migratedSessionId);
+    expect(migratedTask.session_id).toBe(migratedSessionId);
+    expect(getSessionById('dm:439508376087560193')?.id).toBe(migratedSessionId);
   });
 });
 

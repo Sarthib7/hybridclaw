@@ -162,6 +162,13 @@ function tableExists(database: Database.Database, table: string): boolean {
   return Boolean(row?.name);
 }
 
+function getTableSql(database: Database.Database, table: string): string {
+  const row = database
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get(table) as { sql: string | null } | undefined;
+  return row?.sql || '';
+}
+
 function columnExists(
   database: Database.Database,
   table: string,
@@ -169,6 +176,26 @@ function columnExists(
 ): boolean {
   const cols = database.pragma(`table_info(${table})`) as TableInfoRow[];
   return cols.some((entry) => entry.name === column);
+}
+
+function hasSessionLegacySessionIdColumn(database: Database.Database): boolean {
+  return (
+    tableExists(database, 'sessions') &&
+    columnExists(database, 'sessions', 'legacy_session_id')
+  );
+}
+
+function skillObservationsNeedConstraintMigration(
+  database: Database.Database,
+): boolean {
+  if (!tableExists(database, 'skill_observations')) return false;
+  const definition = getTableSql(database, 'skill_observations').toLowerCase();
+  return (
+    !definition.includes("outcome in ('success', 'failure', 'partial')") ||
+    !definition.includes(
+      "feedback_sentiment in ('positive', 'negative', 'neutral')",
+    )
+  );
 }
 
 function addColumnIfMissing(params: {
@@ -1200,7 +1227,12 @@ function runMigrations(
   if (currentVersion < 7) migrateV7(database, opts);
   if (currentVersion < 8) migrateV8(database, opts);
   if (currentVersion < 9) migrateV9(database, opts);
-  if (currentVersion < 10) migrateV10(database, opts);
+  if (
+    currentVersion < 10 ||
+    skillObservationsNeedConstraintMigration(database)
+  ) {
+    migrateV10(database, opts);
+  }
   if (currentVersion < 11) migrateV11(database, opts);
 
   setSchemaVersion(database, SCHEMA_VERSION);
@@ -2765,6 +2797,7 @@ function selectSessionById(sessionId: string): Session | undefined {
 function selectSessionIdByLegacySessionId(
   legacySessionId: string,
 ): string | undefined {
+  if (!hasSessionLegacySessionIdColumn(db)) return undefined;
   const row = db
     .prepare('SELECT id FROM sessions WHERE legacy_session_id = ?')
     .get(legacySessionId) as { id: string } | undefined;

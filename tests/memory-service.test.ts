@@ -450,6 +450,72 @@ describe.sequential('schema migrations', () => {
     expect(migratedTask.session_id).toBe(migratedSessionId);
     expect(getSessionById('dm:439508376087560193')?.id).toBe(migratedSessionId);
   });
+
+  test('migrates existing schema v10 databases that lack legacy session ids', () => {
+    const dbPath = createTempDbPath();
+    const legacy = new Database(dbPath);
+    legacy.exec(`
+      CREATE TABLE sessions (
+        id TEXT PRIMARY KEY,
+        guild_id TEXT,
+        channel_id TEXT NOT NULL,
+        agent_id TEXT DEFAULT 'main'
+      );
+
+      CREATE TABLE messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        user_id TEXT,
+        username TEXT,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL
+      );
+
+      CREATE TABLE tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        channel_id TEXT NOT NULL,
+        cron_expr TEXT NOT NULL,
+        prompt TEXT NOT NULL
+      );
+    `);
+    legacy
+      .prepare(
+        'INSERT INTO sessions (id, guild_id, channel_id, agent_id) VALUES (?, ?, ?, ?)',
+      )
+      .run('dm:439508376087560193', null, '439508376087560193', 'main');
+    legacy
+      .prepare(
+        `INSERT INTO messages (session_id, user_id, username, role, content)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run('dm:439508376087560193', 'u1', 'alice', 'user', 'hello');
+    legacy
+      .prepare(
+        `INSERT INTO tasks (session_id, channel_id, cron_expr, prompt)
+         VALUES (?, ?, ?, ?)`,
+      )
+      .run('dm:439508376087560193', '439508376087560193', '* * * * *', 'ping');
+    legacy.pragma('user_version = 10');
+    legacy.close();
+
+    initDatabase({ quiet: true, dbPath });
+
+    const migratedSessionId = 'agent:main:discord:dm:439508376087560193';
+    const migratedSession = getSessionById('dm:439508376087560193');
+    expect(migratedSession?.id).toBe(migratedSessionId);
+    expect(migratedSession?.legacy_session_id).toBe('dm:439508376087560193');
+
+    const inspect = new Database(dbPath, { readonly: true });
+    const schemaVersion = inspect.pragma('user_version', { simple: true });
+    const hasLegacyColumn = inspect
+      .prepare("SELECT 1 FROM pragma_table_info('sessions') WHERE name = ?")
+      .get('legacy_session_id') as { 1: number } | undefined;
+    inspect.close();
+
+    expect(Number(schemaVersion)).toBe(11);
+    expect(hasLegacyColumn).toBeDefined();
+  });
 });
 
 describe.sequential('knowledge graph DB', () => {

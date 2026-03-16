@@ -2574,6 +2574,29 @@ export function getRecentMessages(
   return rows.reverse();
 }
 
+export function getSessionMessageCounts(sessionId: string): {
+  totalMessages: number;
+  userMessages: number;
+} {
+  const row = db
+    .prepare(
+      `SELECT
+         COUNT(*) AS total_messages,
+         COALESCE(SUM(CASE WHEN role = 'user' THEN 1 ELSE 0 END), 0) AS user_messages
+       FROM messages
+       WHERE session_id = ?`,
+    )
+    .get(sessionId) as {
+    total_messages: unknown;
+    user_messages: unknown;
+  };
+
+  return {
+    totalMessages: normalizeUsageNumber(row.total_messages),
+    userMessages: normalizeUsageNumber(row.user_messages),
+  };
+}
+
 function parseTimestamp(raw: string): number {
   const value = raw.trim();
   if (!value) return 0;

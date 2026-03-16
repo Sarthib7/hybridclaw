@@ -154,9 +154,16 @@ export interface GatewayHistoryMessage {
   created_at: string;
 }
 
+export interface GatewayHistorySummary {
+  messageCount: number;
+  userMessageCount: number;
+  toolCallCount: number;
+}
+
 export interface GatewayHistoryResponse {
   sessionId: string;
   history: GatewayHistoryMessage[];
+  summary?: GatewayHistorySummary;
 }
 
 export interface GatewaySchedulerJobStatus {

@@ -58,6 +58,12 @@ import {
 } from './tui-history.js';
 import { proactiveBadgeLabel, proactiveSourceSuffix } from './tui-proactive.js';
 import {
+  buildTuiExitSummaryLines,
+  formatTuiSessionDuration,
+  generateTuiSessionId,
+  type TuiRunOptions,
+} from './tui-session.js';
+import {
   mapTuiApproveSlashToMessage,
   mapTuiSlashCommandToGatewayArgs,
   parseTuiSlashCommand,
@@ -249,7 +255,6 @@ const OCEAN_ACTIVITY_VERBS = [
   'seaflooring',
 ] as const;
 
-const SESSION_ID = 'tui:local';
 const CHANNEL_ID = 'tui';
 const TUI_USER_ID = 'tui-user';
 const TUI_USERNAME = 'user';
@@ -283,6 +288,10 @@ let tuiPendingApproval: {
 } | null = null;
 let tuiShowMode: SessionShowMode = DEFAULT_SESSION_SHOW_MODE;
 let tuiSlashMenu: TuiSlashMenuController | null = null;
+let tuiSessionId = generateTuiSessionId();
+let tuiSessionStartedAtMs = Date.now();
+let tuiResumeCommand = 'hybridclaw --resume';
+let tuiExitInProgress = false;
 
 function mapApprovalSelectionToCommand(
   selection: string,
@@ -789,7 +798,7 @@ function sessionGatewayContext(): {
   channelId: string;
 } {
   return {
-    sessionId: SESSION_ID,
+    sessionId: tuiSessionId,
     guildId: null,
     channelId: CHANNEL_ID,
   };
@@ -860,13 +869,19 @@ function syncTuiSlashMenu(): void {
   tuiSlashMenu?.sync();
 }
 
+function isReadlineClosed(rl: readline.Interface): boolean {
+  return (rl as readline.Interface & { closed?: boolean }).closed === true;
+}
+
 function promptTuiInput(rl: readline.Interface): void {
+  if (tuiExitInProgress || isReadlineClosed(rl)) return;
   clearTuiSlashMenu();
   rl.prompt();
   syncTuiSlashMenu();
 }
 
 function refreshPrompt(rl: readline.Interface): void {
+  if (tuiExitInProgress || isReadlineClosed(rl)) return;
   clearTuiSlashMenu();
   rl.setPrompt(buildPromptText());
   const internal = rl as TuiReadlineInterface;
@@ -904,13 +919,68 @@ async function fetchTuiInputHistory(
 ): Promise<string[]> {
   try {
     const response = await gatewayHistory(
-      SESSION_ID,
+      tuiSessionId,
       resolveTuiHistoryFetchLimit(limit),
     );
     return buildTuiReadlineHistory(response.history, limit);
   } catch {
     return [];
   }
+}
+
+async function fetchTuiExitSummary(): Promise<{
+  messageCount: number;
+  userMessageCount: number;
+  toolCallCount: number;
+} | null> {
+  try {
+    const response = await gatewayHistory(tuiSessionId, 1);
+    return response.summary || null;
+  } catch {
+    return null;
+  }
+}
+
+async function finalizeTuiExit(): Promise<void> {
+  if (tuiExitInProgress) return;
+  tuiExitInProgress = true;
+  clearTuiSlashMenu();
+  tuiSlashMenu = null;
+
+  const summary = await fetchTuiExitSummary();
+  if (!summary) {
+    console.log();
+    console.log('Resume this session with:');
+    console.log(`  ${tuiResumeCommand} ${tuiSessionId}`);
+    console.log();
+    console.log(`Session:        ${tuiSessionId}`);
+    console.log(
+      `Duration:       ${formatTuiSessionDuration(Date.now() - tuiSessionStartedAtMs)}`,
+    );
+    console.log();
+    process.exit(0);
+    return;
+  }
+
+  if (summary.messageCount <= 0) {
+    console.log(`\n${MUTED}  Goodbye!${RESET}\n`);
+    process.exit(0);
+    return;
+  }
+
+  console.log();
+  for (const line of buildTuiExitSummaryLines({
+    sessionId: tuiSessionId,
+    durationMs: Date.now() - tuiSessionStartedAtMs,
+    messageCount: summary.messageCount,
+    userMessageCount: summary.userMessageCount,
+    toolCallCount: summary.toolCallCount,
+    resumeCommand: tuiResumeCommand,
+  })) {
+    console.log(line);
+  }
+  console.log();
+  process.exit(0);
 }
 
 async function syncFullAutoStateFromGateway(
@@ -1105,9 +1175,7 @@ async function handleSlashCommand(
     case 'quit':
     case 'q':
       clearTuiSlashMenu();
-      console.log(`\n  ${GOLD}Goodbye!${RESET}\n`);
       rl.close();
-      process.exit(0);
       return true;
     case 'model':
       if (parts.length === 1 || parts[1] === 'select') {
@@ -1579,14 +1647,28 @@ async function main(): Promise<void> {
     clearInterval(proactivePollTimer);
     if (pendingInputTimer) clearTimeout(pendingInputTimer);
     if (process.stdin.isTTY) process.stdin.setRawMode(false);
-    clearTuiSlashMenu();
-    tuiSlashMenu = null;
-    console.log(`\n${MUTED}  Goodbye!${RESET}\n`);
-    process.exit(0);
+    void finalizeTuiExit();
   });
 }
 
-main().catch((err) => {
-  console.error('TUI error:', err);
-  process.exit(1);
-});
+export async function runTui(options?: Partial<TuiRunOptions>): Promise<void> {
+  const sessionId = String(options?.sessionId || '').trim();
+  tuiSessionId = sessionId || generateTuiSessionId();
+  tuiSessionStartedAtMs =
+    typeof options?.startedAtMs === 'number' &&
+    Number.isFinite(options.startedAtMs)
+      ? Math.max(0, Math.floor(options.startedAtMs))
+      : Date.now();
+  tuiResumeCommand =
+    String(options?.resumeCommand || 'hybridclaw --resume').trim() ||
+    'hybridclaw --resume';
+  activeRunAbortController = null;
+  proactivePollInFlight = false;
+  tuiFullAutoState = DEFAULT_TUI_FULLAUTO_STATE;
+  fullAutoSteeringInFlight = false;
+  tuiPendingApproval = null;
+  tuiShowMode = DEFAULT_SESSION_SHOW_MODE;
+  tuiSlashMenu = null;
+  tuiExitInProgress = false;
+  await main();
+}

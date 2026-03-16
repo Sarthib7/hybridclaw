@@ -84,6 +84,8 @@ import {
   getQueuedProactiveMessageCount,
   getRecentStructuredAuditForSession,
   getSessionCount,
+  getSessionMessageCounts,
+  getSessionUsageTotals,
   getTasksForSession,
   getUsageTotals,
   listStructuredAuditEntries,
@@ -223,6 +225,7 @@ import {
   type GatewayChatResult,
   type GatewayCommandRequest,
   type GatewayCommandResult,
+  type GatewayHistorySummary,
   type GatewayStatus,
   renderGatewayCommand,
 } from './gateway-types.js';
@@ -2505,6 +2508,18 @@ export function getGatewayHistory(
   return memoryService
     .getConversationHistory(sessionId, Math.max(1, Math.min(limit, 200)))
     .reverse();
+}
+
+export function getGatewayHistorySummary(
+  sessionId: string,
+): GatewayHistorySummary {
+  const counts = getSessionMessageCounts(sessionId);
+  const usage = getSessionUsageTotals(sessionId);
+  return {
+    messageCount: counts.totalMessages,
+    userMessageCount: counts.userMessages,
+    toolCallCount: usage.total_tool_calls,
+  };
 }
 
 function extractDelegationDepth(sessionId: string): number {

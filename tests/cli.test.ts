@@ -238,6 +238,9 @@ async function importFreshCli(options?: {
     timestamp: new Date().toISOString(),
   }));
   const tuiModuleLoaded = vi.fn();
+  const runTui = vi.fn(async () => {
+    tuiModuleLoaded();
+  });
   const readlineQuestion = vi.fn(async () => promptResponses.shift() ?? '');
   const readlineClose = vi.fn();
   const readlineCreateInterface = vi.fn(() => ({
@@ -340,8 +343,9 @@ async function importFreshCli(options?: {
     saveRuntimeSecrets,
   }));
   vi.doMock('../src/tui.ts', () => {
-    tuiModuleLoaded();
-    return {};
+    return {
+      runTui,
+    };
   });
   vi.doMock('../src/update.ts', () => ({
     printUpdateUsage,
@@ -378,6 +382,7 @@ async function importFreshCli(options?: {
     readlineQuestion,
     readlineClose,
     tuiModuleLoaded,
+    runTui,
   };
 }
 
@@ -1166,6 +1171,7 @@ describe('CLI hybridai commands', () => {
       ensureRuntimeCredentials,
       ensureContainerImageReady,
       gatewayHealth,
+      runTui,
       tuiModuleLoaded,
     } = await importFreshCli({
       gatewayReachable: true,
@@ -1181,7 +1187,44 @@ describe('CLI hybridai commands', () => {
     expect(logSpy).toHaveBeenCalledWith(
       'hybridclaw tui: Gateway found at http://127.0.0.1:9090.',
     );
+    expect(runTui).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: expect.stringMatching(/^\d{8}_\d{6}_[0-9a-f]{6}$/),
+        startedAtMs: expect.any(Number),
+        resumeCommand: 'hybridclaw --resume',
+      }),
+    );
     expect(tuiModuleLoaded).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes an explicit session id through tui --resume', async () => {
+    const { cli, runTui } = await importFreshCli({
+      gatewayReachable: true,
+    });
+
+    await cli.main(['tui', '--resume', '20260316_122238_532f05']);
+
+    expect(runTui).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: '20260316_122238_532f05',
+        resumeCommand: 'hybridclaw --resume',
+      }),
+    );
+  });
+
+  it('supports top-level --resume as a shortcut to tui', async () => {
+    const { cli, runTui } = await importFreshCli({
+      gatewayReachable: true,
+    });
+
+    await cli.main(['--resume', '20260316_122238_532f05']);
+
+    expect(runTui).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: '20260316_122238_532f05',
+        resumeCommand: 'hybridclaw --resume',
+      }),
+    );
   });
 
   it('treats a symlinked bin path as direct execution', async () => {

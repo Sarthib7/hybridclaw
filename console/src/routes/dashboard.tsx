@@ -6,6 +6,7 @@ import { useLiveEvents } from '../hooks/use-live-events';
 import {
   formatCompactNumber,
   formatRelativeTime,
+  formatTokenBreakdown,
   formatUptime,
   formatUsd,
 } from '../lib/format';
@@ -104,6 +105,12 @@ export function DashboardPage() {
                 {formatCompactNumber(overview.usage.daily.totalTokens)}
               </strong>
               <small>
+                {formatTokenBreakdown({
+                  inputTokens: overview.usage.daily.totalInputTokens ?? 0,
+                  outputTokens: overview.usage.daily.totalOutputTokens ?? 0,
+                })}
+              </small>
+              <small>
                 {formatUsd(overview.usage.daily.totalCostUsd)} across{' '}
                 {overview.usage.daily.callCount} calls
               </small>
@@ -113,6 +120,12 @@ export function DashboardPage() {
               <strong>
                 {formatCompactNumber(overview.usage.monthly.totalTokens)}
               </strong>
+              <small>
+                {formatTokenBreakdown({
+                  inputTokens: overview.usage.monthly.totalInputTokens ?? 0,
+                  outputTokens: overview.usage.monthly.totalOutputTokens ?? 0,
+                })}
+              </small>
               <small>
                 {formatUsd(overview.usage.monthly.totalCostUsd)} across{' '}
                 {overview.usage.monthly.callCount} calls
@@ -129,7 +142,13 @@ export function DashboardPage() {
                 <div className="list-row" key={row.model}>
                   <div>
                     <strong>{row.model}</strong>
-                    <small>{row.callCount} calls this month</small>
+                    <small>
+                      {formatTokenBreakdown({
+                        inputTokens: row.totalInputTokens ?? 0,
+                        outputTokens: row.totalOutputTokens ?? 0,
+                      })}{' '}
+                      · {row.callCount} calls this month
+                    </small>
                   </div>
                   <span>{formatUsd(row.totalCostUsd)}</span>
                 </div>

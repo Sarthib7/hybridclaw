@@ -6,6 +6,7 @@ import { PageHeader, Panel } from '../components/ui';
 import {
   formatCompactNumber,
   formatRelativeTime,
+  formatTokenBreakdown,
   formatUsd,
   joinStringList,
   parseStringList,
@@ -17,10 +18,16 @@ interface ModelDraft {
   codexModels: string;
 }
 
-function compareModelsByUsage(
-  left: Awaited<ReturnType<typeof fetchModels>>['models'][number],
-  right: Awaited<ReturnType<typeof fetchModels>>['models'][number],
-): number {
+type ModelEntry = Awaited<ReturnType<typeof fetchModels>>['models'][number];
+type ModelWithDailyUsage = ModelEntry & {
+  usageDaily: NonNullable<ModelEntry['usageDaily']>;
+};
+
+function hasDailyUsage(model: ModelEntry): model is ModelWithDailyUsage {
+  return model.usageDaily !== null;
+}
+
+function compareModelsByUsage(left: ModelEntry, right: ModelEntry): number {
   const leftTokens = left.usageMonthly?.totalTokens || 0;
   const rightTokens = right.usageMonthly?.totalTokens || 0;
   if (rightTokens !== leftTokens) return rightTokens - leftTokens;
@@ -92,6 +99,9 @@ export function ModelsPage() {
 
   const providerEntries = Object.entries(
     modelsQuery.data?.providerStatus || {},
+  );
+  const modelsWithDailyUsage = (modelsQuery.data?.models || []).filter(
+    hasDailyUsage,
   );
 
   return (
@@ -283,6 +293,14 @@ export function ModelsPage() {
                             )}
                           </strong>
                           <small>
+                            {formatTokenBreakdown({
+                              inputTokens:
+                                model.usageMonthly.totalInputTokens ?? 0,
+                              outputTokens:
+                                model.usageMonthly.totalOutputTokens ?? 0,
+                            })}
+                          </small>
+                          <small>
                             {formatUsd(model.usageMonthly.totalCostUsd)} ·{' '}
                             {model.usageMonthly.callCount} calls
                           </small>
@@ -308,18 +326,16 @@ export function ModelsPage() {
         )}
       </Panel>
 
-      {modelsQuery.data?.models.some((model) => model.usageDaily) ? (
+      {modelsWithDailyUsage.length > 0 ? (
         <Panel
           title="Recent daily activity"
           subtitle={`Updated ${formatRelativeTime(new Date().toISOString())}`}
         >
           <div className="list-stack">
-            {modelsQuery.data.models
-              .filter((model) => model.usageDaily)
+            {modelsWithDailyUsage
               .sort(
                 (left, right) =>
-                  (right.usageDaily?.totalTokens || 0) -
-                  (left.usageDaily?.totalTokens || 0),
+                  right.usageDaily.totalTokens - left.usageDaily.totalTokens,
               )
               .slice(0, 6)
               .map((model) => (
@@ -327,10 +343,14 @@ export function ModelsPage() {
                   <div>
                     <strong>{model.id}</strong>
                     <small>
-                      {model.usageDaily?.callCount || 0} calls today
+                      {formatTokenBreakdown({
+                        inputTokens: model.usageDaily.totalInputTokens ?? 0,
+                        outputTokens: model.usageDaily.totalOutputTokens ?? 0,
+                      })}{' '}
+                      · {model.usageDaily.callCount} calls today
                     </small>
                   </div>
-                  <span>{formatUsd(model.usageDaily?.totalCostUsd || 0)}</span>
+                  <span>{formatUsd(model.usageDaily.totalCostUsd ?? 0)}</span>
                 </div>
               ))}
           </div>

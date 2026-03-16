@@ -9,11 +9,11 @@ import {
   getSkillObservationSummary,
   setMemoryValue,
 } from '../memory/db.js';
-import { applyAmendment, proposeAmendment } from './skills-amendment.js';
 import type {
   AdaptiveSkillsConfig,
   SkillHealthMetrics,
 } from './adaptive-skills-types.js';
+import { applyAmendment, proposeAmendment } from './skills-amendment.js';
 
 const LAST_INSPECTION_KEY = 'adaptive-skills:last-inspection-at';
 

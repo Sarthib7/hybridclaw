@@ -2443,7 +2443,9 @@ function normalizeRuntimeConfig(
   const rawSecurity = isRecord(raw.security) ? raw.security : {};
   const rawAgents = isRecord(raw.agents) ? raw.agents : {};
   const rawSkills = isRecord(raw.skills) ? raw.skills : {};
-  const rawLegacyAdaptiveSkills = isRecord((raw as Record<string, unknown>).skillCognee)
+  const rawLegacyAdaptiveSkills = isRecord(
+    (raw as Record<string, unknown>).skillCognee,
+  )
     ? (raw as Record<string, unknown>).skillCognee
     : {};
   const rawAdaptiveSkills = isRecord(raw.adaptiveSkills)

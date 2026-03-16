@@ -15,11 +15,11 @@ import {
 } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
 import { modelRequiresChatbotId } from '../providers/factory.js';
-import { loadSkillCatalog } from './skills.js';
 import type {
   SkillAmendment,
   SkillHealthMetrics,
 } from './adaptive-skills-types.js';
+import { loadSkillCatalog } from './skills.js';
 import { scanSkillContent } from './skills-guard.js';
 
 const AMENDMENT_ALLOWED_TOOLS = ['read', 'grep', 'glob'];

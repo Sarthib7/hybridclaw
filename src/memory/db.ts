@@ -13,9 +13,9 @@ import {
   type SessionResetPolicy,
 } from '../session/session-reset.js';
 import type {
+  AdaptiveSkillsGuardVerdict,
   SkillAmendment,
   SkillAmendmentStatus,
-  AdaptiveSkillsGuardVerdict,
   SkillErrorCategory,
   SkillExecutionOutcome,
   SkillFeedbackSentiment,

@@ -152,14 +152,14 @@ import {
   estimateTokenCountFromMessages,
   estimateTokenCountFromText,
 } from '../session/token-efficiency.js';
-import {
-  expandSkillInvocationWithResolution,
-  loadSkillCatalog,
-} from '../skills/skills.js';
 import type {
   SkillAmendment,
   SkillHealthMetrics,
 } from '../skills/adaptive-skills-types.js';
+import {
+  expandSkillInvocationWithResolution,
+  loadSkillCatalog,
+} from '../skills/skills.js';
 import {
   deriveSkillExecutionOutcome,
   recordSkillExecution,

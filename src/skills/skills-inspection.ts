@@ -10,11 +10,11 @@ import {
   pruneSkillObservations,
   setMemoryValue,
 } from '../memory/db.js';
+import { adaptiveSkillsSessionId } from './adaptive-skills-session.js';
 import type {
   AdaptiveSkillsConfig,
   SkillHealthMetrics,
 } from './adaptive-skills-types.js';
-import { adaptiveSkillsSessionId } from './adaptive-skills-session.js';
 import { applyAmendment, proposeAmendment } from './skills-amendment.js';
 
 const LAST_INSPECTION_KEY = 'adaptive-skills:last-inspection-at';

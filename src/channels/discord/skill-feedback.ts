@@ -1,5 +1,5 @@
-import { buildSessionIdFromContext } from './inbound.js';
 import type { SkillFeedbackSentiment } from '../../skills/adaptive-skills-types.js';
+import { buildSessionIdFromContext } from './inbound.js';
 
 const NEGATIVE_SKILL_FEEDBACK_REACTIONS = new Set(['👎']);
 const POSITIVE_SKILL_FEEDBACK_REACTIONS = new Set(['👍', '❤️', '❤']);

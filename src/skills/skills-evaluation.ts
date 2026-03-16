@@ -5,8 +5,8 @@ import {
   getLatestSkillAmendment,
   updateAmendmentStatus,
 } from '../memory/db.js';
-import type { AdaptiveSkillsConfig } from './adaptive-skills-types.js';
 import { adaptiveSkillsSessionId } from './adaptive-skills-session.js';
+import type { AdaptiveSkillsConfig } from './adaptive-skills-types.js';
 import { requireAmendmentInStatus } from './skills-amendment.js';
 import { inspectSkill } from './skills-inspection.js';
 

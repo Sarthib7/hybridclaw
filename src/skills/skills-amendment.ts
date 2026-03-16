@@ -15,12 +15,12 @@ import {
 } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
 import { modelRequiresChatbotId } from '../providers/factory.js';
+import { adaptiveSkillsSessionId } from './adaptive-skills-session.js';
 import type {
   SkillAmendment,
   SkillAmendmentStatus,
   SkillHealthMetrics,
 } from './adaptive-skills-types.js';
-import { adaptiveSkillsSessionId } from './adaptive-skills-session.js';
 import { loadSkillCatalog } from './skills.js';
 import { scanSkillContent } from './skills-guard.js';
 
@@ -237,9 +237,7 @@ export function requireAmendmentInStatus(input: {
   amendmentId: number;
   status: SkillAmendmentStatus;
   failureReason: string;
-}):
-  | { ok: true; amendment: SkillAmendment }
-  | { ok: false; reason: string } {
+}): { ok: true; amendment: SkillAmendment } | { ok: false; reason: string } {
   const amendment = getSkillAmendmentById(input.amendmentId);
   if (!amendment) {
     return { ok: false, reason: 'Amendment not found.' };

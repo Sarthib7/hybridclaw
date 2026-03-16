@@ -105,10 +105,10 @@ export function DashboardPage() {
                 {formatCompactNumber(overview.usage.daily.totalTokens)}
               </strong>
               <small>
-                {formatTokenBreakdown(
-                  overview.usage.daily.totalInputTokens ?? 0,
-                  overview.usage.daily.totalOutputTokens ?? 0,
-                )}
+                {formatTokenBreakdown({
+                  inputTokens: overview.usage.daily.totalInputTokens ?? 0,
+                  outputTokens: overview.usage.daily.totalOutputTokens ?? 0,
+                })}
               </small>
               <small>
                 {formatUsd(overview.usage.daily.totalCostUsd)} across{' '}
@@ -121,10 +121,10 @@ export function DashboardPage() {
                 {formatCompactNumber(overview.usage.monthly.totalTokens)}
               </strong>
               <small>
-                {formatTokenBreakdown(
-                  overview.usage.monthly.totalInputTokens ?? 0,
-                  overview.usage.monthly.totalOutputTokens ?? 0,
-                )}
+                {formatTokenBreakdown({
+                  inputTokens: overview.usage.monthly.totalInputTokens ?? 0,
+                  outputTokens: overview.usage.monthly.totalOutputTokens ?? 0,
+                })}
               </small>
               <small>
                 {formatUsd(overview.usage.monthly.totalCostUsd)} across{' '}
@@ -143,10 +143,10 @@ export function DashboardPage() {
                   <div>
                     <strong>{row.model}</strong>
                     <small>
-                      {formatTokenBreakdown(
-                        row.totalInputTokens ?? 0,
-                        row.totalOutputTokens ?? 0,
-                      )}{' '}
+                      {formatTokenBreakdown({
+                        inputTokens: row.totalInputTokens ?? 0,
+                        outputTokens: row.totalOutputTokens ?? 0,
+                      })}{' '}
                       · {row.callCount} calls this month
                     </small>
                   </div>

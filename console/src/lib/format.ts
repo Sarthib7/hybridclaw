@@ -10,10 +10,12 @@ function normalizeCount(value: number | null | undefined): number {
 }
 
 export function formatTokenBreakdown(
-  inputTokens: number | null | undefined,
-  outputTokens: number | null | undefined,
+  params: {
+    inputTokens: number | null | undefined;
+    outputTokens: number | null | undefined;
+  },
 ): string {
-  return `${formatCompactNumber(normalizeCount(inputTokens))} in / ${formatCompactNumber(normalizeCount(outputTokens))} out`;
+  return `${formatCompactNumber(normalizeCount(params.inputTokens))} in / ${formatCompactNumber(normalizeCount(params.outputTokens))} out`;
 }
 
 export function formatUsd(value: number): string {

@@ -293,10 +293,12 @@ export function ModelsPage() {
                             )}
                           </strong>
                           <small>
-                            {formatTokenBreakdown(
-                              model.usageMonthly.totalInputTokens ?? 0,
-                              model.usageMonthly.totalOutputTokens ?? 0,
-                            )}
+                            {formatTokenBreakdown({
+                              inputTokens:
+                                model.usageMonthly.totalInputTokens ?? 0,
+                              outputTokens:
+                                model.usageMonthly.totalOutputTokens ?? 0,
+                            })}
                           </small>
                           <small>
                             {formatUsd(model.usageMonthly.totalCostUsd)} ·{' '}
@@ -341,10 +343,10 @@ export function ModelsPage() {
                   <div>
                     <strong>{model.id}</strong>
                     <small>
-                      {formatTokenBreakdown(
-                        model.usageDaily.totalInputTokens ?? 0,
-                        model.usageDaily.totalOutputTokens ?? 0,
-                      )}{' '}
+                      {formatTokenBreakdown({
+                        inputTokens: model.usageDaily.totalInputTokens ?? 0,
+                        outputTokens: model.usageDaily.totalOutputTokens ?? 0,
+                      })}{' '}
                       · {model.usageDaily.callCount} calls today
                     </small>
                   </div>

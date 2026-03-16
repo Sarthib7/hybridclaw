@@ -946,6 +946,43 @@ describe('gateway health server', () => {
     });
   });
 
+  test('returns 400 for malformed json request bodies', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: '{"content":',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Invalid JSON body',
+    });
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+  });
+
+  test('requires reviewedBy for adaptive skill amendment review actions', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/skills/amendments/apple-music/apply',
+      body: {},
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Missing reviewedBy.',
+    });
+  });
+
   test('streams structured approval events before the final result payload', async () => {
     const state = await importFreshHealth();
     state.handleGatewayMessage.mockImplementation(

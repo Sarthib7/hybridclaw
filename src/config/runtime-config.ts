@@ -14,10 +14,11 @@ import {
   normalizeSessionResetMode,
   type SessionResetMode,
 } from '../session/session-reset.js';
+import type { AdaptiveSkillsConfig } from '../skills/adaptive-skills-types.js';
 import type { McpServerConfig } from '../types.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 13;
+export const CONFIG_VERSION = 15;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
 const DEFAULT_RUNTIME_HOME_DIR = path.join(os.homedir(), '.hybridclaw');
@@ -308,6 +309,7 @@ export interface RuntimeConfig {
     extraDirs: string[];
     disabled: string[];
   };
+  adaptiveSkills: AdaptiveSkillsConfig;
   discord: {
     prefix: string;
     guildMembersIntent: boolean;
@@ -523,6 +525,19 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   skills: {
     extraDirs: [],
     disabled: [],
+  },
+  adaptiveSkills: {
+    enabled: false,
+    observationEnabled: true,
+    inspectionIntervalMs: 3_600_000,
+    observationRetentionDays: 30,
+    trailingWindowHours: 168,
+    minExecutionsForInspection: 5,
+    degradationSuccessRateThreshold: 0.6,
+    degradationToolBreakageThreshold: 0.3,
+    autoApplyEnabled: false,
+    evaluationRunsBeforeRollback: 10,
+    rollbackImprovementThreshold: 0.05,
   },
   discord: {
     prefix: '!claw',
@@ -2429,6 +2444,9 @@ function normalizeRuntimeConfig(
   const rawSecurity = isRecord(raw.security) ? raw.security : {};
   const rawAgents = isRecord(raw.agents) ? raw.agents : {};
   const rawSkills = isRecord(raw.skills) ? raw.skills : {};
+  const rawAdaptiveSkills = isRecord(raw.adaptiveSkills)
+    ? raw.adaptiveSkills
+    : {};
   const rawDiscord = isRecord(raw.discord) ? raw.discord : {};
   const rawMSTeams = isRecord(raw.msteams) ? raw.msteams : {};
   const rawWhatsApp = isRecord(raw.whatsapp) ? raw.whatsapp : {};
@@ -2622,6 +2640,60 @@ function normalizeRuntimeConfig(
       disabled: normalizeStringArray(
         rawSkills.disabled,
         DEFAULT_RUNTIME_CONFIG.skills.disabled,
+      ),
+    },
+    adaptiveSkills: {
+      enabled: normalizeBoolean(
+        rawAdaptiveSkills.enabled,
+        DEFAULT_RUNTIME_CONFIG.adaptiveSkills.enabled,
+      ),
+      observationEnabled: normalizeBoolean(
+        rawAdaptiveSkills.observationEnabled,
+        DEFAULT_RUNTIME_CONFIG.adaptiveSkills.observationEnabled,
+      ),
+      inspectionIntervalMs: normalizeInteger(
+        rawAdaptiveSkills.inspectionIntervalMs,
+        DEFAULT_RUNTIME_CONFIG.adaptiveSkills.inspectionIntervalMs,
+        { min: 60_000 },
+      ),
+      observationRetentionDays: normalizeInteger(
+        rawAdaptiveSkills.observationRetentionDays,
+        DEFAULT_RUNTIME_CONFIG.adaptiveSkills.observationRetentionDays,
+        { min: 0 },
+      ),
+      trailingWindowHours: normalizeInteger(
+        rawAdaptiveSkills.trailingWindowHours,
+        DEFAULT_RUNTIME_CONFIG.adaptiveSkills.trailingWindowHours,
+        { min: 1 },
+      ),
+      minExecutionsForInspection: normalizeInteger(
+        rawAdaptiveSkills.minExecutionsForInspection,
+        DEFAULT_RUNTIME_CONFIG.adaptiveSkills.minExecutionsForInspection,
+        { min: 1 },
+      ),
+      degradationSuccessRateThreshold: normalizeNumber(
+        rawAdaptiveSkills.degradationSuccessRateThreshold,
+        DEFAULT_RUNTIME_CONFIG.adaptiveSkills.degradationSuccessRateThreshold,
+        { min: 0, max: 1 },
+      ),
+      degradationToolBreakageThreshold: normalizeNumber(
+        rawAdaptiveSkills.degradationToolBreakageThreshold,
+        DEFAULT_RUNTIME_CONFIG.adaptiveSkills.degradationToolBreakageThreshold,
+        { min: 0, max: 1 },
+      ),
+      autoApplyEnabled: normalizeBoolean(
+        rawAdaptiveSkills.autoApplyEnabled,
+        DEFAULT_RUNTIME_CONFIG.adaptiveSkills.autoApplyEnabled,
+      ),
+      evaluationRunsBeforeRollback: normalizeInteger(
+        rawAdaptiveSkills.evaluationRunsBeforeRollback,
+        DEFAULT_RUNTIME_CONFIG.adaptiveSkills.evaluationRunsBeforeRollback,
+        { min: 1 },
+      ),
+      rollbackImprovementThreshold: normalizeNumber(
+        rawAdaptiveSkills.rollbackImprovementThreshold,
+        DEFAULT_RUNTIME_CONFIG.adaptiveSkills.rollbackImprovementThreshold,
+        { min: 0, max: 1 },
       ),
     },
     discord: {

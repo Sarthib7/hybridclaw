@@ -45,6 +45,7 @@ import { agentWorkspaceDir } from '../../infra/ipc.js';
 import { logger } from '../../logger.js';
 import { getSessionById } from '../../memory/db.js';
 import { getAvailableModelChoices } from '../../providers/model-catalog.js';
+import { recordSkillFeedback } from '../../skills/skills-observation.js';
 import type { MediaContextItem } from '../../types.js';
 import { sleep } from '../../utils/sleep.js';
 import {
@@ -103,6 +104,11 @@ import {
   resolveDiscordLocalFileForSend,
 } from './send-files.js';
 import { resolveSendAllowed } from './send-permissions.js';
+import {
+  classifyDiscordSkillFeedbackSentiment,
+  formatDiscordSkillFeedbackMessage,
+  resolveDiscordSkillFeedbackSessionId,
+} from './skill-feedback.js';
 import {
   buildSlashCommandDefinitions,
   parseSlashInteractionArgs,
@@ -2468,7 +2474,10 @@ export function initDiscord(
       ? await reaction.fetch().catch(() => null)
       : reaction;
     if (!fullReaction) return;
-    if (fullReaction.emoji.name !== '👎') return;
+    const sentiment = classifyDiscordSkillFeedbackSentiment(
+      fullReaction.emoji.name,
+    );
+    if (!sentiment) return;
 
     const message = fullReaction.message.partial
       ? await fullReaction.message.fetch().catch(() => null)
@@ -2476,10 +2485,23 @@ export function initDiscord(
     if (!message) return;
     if (!client.user || message.author?.id !== client.user.id) return;
 
-    negativeFeedbackByChannel.set(
-      message.channelId,
-      `${user.username} reacted with 👎 to assistant message ${message.id}.`,
-    );
+    const feedback = formatDiscordSkillFeedbackMessage({
+      emojiName: fullReaction.emoji.name || '',
+      username: user.username || 'unknown-user',
+      messageId: message.id,
+    });
+    if (sentiment === 'negative') {
+      negativeFeedbackByChannel.set(message.channelId, feedback);
+    }
+    recordSkillFeedback({
+      sessionId: resolveDiscordSkillFeedbackSessionId({
+        guildId: message.guild?.id ?? null,
+        channelId: message.channelId,
+        userId: user.id,
+      }),
+      feedback,
+      sentiment,
+    });
   });
 
   if (!DISCORD_TOKEN) {

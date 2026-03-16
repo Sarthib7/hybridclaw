@@ -152,7 +152,20 @@ import {
   estimateTokenCountFromMessages,
   estimateTokenCountFromText,
 } from '../session/token-efficiency.js';
-import { expandSkillInvocation, loadSkillCatalog } from '../skills/skills.js';
+import type {
+  SkillAmendment,
+  SkillHealthMetrics,
+  SkillObservation,
+} from '../skills/adaptive-skills-types.js';
+import {
+  expandSkillInvocationWithResolution,
+  loadSkillCatalog,
+  resolveObservedSkillName,
+} from '../skills/skills.js';
+import {
+  deriveSkillExecutionOutcome,
+  recordSkillExecution,
+} from '../skills/skills-observation.js';
 import type {
   ArtifactMetadata,
   CanonicalSessionContext,
@@ -1092,6 +1105,81 @@ function infoCommand(
 
 function plainCommand(text: string): GatewayCommandResult {
   return { kind: 'plain', text };
+}
+
+function formatRatioAsPercent(value: number): string {
+  return `${(value * 100).toFixed(2)}%`;
+}
+
+function formatSkillHealthMetrics(metrics: SkillHealthMetrics): string {
+  const lines = [
+    `Skill: ${metrics.skill_name}`,
+    `Executions: ${metrics.total_executions}`,
+    `Success rate: ${formatRatioAsPercent(metrics.success_rate)}`,
+    `Avg duration: ${Math.round(metrics.avg_duration_ms)}ms`,
+    `Tool breakage: ${formatRatioAsPercent(metrics.tool_breakage_rate)}`,
+    `Positive feedback: ${metrics.positive_feedback_count}`,
+    `Negative feedback: ${metrics.negative_feedback_count}`,
+    `Degraded: ${metrics.degraded ? 'yes' : 'no'}`,
+  ];
+  if (metrics.degradation_reasons.length > 0) {
+    lines.push(`Reasons: ${metrics.degradation_reasons.join('; ')}`);
+  }
+  if (metrics.error_clusters.length > 0) {
+    lines.push(
+      `Error clusters: ${metrics.error_clusters
+        .map((cluster) =>
+          cluster.sample_detail
+            ? `${cluster.category}=${cluster.count} (${cluster.sample_detail})`
+            : `${cluster.category}=${cluster.count}`,
+        )
+        .join('; ')}`,
+    );
+  }
+  return lines.join('\n');
+}
+
+function formatSkillAmendment(amendment: SkillAmendment): string {
+  const lines = [
+    `Version: ${amendment.version}`,
+    `Status: ${amendment.status}`,
+    `Guard: ${amendment.guard_verdict} (${amendment.guard_findings_count} finding(s))`,
+    `Runs since apply: ${amendment.runs_since_apply}`,
+    `Created: ${amendment.created_at}`,
+  ];
+  if (amendment.reviewed_by) {
+    lines.push(`Reviewed by: ${amendment.reviewed_by}`);
+  }
+  if (amendment.rationale) {
+    lines.push(`Rationale: ${amendment.rationale}`);
+  }
+  if (amendment.diff_summary) {
+    lines.push(`Diff: ${amendment.diff_summary}`);
+  }
+  return lines.join('\n');
+}
+
+function formatSkillObservationRun(observation: SkillObservation): string {
+  const lines = [
+    `Run: ${observation.run_id}`,
+    `Outcome: ${observation.outcome}`,
+    `Observed: ${observation.created_at}`,
+    `Duration: ${observation.duration_ms}ms`,
+    `Tools: ${observation.tool_calls_failed}/${observation.tool_calls_attempted} failed`,
+  ];
+  if (observation.feedback_sentiment) {
+    lines.push(`Feedback: ${observation.feedback_sentiment}`);
+  }
+  if (observation.user_feedback) {
+    lines.push(`Feedback note: ${observation.user_feedback}`);
+  }
+  if (observation.error_category) {
+    lines.push(`Error category: ${observation.error_category}`);
+  }
+  if (observation.error_detail) {
+    lines.push(`Error detail: ${observation.error_detail}`);
+  }
+  return lines.join('\n');
 }
 
 function formatSessionModelOverride(model: string | null | undefined): string {
@@ -3559,7 +3647,12 @@ export async function handleGatewayMessage(
     );
   }
   const mediaContextBlock = buildMediaPromptContext(media);
-  const expandedUserContent = expandSkillInvocation(userTurnContent, skills);
+  const skillInvocation = expandSkillInvocationWithResolution(
+    userTurnContent,
+    skills,
+  );
+  const expandedUserContent = skillInvocation.content;
+  const explicitSkillName = skillInvocation.invocation?.skill.name || null;
   const agentUserContent = mediaContextBlock
     ? `${expandedUserContent}\n\n${mediaContextBlock}`
     : expandedUserContent;
@@ -3675,6 +3768,11 @@ export async function handleGatewayMessage(
         ? output.effectiveUserPrompt.trim()
         : userTurnContent;
     const toolExecutions = output.toolExecutions || [];
+    const observedSkillName = resolveObservedSkillName({
+      explicitSkillName,
+      toolExecutions,
+      skills,
+    });
     emitToolExecutionAuditEvents({
       sessionId: req.sessionId,
       runId,
@@ -3707,6 +3805,27 @@ export async function handleGatewayMessage(
       toolCalls: toolExecutions.length,
       costUsd: extractUsageCostUsd(output.tokenUsage),
     });
+    if (observedSkillName) {
+      try {
+        recordSkillExecution({
+          skillName: observedSkillName,
+          sessionId: req.sessionId,
+          runId,
+          toolExecutions,
+          outcome: deriveSkillExecutionOutcome({
+            outputStatus: output.status,
+            toolExecutions,
+          }),
+          durationMs: Date.now() - startedAt,
+          errorDetail: output.error,
+        });
+      } catch (error) {
+        logger.warn(
+          { sessionId: req.sessionId, skillName: observedSkillName, error },
+          'Failed to record skill execution observation',
+        );
+      }
+    }
 
     const parentDepth = extractDelegationDepth(req.sessionId);
     let acceptedDelegations = 0;
@@ -4053,6 +4172,11 @@ export async function handleGatewayCommand(
         '`usage [summary|daily|monthly|model [daily|monthly] [agentId]]` — Usage/cost aggregates',
         '`export session [sessionId]` — Export session JSONL snapshot for debugging',
         '`audit [sessionId]` — Show recent structured audit events for a session',
+        '`skill list` — List available skills and availability',
+        '`skill inspect <name>|--all` — Show observation-based skill health',
+        '`skill runs <name>` — Show recent execution observations for a skill',
+        '`skill amend <name> [--apply|--reject|--rollback]` — Stage or manage skill amendments',
+        '`skill history <name>` — Show amendment history for a skill',
         '`schedule add "<cron>" <prompt>` — Add cron scheduled task',
         '`schedule add at "<ISO time>" <prompt>` — Add one-shot task',
         '`schedule add every <ms> <prompt>` — Add interval task',
@@ -5141,6 +5265,195 @@ export async function handleGatewayCommand(
         return `#${row.seq} ${row.event_type} ${row.timestamp} ${summarizeAuditPayload(row.payload)}`;
       });
       return infoCommand(`Audit (${targetSessionId})`, lines.join('\n'));
+    }
+
+    case 'skill': {
+      const sub = (req.args[1] || '').trim().toLowerCase();
+      if (!sub) {
+        return badCommand(
+          'Usage',
+          'Usage: `skill list|inspect <name>|inspect --all|runs <name>|amend <name> [--apply|--reject|--rollback]|history <name>`',
+        );
+      }
+
+      if (sub === 'list') {
+        const { listSkillCatalogEntries } = await import(
+          '../skills/skills-management.js'
+        );
+        const catalog = listSkillCatalogEntries();
+        if (catalog.length === 0) {
+          return plainCommand('No skills are available.');
+        }
+        const lines = catalog.map((skill) => {
+          const availability = skill.available
+            ? skill.enabled
+              ? 'available'
+              : 'disabled'
+            : skill.missing.join(', ');
+          const description = skill.description
+            ? ` — ${skill.description}`
+            : '';
+          return `${skill.name} [${availability}]${description}`;
+        });
+        return infoCommand('Skills', lines.join('\n'));
+      }
+
+      if (sub === 'inspect') {
+        const { inspectObservedSkill, inspectObservedSkills } = await import(
+          '../skills/skills-management.js'
+        );
+        const target = String(req.args[2] || '').trim();
+        if (!target) {
+          return badCommand(
+            'Usage',
+            'Usage: `skill inspect <name>` or `skill inspect --all`',
+          );
+        }
+        if (target === '--all' || target.toLowerCase() === 'all') {
+          const metricsList = inspectObservedSkills();
+          if (metricsList.length === 0) {
+            return plainCommand(
+              'No observed skills found in the current inspection window.',
+            );
+          }
+          return infoCommand(
+            'Skill Health',
+            metricsList.map(formatSkillHealthMetrics).join('\n\n'),
+          );
+        }
+
+        const metrics = inspectObservedSkill(target);
+        if (metrics.total_executions === 0) {
+          return plainCommand(`No observations found for \`${target}\`.`);
+        }
+        return infoCommand('Skill Health', formatSkillHealthMetrics(metrics));
+      }
+
+      if (sub === 'amend') {
+        const skillName = String(req.args[2] || '').trim();
+        if (!skillName) {
+          return badCommand(
+            'Usage',
+            'Usage: `skill amend <name> [--apply|--reject|--rollback]`',
+          );
+        }
+
+        const actions = new Set(
+          req.args
+            .slice(3)
+            .map((entry) =>
+              String(entry || '')
+                .trim()
+                .toLowerCase(),
+            )
+            .filter(Boolean),
+        );
+        const hasApply = actions.has('--apply') || actions.has('apply');
+        const hasReject = actions.has('--reject') || actions.has('reject');
+        const hasRollback =
+          actions.has('--rollback') || actions.has('rollback');
+        const selectedActions = [hasApply, hasReject, hasRollback].filter(
+          Boolean,
+        ).length;
+        if (selectedActions > 1) {
+          return badCommand(
+            'Usage',
+            'Choose at most one amendment action: `--apply`, `--reject`, or `--rollback`.',
+          );
+        }
+
+        const { runSkillAmendmentCommand } = await import(
+          '../skills/skills-management.js'
+        );
+        const result = await runSkillAmendmentCommand({
+          skillName,
+          action: hasApply
+            ? 'apply'
+            : hasReject
+              ? 'reject'
+              : hasRollback
+                ? 'rollback'
+                : 'propose',
+          reviewedBy: 'gateway-command',
+          agentId: resolveSessionAgentId(session) || DEFAULT_AGENT_ID,
+          rollbackReason: 'Rollback requested via gateway command.',
+        });
+        if (!result.ok) {
+          if (
+            result.error === 'no_staged_amendment' ||
+            result.error === 'no_applied_amendment' ||
+            result.error === 'no_observations'
+          ) {
+            return plainCommand(result.message.replaceAll('"', '`'));
+          }
+          return badCommand(
+            `${result.action[0]?.toUpperCase()}${result.action.slice(1)} Failed`,
+            result.message,
+          );
+        }
+        if (result.action === 'applied') {
+          return plainCommand(
+            `Applied staged amendment v${result.amendment.version} for \`${skillName}\`.`,
+          );
+        }
+        if (result.action === 'rejected') {
+          return plainCommand(
+            `Rejected staged amendment v${result.amendment.version} for \`${skillName}\`.`,
+          );
+        }
+        if (result.action === 'rolled_back') {
+          return plainCommand(
+            `Rolled back amendment v${result.amendment.version} for \`${skillName}\`.`,
+          );
+        }
+        return infoCommand(
+          `Skill Amendment (${skillName})`,
+          formatSkillAmendment(result.amendment),
+        );
+      }
+
+      if (sub === 'runs') {
+        const skillName = String(req.args[2] || '').trim();
+        if (!skillName) {
+          return badCommand('Usage', 'Usage: `skill runs <name>`');
+        }
+        const { getSkillExecutionRuns } = await import(
+          '../skills/skills-management.js'
+        );
+        const runs = getSkillExecutionRuns(skillName);
+        if (runs.length === 0) {
+          return plainCommand(`No observations found for \`${skillName}\`.`);
+        }
+        return infoCommand(
+          `Skill Runs (${skillName})`,
+          runs.map(formatSkillObservationRun).join('\n\n'),
+        );
+      }
+
+      if (sub === 'history') {
+        const skillName = String(req.args[2] || '').trim();
+        if (!skillName) {
+          return badCommand('Usage', 'Usage: `skill history <name>`');
+        }
+        const { getSkillAmendmentHistory } = await import(
+          '../skills/skills-management.js'
+        );
+        const history = getSkillAmendmentHistory(skillName);
+        if (history.length === 0) {
+          return plainCommand(
+            `No amendment history found for \`${skillName}\`.`,
+          );
+        }
+        return infoCommand(
+          `Skill History (${skillName})`,
+          history.map(formatSkillAmendment).join('\n\n'),
+        );
+      }
+
+      return badCommand(
+        'Usage',
+        'Usage: `skill list|inspect <name>|inspect --all|runs <name>|amend <name> [--apply|--reject|--rollback]|history <name>`',
+      );
     }
 
     case 'schedule': {

@@ -52,6 +52,7 @@ import {
   getGatewayAdminTools,
   getGatewayAgents,
   getGatewayHistory,
+  getGatewayHistorySummary,
   getGatewayStatus,
   handleGatewayCommand,
   handleGatewayMessage,
@@ -590,9 +591,16 @@ async function handleApiMessageAction(
 function handleApiHistory(res: ServerResponse, url: URL): void {
   const sessionId = url.searchParams.get('sessionId') || 'web:default';
   const parsedLimit = parseInt(url.searchParams.get('limit') || '40', 10);
+  const parsedSummarySinceMs = parseInt(
+    url.searchParams.get('summarySinceMs') || '',
+    10,
+  );
   const limit = Number.isNaN(parsedLimit) ? 40 : parsedLimit;
   const history = getGatewayHistory(sessionId, limit);
-  sendJson(res, 200, { sessionId, history });
+  const summary = getGatewayHistorySummary(sessionId, {
+    sinceMs: Number.isNaN(parsedSummarySinceMs) ? null : parsedSummarySinceMs,
+  });
+  sendJson(res, 200, { sessionId, history, summary });
 }
 
 function handleApiAgents(res: ServerResponse): void {

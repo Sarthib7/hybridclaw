@@ -186,6 +186,7 @@ function formatInstructionDiffLine(file: {
 
 async function ensureTuiInstructionApproval(
   commandName: string,
+  sessionId = 'tui:local',
 ): Promise<void> {
   const {
     summarizeInstructionIntegrity,
@@ -199,7 +200,7 @@ async function ensureTuiInstructionApproval(
   if (result.ok) return;
   const summary = summarizeInstructionIntegrity(result);
   const auditContext = beginInstructionApprovalAudit({
-    sessionId: 'tui:local',
+    sessionId,
     source: 'tui.startup',
     description: `TUI startup instruction sync required (${summary}).`,
   });
@@ -302,6 +303,7 @@ function printMainUsage(): void {
   help       Show general or topic-specific help (e.g. \`hybridclaw help gateway\`)
 
   Options:
+  --resume <id>  Resume a saved TUI session
   --version, -v  Show HybridClaw CLI version`);
 }
 
@@ -321,11 +323,93 @@ Commands:
   hybridclaw gateway <discord-style command ...>`);
 }
 
+interface ParsedTuiArgs {
+  help: boolean;
+  resumeSessionId: string | null;
+}
+
+function parseResumeFlagValue(
+  arg: string,
+  nextArg: string | undefined,
+): {
+  value: string;
+  consumedNextArg: boolean;
+} | null {
+  if (arg === '--resume' || arg === '-r') {
+    const value = String(nextArg || '').trim();
+    if (!value) {
+      throw new Error(
+        'Missing value for `--resume`. Use `hybridclaw --resume <sessionId>` or `hybridclaw tui --resume <sessionId>`.',
+      );
+    }
+    return { value, consumedNextArg: true };
+  }
+
+  if (arg.startsWith('--resume=')) {
+    const value = arg.slice('--resume='.length).trim();
+    if (!value) {
+      throw new Error(
+        'Missing value for `--resume`. Use `hybridclaw --resume <sessionId>` or `hybridclaw tui --resume <sessionId>`.',
+      );
+    }
+    return { value, consumedNextArg: false };
+  }
+
+  return null;
+}
+
+function parseTuiArgs(argv: string[]): ParsedTuiArgs {
+  let help = false;
+  let resumeSessionId: string | null = null;
+
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = String(argv[i] || '').trim();
+    if (!arg) continue;
+
+    if (arg === '--help' || arg === '-h' || arg === 'help') {
+      help = true;
+      continue;
+    }
+
+    const resume = parseResumeFlagValue(arg, argv[i + 1]);
+    if (resume) {
+      resumeSessionId = resume.value;
+      if (resume.consumedNextArg) i += 1;
+      continue;
+    }
+
+    throw new Error(`Unexpected TUI option: ${arg}`);
+  }
+
+  return { help, resumeSessionId };
+}
+
+async function launchTui(argv: string[]): Promise<void> {
+  const parsed = parseTuiArgs(argv);
+  if (parsed.help) {
+    printTuiUsage();
+    return;
+  }
+
+  const { resolveTuiRunOptions } = await import('./tui-session.js');
+  const options = resolveTuiRunOptions({
+    resumeSessionId: parsed.resumeSessionId,
+    resumeCommand: 'hybridclaw tui --resume',
+  });
+  await ensureTuiInstructionApproval('hybridclaw tui', options.sessionId);
+  await ensureGatewayForTui('hybridclaw tui');
+  const { runTui } = await import('./tui.js');
+  await runTui(options);
+}
+
 function printTuiUsage(): void {
-  console.log(`Usage: hybridclaw tui
+  console.log(`Usage:
+  hybridclaw tui [--resume <sessionId>]
+  hybridclaw --resume <sessionId>
 
 Starts the terminal adapter and connects to the running gateway.
 If gateway is not running, it is started in backend mode automatically.
+By default, \`hybridclaw tui\` starts a fresh local CLI session.
 
 Interactive slash commands inside TUI:
   /help   /status   /approve [view|yes|session|agent|no] [approval_id]
@@ -3251,6 +3335,23 @@ async function handleSkillCommand(args: string[]): Promise<void> {
 export async function main(
   argv: string[] = process.argv.slice(2),
 ): Promise<void> {
+  const topLevelResume = parseResumeFlagValue(
+    String(argv[0] || '').trim(),
+    argv[1],
+  );
+  if (topLevelResume) {
+    const subargs = topLevelResume.consumedNextArg
+      ? [argv[0], argv[1]]
+      : [argv[0]];
+    if (argv.length !== subargs.length) {
+      throw new Error(
+        `Unexpected CLI option after --resume: ${String(argv[subargs.length] || '').trim()}`,
+      );
+    }
+    await launchTui(subargs);
+    return;
+  }
+
   const command = argv[0];
   const subargs = argv.slice(1);
 
@@ -3266,13 +3367,7 @@ export async function main(
       await handleGatewayCommand(subargs);
       break;
     case 'tui':
-      if (isHelpRequest(subargs)) {
-        printTuiUsage();
-        break;
-      }
-      await ensureTuiInstructionApproval('hybridclaw tui');
-      await ensureGatewayForTui('hybridclaw tui');
-      await import('./tui.js');
+      await launchTui(subargs);
       break;
     case 'onboarding':
       if (isHelpRequest(subargs)) {

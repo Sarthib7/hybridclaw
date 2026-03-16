@@ -863,6 +863,7 @@ const listeners = new Set<RuntimeConfigChangeListener>();
 const WATCHER_RETRY_BASE_DELAY_MS = 1_000;
 const WATCHER_RETRY_MAX_DELAY_MS = 60_000;
 const WATCHER_RETRY_MAX_ATTEMPTS = 10;
+const WATCHER_STABLE_RESET_DELAY_MS = 1_000;
 const NON_RETRYABLE_WATCHER_ERROR_CODES = new Set([
   'EMFILE',
   'ENFILE',
@@ -870,6 +871,7 @@ const NON_RETRYABLE_WATCHER_ERROR_CODES = new Set([
 ]);
 let watcherRetryAttempt = 0;
 let watcherRestartTimer: ReturnType<typeof setTimeout> | null = null;
+let watcherStableTimer: ReturnType<typeof setTimeout> | null = null;
 let watcherPermanentlyDisabled = false;
 
 function isRuntimeConfigWatcherDisabled(): boolean {
@@ -890,6 +892,10 @@ function disableWatcher(reason: string): void {
   if (watcherRestartTimer) {
     clearTimeout(watcherRestartTimer);
     watcherRestartTimer = null;
+  }
+  if (watcherStableTimer) {
+    clearTimeout(watcherStableTimer);
+    watcherStableTimer = null;
   }
   console.warn(`[runtime-config] watcher disabled: ${reason}`);
 }
@@ -3408,6 +3414,10 @@ function scheduleReload(trigger: string): void {
 function scheduleWatcherRestart(reason: string): void {
   if (isRuntimeConfigWatcherDisabled() || watcherPermanentlyDisabled) return;
   if (watcherRestartTimer) return;
+  if (watcherStableTimer) {
+    clearTimeout(watcherStableTimer);
+    watcherStableTimer = null;
+  }
   if (watcherRetryAttempt >= WATCHER_RETRY_MAX_ATTEMPTS) {
     console.warn(
       `[runtime-config] watcher disabled after ${WATCHER_RETRY_MAX_ATTEMPTS} retries (${reason})`,
@@ -3429,6 +3439,15 @@ function scheduleWatcherRestart(reason: string): void {
   }, delay);
 }
 
+function markWatcherStable(activeWatcher: fs.FSWatcher): void {
+  if (configWatcher !== activeWatcher) return;
+  watcherRetryAttempt = 0;
+  if (watcherStableTimer) {
+    clearTimeout(watcherStableTimer);
+    watcherStableTimer = null;
+  }
+}
+
 function startWatcher(): void {
   if (isRuntimeConfigWatcherDisabled() || watcherPermanentlyDisabled) return;
   if (configWatcher) return;
@@ -3438,6 +3457,7 @@ function startWatcher(): void {
       path.dirname(CONFIG_PATH),
       { persistent: false },
       (_event, filename) => {
+        markWatcherStable(activeWatcher);
         if (!filename) {
           scheduleReload('unknown');
           return;
@@ -3446,7 +3466,10 @@ function startWatcher(): void {
         scheduleReload(`watch:${filename.toString()}`);
       },
     );
-    watcherRetryAttempt = 0;
+    const activeWatcher = configWatcher;
+    watcherStableTimer = setTimeout(() => {
+      markWatcherStable(activeWatcher);
+    }, WATCHER_STABLE_RESET_DELAY_MS);
     if (watcherRestartTimer) {
       clearTimeout(watcherRestartTimer);
       watcherRestartTimer = null;
@@ -3456,6 +3479,10 @@ function startWatcher(): void {
       const reason = err instanceof Error ? err.message : String(err);
       configWatcher?.close();
       configWatcher = null;
+      if (watcherStableTimer) {
+        clearTimeout(watcherStableTimer);
+        watcherStableTimer = null;
+      }
       if (!shouldRetryWatcherError(err)) {
         disableWatcher(reason);
         return;

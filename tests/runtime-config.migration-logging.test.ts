@@ -55,6 +55,17 @@ async function importFreshRuntimeConfig(homeDir: string): Promise<void> {
   await import('../src/config/runtime-config.ts');
 }
 
+type FakeWatcher = EventEmitter &
+  fs.FSWatcher & {
+    close: ReturnType<typeof vi.fn>;
+  };
+
+function createFakeWatcher(): FakeWatcher {
+  const watcher = new EventEmitter() as FakeWatcher;
+  watcher.close = vi.fn();
+  return watcher;
+}
+
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
@@ -347,9 +358,9 @@ describe('runtime config migration logging', () => {
         close: ReturnType<typeof vi.fn>;
       };
     fakeWatcher.close = vi.fn();
-    const watchSpy = vi.spyOn(fs, 'watch').mockImplementation(
-      () => fakeWatcher as unknown as fs.FSWatcher,
-    );
+    const watchSpy = vi
+      .spyOn(fs, 'watch')
+      .mockImplementation(() => fakeWatcher as unknown as fs.FSWatcher);
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     await importFreshRuntimeConfig(homeDir);
@@ -373,5 +384,82 @@ describe('runtime config migration logging', () => {
         String(message).includes('[runtime-config] watcher restart in'),
       ),
     ).toBe(false);
+  });
+
+  it('increments retry attempts when restarted watchers fail before they become stable', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir);
+    delete process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
+    vi.useFakeTimers();
+    const retryableError = Object.assign(new Error('EIO: transient watch failure'), {
+      code: 'EIO',
+    });
+    const watchers: FakeWatcher[] = [];
+    const watchSpy = vi.spyOn(fs, 'watch').mockImplementation(() => {
+      const watcher = createFakeWatcher();
+      watchers.push(watcher);
+      return watcher as unknown as fs.FSWatcher;
+    });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await importFreshRuntimeConfig(homeDir);
+
+    setTimeout(() => {
+      watchers[0]?.emit('error', retryableError);
+    }, 0);
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    setTimeout(() => {
+      watchers[1]?.emit('error', retryableError);
+    }, 0);
+    await vi.advanceTimersByTimeAsync(0);
+
+    const restartLogs = warnSpy.mock.calls
+      .map(([message]) => String(message))
+      .filter((message) => message.includes('[runtime-config] watcher restart in'));
+
+    expect(watchSpy).toHaveBeenCalledTimes(2);
+    expect(restartLogs.filter((message) => message.includes('attempt 1/10'))).toHaveLength(1);
+    expect(restartLogs.filter((message) => message.includes('attempt 2/10'))).toHaveLength(1);
+  });
+
+  it('resets retry attempts after a restarted watcher stays healthy without file activity', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir);
+    delete process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
+    vi.useFakeTimers();
+    const retryableError = Object.assign(new Error('EIO: transient watch failure'), {
+      code: 'EIO',
+    });
+    const watchers: FakeWatcher[] = [];
+    const watchSpy = vi.spyOn(fs, 'watch').mockImplementation(() => {
+      const watcher = createFakeWatcher();
+      watchers.push(watcher);
+      return watcher as unknown as fs.FSWatcher;
+    });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await importFreshRuntimeConfig(homeDir);
+
+    setTimeout(() => {
+      watchers[0]?.emit('error', retryableError);
+    }, 0);
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    setTimeout(() => {
+      watchers[1]?.emit('error', retryableError);
+    }, 0);
+    await vi.advanceTimersByTimeAsync(0);
+
+    const restartLogs = warnSpy.mock.calls
+      .map(([message]) => String(message))
+      .filter((message) => message.includes('[runtime-config] watcher restart in'));
+
+    expect(watchSpy).toHaveBeenCalledTimes(2);
+    expect(restartLogs.filter((message) => message.includes('attempt 1/10'))).toHaveLength(2);
+    expect(restartLogs.filter((message) => message.includes('attempt 2/10'))).toHaveLength(0);
   });
 });

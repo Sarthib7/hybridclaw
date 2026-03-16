@@ -163,7 +163,12 @@ test('resolves Teams hints from explicit Teams context', () => {
   expect(hints.some((entry) => entry.includes('Adaptive Card'))).toBe(true);
   expect(
     hints.some((entry) =>
-      entry.includes('can send into the current Teams conversation'),
+      entry.includes('supports `read`, `channel-info`, `member-info`, and `send`'),
+    ),
+  ).toBe(true);
+  expect(
+    hints.some((entry) =>
+      entry.includes('known Teams conversation ID or Teams session ID'),
     ),
   ).toBe(true);
   expect(hints.some((entry) => entry.includes('post or upload it here'))).toBe(

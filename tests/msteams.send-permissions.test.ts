@@ -1,4 +1,12 @@
-import { expect, test } from 'vitest';
+import { afterEach, expect, test, vi } from 'vitest';
+
+const warnMock = vi.hoisted(() => vi.fn());
+
+vi.mock('../src/logger.js', () => ({
+  logger: {
+    warn: warnMock,
+  },
+}));
 
 import {
   type MSTeamsPermissionSnapshot,
@@ -22,6 +30,10 @@ function buildSnapshot(
     ...(patch || {}),
   };
 }
+
+afterEach(() => {
+  warnMock.mockReset();
+});
 
 test('denies group activity by default in allowlist mode', () => {
   const result = resolveMSTeamsChannelPolicyFromSnapshot(buildSnapshot(), {
@@ -111,4 +123,15 @@ test('dangerouslyAllowNameMatching allows display-name fallback', () => {
 
   expect(result.allowed).toBe(true);
   expect(result.matchedAllowFrom).toBe('Alice Example');
+  expect(warnMock).toHaveBeenCalledWith(
+    expect.objectContaining({
+      matchedAllowFrom: 'Alice Example',
+      actorAadObjectId: 'aad-user-2',
+      actorDisplayName: 'Alice Example',
+      channelId: CHANNEL_ID,
+      isDm: false,
+      teamId: TEAM_ID,
+    }),
+    'Teams access granted via dangerouslyAllowNameMatching; prefer AAD object IDs in allowFrom.',
+  );
 });

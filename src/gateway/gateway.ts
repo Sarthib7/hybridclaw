@@ -759,10 +759,7 @@ async function startDiscordIntegration(): Promise<void> {
         const streamFilter = createSilentReplyStreamFilter();
         const appendStreamText = async (text: string): Promise<void> => {
           if (!text) return;
-          if (!sawTextDelta) {
-            sawTextDelta = true;
-            context.emitLifecyclePhase('streaming');
-          }
+          if (!sawTextDelta) sawTextDelta = true;
           await context.stream.append(text);
         };
         const result = normalizePendingApprovalReply(
@@ -978,10 +975,7 @@ async function startMSTeamsIntegration(): Promise<boolean> {
         const streamFilter = createSilentReplyStreamFilter();
         const appendStreamText = async (text: string): Promise<void> => {
           if (!text) return;
-          if (!sawTextDelta) {
-            sawTextDelta = true;
-            context.emitLifecyclePhase('streaming');
-          }
+          if (!sawTextDelta) sawTextDelta = true;
           await context.stream.append(text);
         };
         const result = normalizePendingApprovalReply(
@@ -999,12 +993,6 @@ async function startMSTeamsIntegration(): Promise<boolean> {
                 const filteredDelta = streamFilter.push(delta);
                 if (!filteredDelta) return;
                 void appendStreamText(filteredDelta);
-              },
-              onToolProgress: (event) => {
-                if (sawTextDelta) return;
-                context.emitLifecyclePhase(
-                  event.phase === 'start' ? 'toolUse' : 'thinking',
-                );
               },
               abortSignal: context.abortSignal,
             }),

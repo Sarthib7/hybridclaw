@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -14,7 +15,7 @@ import {
 } from '../../config/config.js';
 import { logger } from '../../logger.js';
 import type { ArtifactMetadata, MediaContextItem } from '../../types.js';
-import { normalizeValue } from './utils.js';
+import { isRecord, normalizeValue } from './utils.js';
 
 const OUTBOUND_MIME_TYPE_BY_EXTENSION: Record<string, string> = {
   '.gif': 'image/gif',
@@ -38,9 +39,12 @@ const TEAMS_FILE_DOWNLOAD_INFO_CONTENT_TYPE =
   'application/vnd.microsoft.teams.file.download.info';
 
 const PERSONAL_INLINE_IMAGE_MAX_BYTES = 4 * 1024 * 1024;
+const FILE_CONSENT_THRESHOLD_BYTES = 4 * 1024 * 1024;
 const MSTEAMS_MEDIA_TMP_PREFIX = 'hybridclaw-msteams-';
 const REMOTE_MEDIA_FETCH_TIMEOUT_MS = 15_000;
 const ACCESS_TOKEN_SCOPE_SUFFIX = '/.default';
+const ACCESS_TOKEN_CACHE_SKEW_MS = 60_000;
+const PENDING_FILE_UPLOAD_TTL_MS = 30 * 60 * 1_000;
 const REQUIRED_MSTEAMS_MEDIA_ALLOW_HOSTS = [
   '*.teams.microsoft.com',
   '*.trafficmanager.net',
@@ -70,14 +74,27 @@ const OUTBOUND_EXTENSION_BY_MIME_TYPE: Record<string, string> = {
   'image/png': '.png',
   'image/webp': '.webp',
 };
+const GENERIC_MIME_TYPES = new Set([
+  'application/octet-stream',
+  'binary/octet-stream',
+]);
 const clientCredentialsTokenCache = new Map<
   string,
   { accessToken: string; expiresAt: number }
 >();
+const pendingFileUploads = new Map<string, PendingTeamsFileUpload>();
 
 interface OAuthTokenResponse {
   access_token?: string;
   expires_in?: number;
+}
+
+interface PendingTeamsFileUpload {
+  buffer: Buffer;
+  contentType: string;
+  conversationId: string;
+  createdAt: number;
+  filename: string;
 }
 
 interface TeamsAttachmentDownloadInfo {
@@ -86,6 +103,12 @@ interface TeamsAttachmentDownloadInfo {
   mimeType: string | null;
   sizeBytes: number;
   authToken: string | null;
+}
+
+interface ParsedFileConsentInvoke {
+  action: 'accept' | 'decline';
+  context: Record<string, unknown> | null;
+  uploadInfo: Record<string, unknown> | null;
 }
 
 function matchesHostPattern(host: string, pattern: string): boolean {
@@ -133,17 +156,6 @@ function getEffectiveMediaAuthAllowHosts(): string[] {
   );
 }
 
-function looksLikeSupportedAttachment(attachment: Attachment): boolean {
-  const contentType = normalizeValue(attachment.contentType).toLowerCase();
-  const name = normalizeValue(attachment.name).toLowerCase();
-  return (
-    contentType.startsWith('image/') ||
-    contentType.startsWith('audio/') ||
-    contentType === 'application/pdf' ||
-    /\.(png|jpe?g|gif|webp|pdf|ogg|mp3|wav|m4a|docx|xlsx|pptx)$/i.test(name)
-  );
-}
-
 function inferOutboundMimeType(
   filePath: string,
   preferredMimeType: string | null | undefined,
@@ -163,6 +175,8 @@ function inferMimeTypeFromFilename(
   const normalizedFallback = normalizeValue(fallbackMimeType).toLowerCase();
   if (
     normalizedFallback &&
+    !GENERIC_MIME_TYPES.has(normalizedFallback) &&
+    !normalizedFallback.endsWith('/*') &&
     normalizedFallback !== TEAMS_FILE_DOWNLOAD_INFO_CONTENT_TYPE &&
     !normalizedFallback.startsWith('text/html')
   ) {
@@ -176,6 +190,56 @@ function inferMimeTypeFromTeamsFileType(fileType: string): string | null {
   const normalized = normalizeValue(fileType).toLowerCase();
   if (!normalized) return null;
   return OUTBOUND_MIME_TYPE_BY_EXTENSION[`.${normalized}`] || null;
+}
+
+function sniffMimeTypeFromBuffer(buffer: Buffer): string | null {
+  if (
+    buffer.length >= 8 &&
+    buffer
+      .subarray(0, 8)
+      .equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+  ) {
+    return 'image/png';
+  }
+  if (
+    buffer.length >= 3 &&
+    buffer[0] === 0xff &&
+    buffer[1] === 0xd8 &&
+    buffer[2] === 0xff
+  ) {
+    return 'image/jpeg';
+  }
+  if (
+    buffer.length >= 6 &&
+    (buffer.subarray(0, 6).toString('ascii') === 'GIF87a' ||
+      buffer.subarray(0, 6).toString('ascii') === 'GIF89a')
+  ) {
+    return 'image/gif';
+  }
+  if (
+    buffer.length >= 12 &&
+    buffer.subarray(0, 4).toString('ascii') === 'RIFF' &&
+    buffer.subarray(8, 12).toString('ascii') === 'WEBP'
+  ) {
+    return 'image/webp';
+  }
+  if (buffer.length >= 2 && buffer.subarray(0, 2).toString('ascii') === 'BM') {
+    return 'image/bmp';
+  }
+  if (
+    buffer.length >= 4 &&
+    (buffer.subarray(0, 4).equals(Buffer.from([0x49, 0x49, 0x2a, 0x00])) ||
+      buffer.subarray(0, 4).equals(Buffer.from([0x4d, 0x4d, 0x00, 0x2a])))
+  ) {
+    return 'image/tiff';
+  }
+  if (
+    buffer.length >= 5 &&
+    buffer.subarray(0, 5).toString('ascii') === '%PDF-'
+  ) {
+    return 'application/pdf';
+  }
+  return null;
 }
 
 function parseAttachmentHtmlContent(attachment: Attachment): string {
@@ -207,6 +271,9 @@ function readAttachmentContentRecord(
 }
 
 function extractAttachmentFilename(url: string, fallbackName: string): string {
+  if (normalizeValue(fallbackName) && fallbackName !== 'teams-attachment') {
+    return fallbackName;
+  }
   if (!url.startsWith('data:')) {
     try {
       const parsed = new URL(url);
@@ -225,8 +292,131 @@ function estimateDataUrlSize(url: string): number {
   return payload ? Buffer.from(payload, 'base64').length : 0;
 }
 
+function shouldUseFileConsent(params: {
+  conversationType: string;
+  contentType: string;
+  sizeBytes: number;
+}): boolean {
+  if (params.conversationType !== 'personal') {
+    return false;
+  }
+  if (!params.contentType.startsWith('image/')) {
+    return true;
+  }
+  return params.sizeBytes >= FILE_CONSENT_THRESHOLD_BYTES;
+}
+
+function storePendingFileUpload(entry: {
+  buffer: Buffer;
+  contentType: string;
+  conversationId: string;
+  filename: string;
+}): string {
+  const uploadId = randomUUID();
+  pendingFileUploads.set(uploadId, {
+    ...entry,
+    createdAt: Date.now(),
+  });
+  return uploadId;
+}
+
+function getPendingFileUpload(uploadId: string): PendingTeamsFileUpload | null {
+  const entry = pendingFileUploads.get(uploadId);
+  if (!entry) {
+    return null;
+  }
+  if (Date.now() - entry.createdAt > PENDING_FILE_UPLOAD_TTL_MS) {
+    pendingFileUploads.delete(uploadId);
+    return null;
+  }
+  return entry;
+}
+
+function evictExpiredClientCredentialsTokens(now: number): void {
+  for (const [scope, entry] of clientCredentialsTokenCache.entries()) {
+    if (now >= entry.expiresAt - ACCESS_TOKEN_CACHE_SKEW_MS) {
+      clientCredentialsTokenCache.delete(scope);
+    }
+  }
+}
+
+function removePendingFileUpload(uploadId: string): void {
+  pendingFileUploads.delete(uploadId);
+}
+
 function sanitizeFilename(name: string): string {
-  return name.replace(/[^a-zA-Z0-9._-]+/g, '_');
+  const basename = path.basename(normalizeValue(name) || 'teams-attachment');
+  const sanitized = basename
+    .normalize('NFC')
+    .replaceAll(/[<>:"/\\|?*]/g, '_')
+    .split('')
+    .filter((character) => {
+      const codePoint = character.codePointAt(0);
+      return (
+        typeof codePoint === 'number' && codePoint >= 0x20 && codePoint !== 0x7f
+      );
+    })
+    .join('')
+    .trim();
+  if (!sanitized || /^\.+$/.test(sanitized)) {
+    return 'teams-attachment';
+  }
+  return sanitized;
+}
+
+function buildFileConsentCardAttachment(params: {
+  filename: string;
+  sizeInBytes: number;
+  uploadId: string;
+}): Attachment {
+  return {
+    contentType: 'application/vnd.microsoft.teams.card.file.consent',
+    name: params.filename,
+    content: {
+      description: `File: ${params.filename}`,
+      sizeInBytes: params.sizeInBytes,
+      acceptContext: {
+        filename: params.filename,
+        uploadId: params.uploadId,
+      },
+      declineContext: {
+        filename: params.filename,
+        uploadId: params.uploadId,
+      },
+    },
+  };
+}
+
+function buildFileInfoCardAttachment(params: {
+  contentUrl: string;
+  filename: string;
+  fileType: string;
+  uniqueId: string;
+}): Attachment {
+  return {
+    contentType: 'application/vnd.microsoft.teams.card.file.info',
+    contentUrl: params.contentUrl,
+    name: params.filename,
+    content: {
+      uniqueId: params.uniqueId,
+      fileType: params.fileType,
+    },
+  };
+}
+
+function fetchWithTimeout(
+  input: string,
+  init: RequestInit,
+  signal?: AbortSignal,
+): Promise<Response> {
+  return fetch(input, {
+    ...init,
+    signal: signal || AbortSignal.timeout(REMOTE_MEDIA_FETCH_TIMEOUT_MS),
+  });
+}
+
+function getMaxInboundTeamsMediaBytes(): number {
+  return Math.max(1, MSTEAMS_MEDIA_MAX_MB) * 1024 * 1024;
 }
 
 function ensureFilenameWithExtension(
@@ -319,8 +509,9 @@ async function acquireClientCredentialsToken(
 ): Promise<string> {
   const scope = `${scopeBase}${ACCESS_TOKEN_SCOPE_SUFFIX}`;
   const now = Date.now();
+  evictExpiredClientCredentialsTokens(now);
   const cached = clientCredentialsTokenCache.get(scope);
-  if (cached && now < cached.expiresAt - 60_000) {
+  if (cached && now < cached.expiresAt - ACCESS_TOKEN_CACHE_SKEW_MS) {
     return cached.accessToken;
   }
 
@@ -336,7 +527,7 @@ async function acquireClientCredentialsToken(
     grant_type: 'client_credentials',
     scope,
   });
-  const response = await fetch(
+  const response = await fetchWithTimeout(
     `https://login.microsoftonline.com/${encodeURIComponent(
       MSTEAMS_TENANT_ID,
     )}/oauth2/v2.0/token`,
@@ -363,6 +554,7 @@ async function acquireClientCredentialsToken(
     accessToken,
     expiresAt: now + expiresIn * 1_000,
   });
+  evictExpiredClientCredentialsTokens(now);
   return accessToken;
 }
 
@@ -370,69 +562,70 @@ async function fetchTeamsMediaResponse(
   url: string,
   authToken?: string | null,
 ): Promise<Response> {
-  const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    REMOTE_MEDIA_FETCH_TIMEOUT_MS,
-  );
-  try {
-    const normalizedAuthToken = normalizeValue(authToken);
-    if (normalizedAuthToken) {
-      const tokenResponse = await fetch(url, {
+  const requestSignal = AbortSignal.timeout(REMOTE_MEDIA_FETCH_TIMEOUT_MS);
+  const normalizedAuthToken = normalizeValue(authToken);
+  if (normalizedAuthToken) {
+    const tokenResponse = await fetchWithTimeout(
+      url,
+      {
         headers: {
           Accept: '*/*',
           Authorization: `Bearer ${normalizedAuthToken}`,
         },
-        signal: controller.signal,
-      });
-      if (
-        tokenResponse.ok ||
-        (tokenResponse.status !== 401 && tokenResponse.status !== 403)
-      ) {
-        return tokenResponse;
-      }
+      },
+      requestSignal,
+    );
+    if (
+      tokenResponse.ok ||
+      (tokenResponse.status !== 401 && tokenResponse.status !== 403)
+    ) {
+      return tokenResponse;
     }
+  }
 
-    const response = await fetch(url, {
+  const response = await fetchWithTimeout(
+    url,
+    {
       headers: {
         Accept: '*/*',
       },
-      signal: controller.signal,
-    });
-    if (response.ok || (response.status !== 401 && response.status !== 403)) {
-      return response;
-    }
+    },
+    requestSignal,
+  );
+  if (response.ok || (response.status !== 401 && response.status !== 403)) {
+    return response;
+  }
 
-    const host = new URL(url).hostname;
-    if (!isAllowedHost(host, getEffectiveMediaAuthAllowHosts())) {
-      return response;
-    }
+  const host = new URL(url).hostname;
+  if (!isAllowedHost(host, getEffectiveMediaAuthAllowHosts())) {
+    return response;
+  }
 
-    for (const scopeBase of resolveScopeCandidatesForUrl(url)) {
-      try {
-        const accessToken = await acquireClientCredentialsToken(scopeBase);
-        const retryResponse = await fetch(url, {
+  for (const scopeBase of resolveScopeCandidatesForUrl(url)) {
+    try {
+      const accessToken = await acquireClientCredentialsToken(scopeBase);
+      const retryResponse = await fetchWithTimeout(
+        url,
+        {
           headers: {
             Accept: '*/*',
             Authorization: `Bearer ${accessToken}`,
           },
-          signal: controller.signal,
-        });
-        if (
-          retryResponse.ok ||
-          (retryResponse.status !== 401 && retryResponse.status !== 403)
-        ) {
-          return retryResponse;
-        }
-      } catch {
-        // Try the next scope.
+        },
+        requestSignal,
+      );
+      if (
+        retryResponse.ok ||
+        (retryResponse.status !== 401 && retryResponse.status !== 403)
+      ) {
+        return retryResponse;
       }
+    } catch {
+      // Try the next scope.
     }
-
-    return response;
-  } finally {
-    clearTimeout(timeout);
   }
+
+  return response;
 }
 
 function decodeDataUrl(
@@ -457,6 +650,9 @@ async function stageInboundTeamsBuffer(params: {
   filename: string;
   mimeType: string | null;
 }): Promise<string> {
+  if (params.buffer.length > getMaxInboundTeamsMediaBytes()) {
+    throw new Error('Teams attachment exceeds configured media limit.');
+  }
   const directory = await fs.mkdtemp(
     path.join(os.tmpdir(), MSTEAMS_MEDIA_TMP_PREFIX),
   );
@@ -486,6 +682,17 @@ async function buildMediaItem(params: {
     if (!decoded) {
       return fallback;
     }
+    if (decoded.buffer.length > getMaxInboundTeamsMediaBytes()) {
+      logger.warn(
+        {
+          filename: fallback.filename,
+          sizeBytes: decoded.buffer.length,
+          maxBytes: getMaxInboundTeamsMediaBytes(),
+        },
+        'Skipping Teams data URL attachment that exceeds configured media limit',
+      );
+      return null;
+    }
     const filePath = await stageInboundTeamsBuffer({
       buffer: decoded.buffer,
       filename: fallback.filename,
@@ -513,16 +720,25 @@ async function buildMediaItem(params: {
     if (
       Number.isFinite(contentLength) &&
       contentLength > 0 &&
-      contentLength > Math.max(1, MSTEAMS_MEDIA_MAX_MB) * 1024 * 1024
+      contentLength > getMaxInboundTeamsMediaBytes()
     ) {
       throw new Error('Teams attachment exceeds configured media limit.');
     }
     const buffer = Buffer.from(await response.arrayBuffer());
-    const resolvedMimeType =
+    const responseMimeType =
       normalizeValue(response.headers.get('content-type'))
         .split(';')[0]
         .trim()
-        .toLowerCase() || fallback.mimeType;
+        .toLowerCase() || null;
+    const resolvedMimeType =
+      (responseMimeType &&
+      !GENERIC_MIME_TYPES.has(responseMimeType) &&
+      !responseMimeType.endsWith('/*')
+        ? responseMimeType
+        : null) ||
+      inferMimeTypeFromFilename(fallback.filename, fallback.mimeType) ||
+      sniffMimeTypeFromBuffer(buffer) ||
+      null;
     const filePath = await stageInboundTeamsBuffer({
       buffer,
       filename: fallback.filename,
@@ -580,6 +796,14 @@ function extractAttachmentDownloadInfo(params: {
   };
 }
 
+function extractAttachmentAuthToken(attachment: Attachment): string | null {
+  const record = readAttachmentContentRecord(attachment);
+  if (!record) return null;
+  return typeof record.token === 'string' && record.token.trim()
+    ? record.token.trim()
+    : null;
+}
+
 function shouldInlinePersonalImageAttachment(params: {
   conversationType: string;
   contentType: string;
@@ -605,6 +829,43 @@ function requireConnectorClient(turnContext: TurnContext): ConnectorClient {
     throw new Error('Teams connector client is unavailable.');
   }
   return connectorClient;
+}
+
+function parseFileConsentInvoke(
+  activity: Partial<Activity>,
+): ParsedFileConsentInvoke | null {
+  if (activity.type !== 'invoke' || activity.name !== 'fileConsent/invoke') {
+    return null;
+  }
+  const value = isRecord(activity.value) ? activity.value : null;
+  if (!value || value.type !== 'fileUpload') {
+    return null;
+  }
+  return {
+    action: value.action === 'accept' ? 'accept' : 'decline',
+    context: isRecord(value.context) ? value.context : null,
+    uploadInfo: isRecord(value.uploadInfo) ? value.uploadInfo : null,
+  };
+}
+
+async function uploadToConsentUrl(params: {
+  buffer: Buffer;
+  contentType: string;
+  uploadUrl: string;
+}): Promise<void> {
+  const response = await fetchWithTimeout(params.uploadUrl, {
+    method: 'PUT',
+    headers: {
+      'content-range': `bytes 0-${params.buffer.length - 1}/${params.buffer.length}`,
+      'content-type': params.contentType || 'application/octet-stream',
+    },
+    body: new Uint8Array(params.buffer),
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Teams consent upload failed (${response.status} ${response.statusText})`,
+    );
+  }
 }
 
 function buildUploadedAttachmentUrl(
@@ -658,6 +919,32 @@ export async function buildTeamsUploadedFileAttachment(params: {
     };
   }
 
+  if (
+    shouldUseFileConsent({
+      conversationType,
+      contentType,
+      sizeBytes: fileBuffer.byteLength,
+    })
+  ) {
+    const uploadId = storePendingFileUpload({
+      buffer: fileBuffer,
+      contentType,
+      conversationId,
+      filename,
+    });
+    return buildFileConsentCardAttachment({
+      filename,
+      sizeInBytes: fileBuffer.byteLength,
+      uploadId,
+    });
+  }
+
+  if (fileBuffer.byteLength >= FILE_CONSENT_THRESHOLD_BYTES) {
+    throw new Error(
+      'Teams file uploads larger than 4 MB in channels or group chats require SharePoint/OneDrive fallback, which is not implemented yet.',
+    );
+  }
+
   const connectorClient = requireConnectorClient(params.turnContext);
   const uploadPayload: AttachmentData = {
     name: filename,
@@ -679,6 +966,118 @@ export async function buildTeamsUploadedFileAttachment(params: {
     contentType,
     contentUrl: buildUploadedAttachmentUrl(serviceUrl, attachmentId),
   };
+}
+
+export async function maybeHandleMSTeamsFileConsentInvoke(
+  turnContext: TurnContext,
+): Promise<boolean> {
+  const activity = turnContext.activity as Partial<Activity>;
+  const consent = parseFileConsentInvoke(activity);
+  if (!consent) {
+    return false;
+  }
+
+  await turnContext.sendActivity({
+    type: 'invokeResponse',
+    value: { status: 200 },
+  });
+
+  const uploadId = normalizeValue(
+    typeof consent.context?.uploadId === 'string'
+      ? consent.context.uploadId
+      : '',
+  );
+  const pendingUpload = uploadId ? getPendingFileUpload(uploadId) : null;
+  const expiredMessage =
+    'The Teams file upload request has expired. Please send the file again.';
+
+  if (!pendingUpload) {
+    if (consent.action === 'accept') {
+      await turnContext.sendActivity(expiredMessage);
+    }
+    return true;
+  }
+
+  const invokeConversationId = normalizeValue(activity.conversation?.id);
+  if (
+    !invokeConversationId ||
+    invokeConversationId !== pendingUpload.conversationId
+  ) {
+    if (consent.action === 'accept') {
+      await turnContext.sendActivity(expiredMessage);
+    }
+    return true;
+  }
+
+  if (consent.action === 'decline') {
+    removePendingFileUpload(uploadId);
+    return true;
+  }
+
+  const uploadInfo = consent.uploadInfo;
+  const uploadUrl = normalizeValue(
+    uploadInfo && typeof uploadInfo.uploadUrl === 'string'
+      ? uploadInfo.uploadUrl
+      : '',
+  );
+  const contentUrl = normalizeValue(
+    uploadInfo && typeof uploadInfo.contentUrl === 'string'
+      ? uploadInfo.contentUrl
+      : '',
+  );
+  const uniqueId = normalizeValue(
+    uploadInfo && typeof uploadInfo.uniqueId === 'string'
+      ? uploadInfo.uniqueId
+      : '',
+  );
+  const fileType = normalizeValue(
+    uploadInfo && typeof uploadInfo.fileType === 'string'
+      ? uploadInfo.fileType
+      : path.extname(pendingUpload.filename).replace(/^\./, ''),
+  );
+  const uploadedName = normalizeValue(
+    uploadInfo && typeof uploadInfo.name === 'string'
+      ? uploadInfo.name
+      : pendingUpload.filename,
+  );
+
+  if (!uploadUrl || !contentUrl || !uniqueId) {
+    removePendingFileUpload(uploadId);
+    await turnContext.sendActivity(expiredMessage);
+    return true;
+  }
+
+  try {
+    await uploadToConsentUrl({
+      buffer: pendingUpload.buffer,
+      contentType: pendingUpload.contentType,
+      uploadUrl,
+    });
+    await turnContext.sendActivity({
+      type: 'message',
+      attachments: [
+        buildFileInfoCardAttachment({
+          contentUrl,
+          filename: uploadedName || pendingUpload.filename,
+          fileType:
+            fileType || path.extname(pendingUpload.filename).replace(/^\./, ''),
+          uniqueId,
+        }),
+      ],
+    });
+  } catch (error) {
+    logger.warn(
+      { error, uploadId, filename: pendingUpload.filename },
+      'Teams file consent upload failed',
+    );
+    await turnContext.sendActivity(
+      `Teams file upload failed for ${pendingUpload.filename}. Please retry the send.`,
+    );
+  } finally {
+    removePendingFileUpload(uploadId);
+  }
+
+  return true;
 }
 
 export async function buildTeamsArtifactAttachments(params: {
@@ -706,7 +1105,7 @@ export async function buildTeamsAttachmentContext(params: {
   const attachments = Array.isArray(params.activity.attachments)
     ? params.activity.attachments
     : [];
-  const maxBytes = Math.max(1, MSTEAMS_MEDIA_MAX_MB) * 1024 * 1024;
+  const maxBytes = getMaxInboundTeamsMediaBytes();
   const media: MediaContextItem[] = [];
   const htmlAttachments: Attachment[] = [];
 
@@ -744,18 +1143,14 @@ export async function buildTeamsAttachmentContext(params: {
       }
     }
 
-    if (
-      looksLikeSupportedAttachment(attachment) &&
-      normalizeValue(attachment.contentUrl)
-    ) {
+    if (normalizeValue(attachment.contentUrl)) {
+      const attachmentUrl = normalizeValue(attachment.contentUrl);
       const mediaItem = await buildMediaItem({
-        url: normalizeValue(attachment.contentUrl),
-        filename: extractAttachmentFilename(
-          normalizeValue(attachment.contentUrl),
-          fallbackName,
-        ),
+        url: attachmentUrl,
+        filename: extractAttachmentFilename(attachmentUrl, fallbackName),
         mimeType: inferMimeTypeFromFilename(fallbackName, contentType),
         sizeBytes: normalizedSizeBytes,
+        authToken: extractAttachmentAuthToken(attachment),
       });
       if (mediaItem && mediaItem.sizeBytes <= maxBytes) {
         media.push(mediaItem);

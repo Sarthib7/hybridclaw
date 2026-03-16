@@ -122,3 +122,56 @@ test('append surfaces send failures with a terminal Teams error message', async 
     vi.useRealTimers();
   }
 });
+
+test('stream retries transient Teams send and update failures', async () => {
+  vi.useFakeTimers();
+  try {
+    const sendActivity = vi
+      .fn()
+      .mockRejectedValueOnce({ statusCode: 429, retryAfter: 0.05 })
+      .mockResolvedValueOnce({ id: 'activity-1' });
+    const updateActivity = vi
+      .fn()
+      .mockRejectedValueOnce({ statusCode: 503 })
+      .mockResolvedValueOnce(undefined);
+    const turnContext = {
+      sendActivity,
+      updateActivity,
+      deleteActivity: vi.fn(async () => {}),
+    };
+
+    const stream = new MSTeamsStreamManager(turnContext as never, {
+      replyStyle: 'thread',
+      replyToId: 'incoming-1',
+      editIntervalMs: 500,
+    });
+
+    await stream.append('Hello');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sendActivity).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(49);
+    expect(sendActivity).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(sendActivity).toHaveBeenCalledTimes(2);
+
+    await stream.append(' world');
+    await vi.advanceTimersByTimeAsync(500);
+    expect(updateActivity).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(499);
+    expect(updateActivity).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(updateActivity).toHaveBeenCalledTimes(2);
+    expect(updateActivity).toHaveBeenNthCalledWith(2, {
+      id: 'activity-1',
+      type: 'message',
+      text: 'Hello world',
+      replyToId: 'incoming-1',
+    });
+  } finally {
+    vi.useRealTimers();
+  }
+});

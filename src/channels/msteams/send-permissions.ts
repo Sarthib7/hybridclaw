@@ -13,6 +13,7 @@ import type {
   MSTeamsReplyStyle,
   RuntimeMSTeamsTeamConfig,
 } from '../../config/runtime-config.js';
+import { logger } from '../../logger.js';
 import { normalizeValue } from './utils.js';
 
 export interface MSTeamsPermissionSnapshot {
@@ -49,6 +50,11 @@ export interface ResolveMSTeamsChannelPolicyResult {
   matchedAllowFrom?: string;
   groupPolicy?: MSTeamsGroupPolicy;
   dmPolicy?: MSTeamsDmPolicy;
+}
+
+interface MSTeamsAllowlistMatch {
+  entry: string;
+  matchType: 'id' | 'name';
 }
 
 function normalizeLower(value: string | null | undefined): string {
@@ -184,42 +190,77 @@ function matchesAllowEntry(params: {
   entry: string;
   actor: MSTeamsActorIdentity;
   dangerouslyAllowNameMatching: boolean;
-}): boolean {
+}): MSTeamsAllowlistMatch | null {
   const normalizedEntry = normalizeLower(params.entry);
-  if (!normalizedEntry) return false;
+  if (!normalizedEntry) return null;
 
   const actorIds = [
     normalizeLower(params.actor.aadObjectId),
     normalizeLower(params.actor.userId),
   ].filter(Boolean);
-  if (actorIds.includes(normalizedEntry)) return true;
+  if (actorIds.includes(normalizedEntry)) {
+    return {
+      entry: params.entry,
+      matchType: 'id',
+    };
+  }
 
-  if (!params.dangerouslyAllowNameMatching) return false;
+  if (!params.dangerouslyAllowNameMatching) return null;
   const actorNames = [
     normalizeLower(params.actor.displayName),
     normalizeLower(params.actor.username),
   ].filter(Boolean);
-  return actorNames.includes(normalizedEntry);
+  if (!actorNames.includes(normalizedEntry)) {
+    return null;
+  }
+  return {
+    entry: params.entry,
+    matchType: 'name',
+  };
 }
 
 function resolveAllowlistMatch(params: {
   allowFrom: string[];
   actor: MSTeamsActorIdentity;
   dangerouslyAllowNameMatching: boolean;
-}): string | null {
+}): MSTeamsAllowlistMatch | null {
   const normalizedAllowFrom = normalizeList(params.allowFrom);
   for (const entry of normalizedAllowFrom) {
-    if (
-      matchesAllowEntry({
-        entry,
-        actor: params.actor,
-        dangerouslyAllowNameMatching: params.dangerouslyAllowNameMatching,
-      })
-    ) {
-      return entry;
+    const match = matchesAllowEntry({
+      entry,
+      actor: params.actor,
+      dangerouslyAllowNameMatching: params.dangerouslyAllowNameMatching,
+    });
+    if (match) {
+      return match;
     }
   }
   return null;
+}
+
+function maybeLogDangerousNameMatch(params: {
+  actor: MSTeamsActorIdentity;
+  channelId?: string | null;
+  isDm: boolean;
+  match: MSTeamsAllowlistMatch | null;
+  teamId?: string | null;
+}): void {
+  if (!params.match || params.match.matchType !== 'name') {
+    return;
+  }
+  logger.warn(
+    {
+      matchedAllowFrom: params.match.entry,
+      actorUserId: params.actor.userId,
+      actorAadObjectId: params.actor.aadObjectId || null,
+      actorDisplayName: params.actor.displayName || null,
+      actorUsername: params.actor.username || null,
+      isDm: params.isDm,
+      teamId: normalizeValue(params.teamId) || null,
+      channelId: normalizeValue(params.channelId) || null,
+    },
+    'Teams access granted via dangerouslyAllowNameMatching; prefer AAD object IDs in allowFrom.',
+  );
 }
 
 export function resolveMSTeamsChannelPolicyFromSnapshot(
@@ -255,14 +296,21 @@ export function resolveMSTeamsChannelPolicyFromSnapshot(
       };
     }
 
-    const matchedAllowFrom = resolveAllowlistMatch({
+    const allowlistMatch = resolveAllowlistMatch({
       allowFrom: effectiveAllowFrom,
       actor: params.actor,
       dangerouslyAllowNameMatching: snapshot.dangerouslyAllowNameMatching,
     });
+    maybeLogDangerousNameMatch({
+      actor: params.actor,
+      channelId,
+      isDm: true,
+      match: allowlistMatch,
+      teamId,
+    });
 
     if (effectiveAllowFrom.length > 0 || snapshot.dmPolicy !== 'open') {
-      if (!matchedAllowFrom) {
+      if (!allowlistMatch) {
         return {
           allowed: false,
           reason: 'sender does not match the effective Teams DM allowlist.',
@@ -279,7 +327,7 @@ export function resolveMSTeamsChannelPolicyFromSnapshot(
         replyStyle,
         tools,
         effectiveAllowFrom,
-        matchedAllowFrom,
+        matchedAllowFrom: allowlistMatch.entry,
         dmPolicy: snapshot.dmPolicy,
       };
     }
@@ -317,13 +365,20 @@ export function resolveMSTeamsChannelPolicyFromSnapshot(
     };
   }
 
-  const matchedAllowFrom = resolveAllowlistMatch({
+  const allowlistMatch = resolveAllowlistMatch({
     allowFrom: effectiveAllowFrom,
     actor: params.actor,
     dangerouslyAllowNameMatching: snapshot.dangerouslyAllowNameMatching,
   });
+  maybeLogDangerousNameMatch({
+    actor: params.actor,
+    channelId,
+    isDm: false,
+    match: allowlistMatch,
+    teamId,
+  });
   if (effectiveAllowFrom.length > 0 || groupPolicy === 'allowlist') {
-    if (!matchedAllowFrom) {
+    if (!allowlistMatch) {
       return {
         allowed: false,
         reason: 'sender does not match the effective Teams allowlist.',
@@ -342,7 +397,7 @@ export function resolveMSTeamsChannelPolicyFromSnapshot(
     replyStyle,
     tools,
     effectiveAllowFrom,
-    ...(matchedAllowFrom ? { matchedAllowFrom } : {}),
+    ...(allowlistMatch ? { matchedAllowFrom: allowlistMatch.entry } : {}),
     groupPolicy,
   };
 }

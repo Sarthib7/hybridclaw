@@ -8,6 +8,7 @@ import {
 import { MSTEAMS_TEXT_CHUNK_LIMIT } from '../../config/config.js';
 import type { MSTeamsReplyStyle } from '../../config/runtime-config.js';
 import { chunkMessage } from '../../memory/chunk.js';
+import { sendMSTeamsActivityWithRetry } from './retry.js';
 
 export interface MSTeamsChunkedActivity {
   text: string;
@@ -91,13 +92,15 @@ export async function sendChunkedReply(params: {
     attachments: params.attachments,
   });
   for (const chunk of chunks) {
-    await params.turnContext.sendActivity(
+    await sendMSTeamsActivityWithRetry(
+      params.turnContext,
       buildMSTeamsMessageActivity({
         text: chunk.text,
         attachments: chunk.attachments,
         replyStyle: params.replyStyle,
         replyToId: params.replyToId,
       }),
+      'msteams.sendChunkedReply',
     );
   }
 }

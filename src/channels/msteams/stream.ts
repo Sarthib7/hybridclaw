@@ -6,8 +6,14 @@ import {
   buildMSTeamsMessageActivity,
   prepareChunkedActivities,
 } from './delivery.js';
+import {
+  sendMSTeamsActivityWithRetry,
+  updateMSTeamsActivityWithRetry,
+} from './retry.js';
 
 const DEFAULT_EDIT_INTERVAL_MS = 1_200;
+// Coalesce token bursts into a few visible edits instead of issuing one activity
+// update per delta, while still keeping Teams replies responsive.
 const STREAM_FAILURE_TEXT =
   'Teams streaming was interrupted while sending the reply. Please retry.';
 
@@ -163,7 +169,11 @@ export class MSTeamsStreamManager {
       });
 
       if (!existing) {
-        const response = await this.turnContext.sendActivity(outgoing);
+        const response = await sendMSTeamsActivityWithRetry(
+          this.turnContext,
+          outgoing,
+          'msteams.stream.send',
+        );
         const activityId = String(response?.id || '').trim();
         if (!activityId) {
           throw new Error('Teams sendActivity did not return an activity id.');
@@ -173,7 +183,11 @@ export class MSTeamsStreamManager {
       }
 
       if (!force && existing.text === chunk.text) continue;
-      await this.turnContext.updateActivity(outgoing);
+      await updateMSTeamsActivityWithRetry(
+        this.turnContext,
+        outgoing,
+        'msteams.stream.update',
+      );
       this.sent[index] = { id: existing.id, text: chunk.text };
     }
 

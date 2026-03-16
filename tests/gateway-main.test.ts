@@ -476,7 +476,6 @@ describe('gateway bootstrap', () => {
     const context = {
       abortSignal: new AbortController().signal,
       activity: { id: 'activity-1' },
-      emitLifecyclePhase: vi.fn(),
       policy: { replyStyle: 'thread' },
       stream,
       turnContext,
@@ -546,7 +545,6 @@ describe('gateway bootstrap', () => {
     const context = {
       abortSignal: new AbortController().signal,
       activity: { id: 'activity-1' },
-      emitLifecyclePhase: vi.fn(),
       policy: { replyStyle: 'thread' },
       stream,
       turnContext: { sendActivities: vi.fn() },
@@ -610,7 +608,6 @@ describe('gateway bootstrap', () => {
     const context = {
       abortSignal: new AbortController().signal,
       activity: { id: 'activity-1' },
-      emitLifecyclePhase: vi.fn(),
       policy: { replyStyle: 'thread' },
       stream,
       turnContext: { sendActivities: vi.fn() },
@@ -739,7 +736,6 @@ describe('gateway bootstrap', () => {
     const context = {
       abortSignal: new AbortController().signal,
       activity: { id: 'activity-1' },
-      emitLifecyclePhase: vi.fn(),
       policy: { replyStyle: 'thread' },
       stream,
       turnContext: { sendActivities: vi.fn() },
@@ -803,7 +799,6 @@ describe('gateway bootstrap', () => {
     const context = {
       abortSignal: new AbortController().signal,
       activity: { id: 'activity-1' },
-      emitLifecyclePhase: vi.fn(),
       policy: { replyStyle: 'thread' },
       stream,
       turnContext: { sendActivities: vi.fn() },

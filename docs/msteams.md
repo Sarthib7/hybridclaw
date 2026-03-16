@@ -50,6 +50,15 @@ By default, Teams DMs and group channels start in `allowlist` mode. That means
 the bot will not answer anyone until you explicitly allow AAD object IDs in
 config or open a specific team/channel policy for testing.
 
+Do not rely on display names in `allowFrom` unless you have no alternative.
+`msteams.dangerouslyAllowNameMatching` is intentionally dangerous:
+- Teams display names are mutable
+- display names are not guaranteed to be unique
+- a name-based allowlist grant is logged with a warning so you can find and
+  remove it later
+
+Prefer stable AAD object IDs in `msteams.allowFrom`.
+
 ## 3. Start the gateway
 
 ```bash

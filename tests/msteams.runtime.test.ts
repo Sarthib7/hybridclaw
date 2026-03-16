@@ -1,3 +1,4 @@
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Readable } from 'node:stream';
 
 import { afterEach, describe, expect, test, vi } from 'vitest';
@@ -10,13 +11,22 @@ const typingStopMock = vi.fn();
 const sendChunkedReplyMock = vi.fn(async () => {});
 const continueConversationAsyncMock = vi.fn();
 const buildTeamsAttachmentContextMock = vi.fn(async () => []);
+const maybeHandleMSTeamsFileConsentInvokeMock = vi.fn(async () => false);
+const getMemoryValueMock = vi.fn();
+const setMemoryValueMock = vi.fn();
+const extractPrimaryTextMock = vi.fn(() => 'Hi!');
 const parseCommandMock = vi.fn(() => ({
   args: [],
   command: '',
   isCommand: false,
 }));
+const loggerDebugMock = vi.fn();
+const loggerErrorMock = vi.fn();
+const loggerInfoMock = vi.fn();
+const loggerWarnMock = vi.fn();
+const cloudAdapters: Array<{ onTurnError?: unknown }> = [];
 
-function makeRequest(body: unknown) {
+function makeRequest(body: unknown): IncomingMessage {
   return Object.assign(
     Readable.from([Buffer.from(JSON.stringify(body), 'utf8')]),
     {
@@ -26,12 +36,13 @@ function makeRequest(body: unknown) {
         authorization: 'Bearer test-token',
       },
     },
-  );
+  ) as IncomingMessage;
 }
 
-function makeResponse() {
+function makeResponse(): ServerResponse {
   const headers = new Map<string, string>();
   const response = {
+    socket: {},
     statusCode: 0,
     headersSent: false,
     writableEnded: false,
@@ -60,7 +71,27 @@ function makeResponse() {
       response.writableEnded = true;
     },
   };
-  return response;
+  return response as unknown as ServerResponse;
+}
+
+function makeStoredConversationReference() {
+  return {
+    channelId: 'conversation-123',
+    isDm: true,
+    reference: {
+      bot: { id: 'bot-id' },
+      channelId: 'msteams',
+      conversation: {
+        id: 'conversation-123',
+        conversationType: 'personal',
+      },
+      locale: 'de-DE',
+      serviceUrl: 'https://smba.trafficmanager.net/de/tenant-id/',
+      user: { id: 'user-id', name: 'User' },
+    },
+    replyStyle: 'thread' as const,
+    replyToId: 'incoming-1',
+  };
 }
 
 async function importRuntime() {
@@ -69,6 +100,10 @@ async function importRuntime() {
   vi.doMock('botbuilder', () => ({
     CloudAdapter: class {
       onTurnError?: unknown;
+
+      constructor() {
+        cloudAdapters.push(this);
+      }
 
       process = processMock;
       continueConversationAsync = continueConversationAsyncMock;
@@ -99,14 +134,20 @@ async function importRuntime() {
   }));
   vi.doMock('../src/logger.js', () => ({
     logger: {
-      debug: vi.fn(),
-      error: vi.fn(),
-      info: vi.fn(),
-      warn: vi.fn(),
+      debug: loggerDebugMock,
+      error: loggerErrorMock,
+      info: loggerInfoMock,
+      warn: loggerWarnMock,
     },
+  }));
+  vi.doMock('../src/memory/db.js', () => ({
+    getMemoryValue: getMemoryValueMock,
+    setMemoryValue: setMemoryValueMock,
   }));
   vi.doMock('../src/channels/msteams/attachments.js', () => ({
     buildTeamsAttachmentContext: buildTeamsAttachmentContextMock,
+    maybeHandleMSTeamsFileConsentInvoke:
+      maybeHandleMSTeamsFileConsentInvokeMock,
     buildTeamsUploadedFileAttachment: vi.fn(async () => ({
       contentType: 'image/png',
       contentUrl: 'https://example.com/attachment.png',
@@ -119,6 +160,7 @@ async function importRuntime() {
   vi.doMock('../src/channels/msteams/inbound.js', () => ({
     buildSessionIdFromActivity: vi.fn(() => 'teams:dm:user'),
     cleanIncomingContent: vi.fn(() => 'Hi!'),
+    extractPrimaryText: extractPrimaryTextMock,
     extractActorIdentity: vi.fn(() => ({
       aadObjectId: 'user-aad-id',
       displayName: 'User',
@@ -161,12 +203,24 @@ afterEach(() => {
   continueConversationAsyncMock.mockReset();
   buildTeamsAttachmentContextMock.mockReset();
   buildTeamsAttachmentContextMock.mockResolvedValue([]);
+  maybeHandleMSTeamsFileConsentInvokeMock.mockReset();
+  maybeHandleMSTeamsFileConsentInvokeMock.mockResolvedValue(false);
+  getMemoryValueMock.mockReset();
+  getMemoryValueMock.mockReturnValue(null);
+  setMemoryValueMock.mockReset();
   parseCommandMock.mockReset();
   parseCommandMock.mockReturnValue({
     args: [],
     command: '',
     isCommand: false,
   });
+  extractPrimaryTextMock.mockReset();
+  extractPrimaryTextMock.mockReturnValue('Hi!');
+  loggerDebugMock.mockReset();
+  loggerErrorMock.mockReset();
+  loggerInfoMock.mockReset();
+  loggerWarnMock.mockReset();
+  cloudAdapters.length = 0;
   vi.restoreAllMocks();
   vi.resetModules();
 });
@@ -179,7 +233,7 @@ describe('Microsoft Teams runtime webhook adapter', () => {
     const req = makeRequest({ type: 'message', text: 'Hi!' });
     const res = makeResponse();
 
-    await runtime.handleMSTeamsWebhook(req as never, res as never);
+    await runtime.handleMSTeamsWebhook(req, res);
 
     expect(processMock).toHaveBeenCalledTimes(1);
     const [adapterReq, adapterRes] = processMock.mock.calls[0] as [
@@ -219,7 +273,7 @@ describe('Microsoft Teams runtime webhook adapter', () => {
     const req = makeRequest({ type: 'message', text: 'Hi!' });
     const res = makeResponse();
 
-    await runtime.handleMSTeamsWebhook(req as never, res as never);
+    await runtime.handleMSTeamsWebhook(req, res);
 
     expect(credentialsFactoryMock).toHaveBeenCalledWith({
       MicrosoftAppId: 'teams-app-id',
@@ -227,6 +281,33 @@ describe('Microsoft Teams runtime webhook adapter', () => {
       MicrosoftAppTenantId: 'teams-tenant-id',
       MicrosoftAppType: 'SingleTenant',
     });
+  });
+
+  test('returns 401 when Bot Framework webhook authentication fails', async () => {
+    processMock.mockRejectedValue(
+      Object.assign(new Error('auth failed'), {
+        name: 'AuthenticationError',
+        statusCode: 401,
+      }),
+    );
+
+    const runtime = await importRuntime();
+    const req = makeRequest({ type: 'message', text: 'Hi!' });
+    const res = makeResponse();
+
+    await expect(
+      runtime.handleMSTeamsWebhook(req, res),
+    ).resolves.toBeUndefined();
+
+    expect(res.statusCode).toBe(401);
+    expect(res.writableEnded).toBe(true);
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error: expect.any(Error),
+        statusCode: 401,
+      }),
+      'Rejected Teams webhook due to Bot Framework authentication failure',
+    );
   });
 
   test('fails fast when Teams runtime is initialized without handlers', async () => {
@@ -279,7 +360,7 @@ describe('Microsoft Teams runtime webhook adapter', () => {
     const req = makeRequest({ type: 'message', text: '/approve 3' });
     const res = makeResponse();
 
-    await runtime.handleMSTeamsWebhook(req as never, res as never);
+    await runtime.handleMSTeamsWebhook(req, res);
 
     expect(onCommand).toHaveBeenCalledWith(
       'teams:dm:user',
@@ -292,6 +373,62 @@ describe('Microsoft Teams runtime webhook adapter', () => {
     );
     expect(typingStartMock).toHaveBeenCalledTimes(1);
     expect(typingStopMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('parses Teams commands from the primary message text only', async () => {
+    processMock.mockImplementation(
+      async (
+        req: { body?: Record<string, unknown> },
+        _res,
+        logic: (context: unknown) => Promise<void>,
+      ) => {
+        await logic({
+          activity: req.body,
+          sendActivity: vi.fn(async () => ({ id: 'reply-1' })),
+          turnState: new Map(),
+        });
+      },
+    );
+    extractPrimaryTextMock.mockReturnValue('/approve 2');
+    parseCommandMock.mockImplementation((value: string) => {
+      expect(value).toBe('/approve 2');
+      return {
+        args: ['2'],
+        command: 'approve',
+        isCommand: true,
+      };
+    });
+
+    const runtime = await importRuntime();
+    const onMessage = vi.fn(async () => {});
+    const onCommand = vi.fn(async () => {});
+    runtime.initMSTeams(onMessage, onCommand);
+
+    const req = makeRequest({
+      type: 'message',
+      text: '/approve 2',
+      conversation: { id: 'conversation-123' },
+      recipient: { id: 'bot-id' },
+      attachments: [
+        {
+          contentType: 'text/html',
+          content: '<p>/approve 2</p>',
+        },
+      ],
+    });
+    const res = makeResponse();
+
+    await runtime.handleMSTeamsWebhook(req, res);
+
+    expect(onCommand).toHaveBeenCalledWith(
+      'teams:dm:user',
+      null,
+      'conversation-123',
+      'user-id',
+      'User',
+      ['approve', '2'],
+      expect.any(Function),
+    );
   });
 
   test('does not start Teams typing for quick local commands like clear', async () => {
@@ -323,7 +460,7 @@ describe('Microsoft Teams runtime webhook adapter', () => {
     const req = makeRequest({ type: 'message', text: '/clear' });
     const res = makeResponse();
 
-    await runtime.handleMSTeamsWebhook(req as never, res as never);
+    await runtime.handleMSTeamsWebhook(req, res);
 
     expect(onCommand).toHaveBeenCalledWith(
       'teams:dm:user',
@@ -375,7 +512,7 @@ describe('Microsoft Teams runtime webhook adapter', () => {
     });
     const res = makeResponse();
 
-    await runtime.handleMSTeamsWebhook(req as never, res as never);
+    await runtime.handleMSTeamsWebhook(req, res);
 
     expect(onMessage).toHaveBeenCalledWith(
       'teams:dm:user',
@@ -396,6 +533,62 @@ describe('Microsoft Teams runtime webhook adapter', () => {
       ],
       expect.any(Function),
       expect.any(Object),
+    );
+  });
+
+  test('persists a Teams conversation reference for accepted inbound messages', async () => {
+    processMock.mockImplementation(
+      async (_req, _res, logic: (context: unknown) => Promise<void>) => {
+        await logic({
+          activity: {
+            type: 'message',
+            text: 'persist this',
+            id: 'incoming-1',
+            channelId: 'msteams',
+            from: { id: 'user-id', name: 'User' },
+            locale: 'de-DE',
+            serviceUrl: 'https://smba.trafficmanager.net/de/tenant-id/',
+            conversation: {
+              id: 'conversation-123',
+              conversationType: 'personal',
+            },
+            recipient: { id: 'bot-id' },
+          },
+          sendActivity: vi.fn(async () => ({ id: 'reply-1' })),
+          turnState: new Map(),
+        });
+      },
+    );
+
+    const runtime = await importRuntime();
+    runtime.initMSTeams(
+      vi.fn(async () => {}),
+      vi.fn(async () => {}),
+    );
+
+    const req = makeRequest({ type: 'message', text: 'persist this' });
+    const res = makeResponse();
+
+    await runtime.handleMSTeamsWebhook(req, res);
+
+    expect(setMemoryValueMock).toHaveBeenCalledWith(
+      'teams:dm:user',
+      'msteams:conversation-reference',
+      expect.objectContaining({
+        channelId: 'conversation-123',
+        isDm: true,
+        reference: expect.objectContaining({
+          bot: { id: 'bot-id' },
+          channelId: 'msteams',
+          conversation: expect.objectContaining({
+            id: 'conversation-123',
+          }),
+          serviceUrl: 'https://smba.trafficmanager.net/de/tenant-id/',
+          user: { id: 'user-id', name: 'User' },
+        }),
+        replyStyle: 'thread',
+        replyToId: 'incoming-1',
+      }),
     );
   });
 
@@ -448,12 +641,11 @@ describe('Microsoft Teams runtime webhook adapter', () => {
     const req = makeRequest({ type: 'message', text: 'upload this' });
     const res = makeResponse();
 
-    await runtime.handleMSTeamsWebhook(req as never, res as never);
+    await runtime.handleMSTeamsWebhook(req, res);
 
     expect(continueConversationAsyncMock).toHaveBeenCalledWith(
       'teams-app-id',
       expect.objectContaining({
-        activityId: undefined,
         channelId: 'msteams',
         conversation: {
           id: 'conversation-123',
@@ -469,6 +661,121 @@ describe('Microsoft Teams runtime webhook adapter', () => {
         replyStyle: 'top-level',
         replyToId: null,
       }),
+    );
+  });
+
+  test('falls back to a stored Teams conversation reference when the active session is gone', async () => {
+    continueConversationAsyncMock.mockImplementation(
+      async (
+        _appId,
+        _reference,
+        logic: (context: unknown) => Promise<void>,
+      ) => {
+        await logic({
+          sendActivity: vi.fn(async () => ({ id: 'reply-2' })),
+        });
+      },
+    );
+    processMock.mockImplementation(
+      async (_req, _res, logic: (context: unknown) => Promise<void>) => {
+        await logic({
+          activity: {
+            type: 'message',
+            text: 'hello',
+            id: 'incoming-1',
+            channelId: 'msteams',
+            from: { id: 'user-id', name: 'User' },
+            locale: 'de-DE',
+            serviceUrl: 'https://smba.trafficmanager.net/de/tenant-id/',
+            conversation: {
+              id: 'conversation-123',
+              conversationType: 'personal',
+            },
+            recipient: { id: 'bot-id' },
+          },
+          sendActivity: vi.fn(async () => ({ id: 'reply-1' })),
+          turnState: new Map(),
+        });
+      },
+    );
+    getMemoryValueMock.mockReturnValue(makeStoredConversationReference());
+
+    const runtime = await importRuntime();
+    runtime.initMSTeams(
+      vi.fn(async () => {}),
+      vi.fn(async () => {}),
+    );
+
+    const req = makeRequest({ type: 'message', text: 'hello' });
+    const res = makeResponse();
+    await runtime.handleMSTeamsWebhook(req, res);
+
+    expect(runtime.hasActiveMSTeamsSession('teams:dm:user')).toBe(false);
+
+    await runtime.sendToActiveMSTeamsSession({
+      sessionId: 'teams:dm:user',
+      text: 'retry after restart',
+    });
+
+    expect(continueConversationAsyncMock).toHaveBeenCalledWith(
+      'teams-app-id',
+      expect.objectContaining({
+        bot: { id: 'bot-id' },
+        channelId: 'msteams',
+        conversation: {
+          id: 'conversation-123',
+          conversationType: 'personal',
+        },
+        serviceUrl: 'https://smba.trafficmanager.net/de/tenant-id/',
+      }),
+      expect.any(Function),
+    );
+    expect(sendChunkedReplyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        replyStyle: 'thread',
+        replyToId: 'incoming-1',
+        text: 'retry after restart',
+      }),
+    );
+  });
+
+  test('logs when sending the Teams turn failure notice fails', async () => {
+    processMock.mockResolvedValue(undefined);
+
+    const runtime = await importRuntime();
+    const req = makeRequest({ type: 'message', text: 'Hi!' });
+    const res = makeResponse();
+
+    await runtime.handleMSTeamsWebhook(req, res);
+
+    const onTurnError = cloudAdapters[0]?.onTurnError as
+      | ((
+          turnContext: { sendActivity: () => Promise<void> },
+          error: Error,
+        ) => Promise<void>)
+      | undefined;
+    expect(onTurnError).toBeTypeOf('function');
+
+    await onTurnError?.(
+      {
+        sendActivity: vi.fn(async () => {
+          throw new Error('send failed');
+        }),
+      },
+      new Error('turn failed'),
+    );
+
+    expect(loggerErrorMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error: expect.any(Error),
+      }),
+      'Teams turn failed',
+    );
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error: expect.any(Error),
+      }),
+      'Failed to send Teams turn failure notice',
     );
   });
 });

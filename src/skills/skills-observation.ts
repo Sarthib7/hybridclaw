@@ -114,7 +114,7 @@ export async function waitForQueuedSkillEvaluations(): Promise<void> {
   await queuedSkillEvaluationWork;
 }
 
-export async function recordSkillExecution(input: {
+export function recordSkillExecution(input: {
   skillName: string;
   sessionId: string;
   runId: string;
@@ -123,7 +123,7 @@ export async function recordSkillExecution(input: {
   durationMs: number;
   errorCategory?: SkillErrorCategory | null;
   errorDetail?: string | null;
-}): Promise<SkillObservation | null> {
+}): SkillObservation | null {
   const config = getRuntimeConfig().adaptiveSkills;
   const skillName = input.skillName.trim();
   if (!skillName || !config.observationEnabled) return null;

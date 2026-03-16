@@ -1,3 +1,4 @@
+import { buildSessionIdFromContext } from './inbound.js';
 import type { SkillFeedbackSentiment } from '../../skills/adaptive-skills-types.js';
 
 const NEGATIVE_SKILL_FEEDBACK_REACTIONS = new Set(['👎']);
@@ -23,4 +24,16 @@ export function formatDiscordSkillFeedbackMessage(input: {
   messageId: string;
 }): string {
   return `${input.username} reacted with ${input.emojiName} to assistant message ${input.messageId}.`;
+}
+
+export function resolveDiscordSkillFeedbackSessionId(input: {
+  guildId: string | null;
+  channelId: string;
+  userId: string;
+}): string {
+  return buildSessionIdFromContext(
+    input.guildId,
+    input.channelId,
+    input.userId,
+  );
 }

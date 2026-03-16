@@ -114,6 +114,15 @@ const SAFE_INLINE_ARTIFACT_MIME_TYPES: Record<string, string> = {
 type ApiChatRequestBody = GatewayChatRequestBody & { stream?: boolean };
 type ApiMessageActionRequestBody = Partial<DiscordToolActionRequest>;
 
+class HttpRequestError extends Error {
+  statusCode: number;
+
+  constructor(statusCode: number, message: string) {
+    super(message);
+    this.statusCode = statusCode;
+  }
+}
+
 function isRuntimeDiscordChannelConfig(
   value: unknown,
 ): value is RuntimeDiscordChannelConfig {
@@ -272,14 +281,18 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     total += buffer.length;
     if (total > MAX_REQUEST_BYTES) {
-      throw new Error('Request body too large.');
+      throw new HttpRequestError(413, 'Request body too large.');
     }
     chunks.push(buffer);
   }
   if (chunks.length === 0) return {};
   const raw = Buffer.concat(chunks).toString('utf-8');
   if (!raw.trim()) return {};
-  return JSON.parse(raw) as unknown;
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    throw new HttpRequestError(400, 'Invalid JSON body');
+  }
 }
 
 function resolveSiteFile(pathname: string): string | null {
@@ -1076,9 +1089,11 @@ async function handleApiAdaptiveSkills(
 
   const body = (await readJsonBody(req)) as { reviewedBy?: unknown };
   const reviewedBy =
-    typeof body.reviewedBy === 'string' && body.reviewedBy.trim()
-      ? body.reviewedBy.trim()
-      : 'gateway-admin';
+    typeof body.reviewedBy === 'string' ? body.reviewedBy.trim() : '';
+  if (!reviewedBy) {
+    sendJson(res, 400, { error: 'Missing reviewedBy.' });
+    return;
+  }
   const amendment = dbModule.getLatestSkillAmendment({
     skillName,
     status: 'staged',
@@ -1394,7 +1409,9 @@ export function startHealthServer(): void {
           sendJson(res, 404, { error: 'Not Found' });
         } catch (err) {
           const errorText = err instanceof Error ? err.message : String(err);
-          sendJson(res, 500, { error: errorText });
+          const statusCode =
+            err instanceof HttpRequestError ? err.statusCode : 500;
+          sendJson(res, statusCode, { error: errorText });
         }
       })();
       return;

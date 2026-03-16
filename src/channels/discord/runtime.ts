@@ -107,6 +107,7 @@ import { resolveSendAllowed } from './send-permissions.js';
 import {
   classifyDiscordSkillFeedbackSentiment,
   formatDiscordSkillFeedbackMessage,
+  resolveDiscordSkillFeedbackSessionId,
 } from './skill-feedback.js';
 import {
   buildSlashCommandDefinitions,
@@ -2493,7 +2494,11 @@ export function initDiscord(
       negativeFeedbackByChannel.set(message.channelId, feedback);
     }
     recordSkillFeedback({
-      sessionId: getSessionId(message),
+      sessionId: resolveDiscordSkillFeedbackSessionId({
+        guildId: message.guild?.id ?? null,
+        channelId: message.channelId,
+        userId: user.id,
+      }),
       feedback,
       sentiment,
     });

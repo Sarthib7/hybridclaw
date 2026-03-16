@@ -14,6 +14,7 @@ import type {
   AdaptiveSkillsConfig,
   SkillHealthMetrics,
 } from './adaptive-skills-types.js';
+import { adaptiveSkillsSessionId } from './adaptive-skills-session.js';
 import { applyAmendment, proposeAmendment } from './skills-amendment.js';
 
 const LAST_INSPECTION_KEY = 'adaptive-skills:last-inspection-at';
@@ -256,7 +257,7 @@ export async function runPeriodicSkillInspection(input?: {
     return [];
   }
   const metricsList = inspectAllSkills(config);
-  const sessionId = `adaptive-skills:${agentId}`;
+  const sessionId = adaptiveSkillsSessionId(agentId);
   const runId = makeAuditRunId('skill-inspection');
 
   for (const metrics of metricsList) {

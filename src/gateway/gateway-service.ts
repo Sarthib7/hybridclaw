@@ -3807,7 +3807,7 @@ export async function handleGatewayMessage(
     });
     if (observedSkillName) {
       try {
-        await recordSkillExecution({
+        recordSkillExecution({
           skillName: observedSkillName,
           sessionId: req.sessionId,
           runId,

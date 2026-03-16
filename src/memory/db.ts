@@ -13,7 +13,6 @@ import {
   type SessionResetPolicy,
 } from '../session/session-reset.js';
 import type {
-  AdaptiveSkillsGuardVerdict,
   SkillAmendment,
   SkillAmendmentStatus,
   SkillErrorCategory,
@@ -23,6 +22,7 @@ import type {
   SkillObservation,
   SkillObservationSummary,
 } from '../skills/adaptive-skills-types.js';
+import type { SkillGuardVerdict } from '../skills/skills-guard.js';
 import type {
   ApprovalAuditEntry,
   AuditEntry,
@@ -3821,7 +3821,7 @@ function normalizeSkillAmendmentStatusValue(
 
 function normalizeSkillGuardVerdictValue(
   value: string | null | undefined,
-): AdaptiveSkillsGuardVerdict {
+): SkillGuardVerdict {
   if (value === 'safe' || value === 'caution' || value === 'dangerous') {
     return value;
   }
@@ -4172,7 +4172,7 @@ export function createSkillAmendment(input: {
   diffSummary: string;
   proposedBy: string;
   reviewedBy?: string | null;
-  guardVerdict: AdaptiveSkillsGuardVerdict;
+  guardVerdict: SkillGuardVerdict;
   guardFindingsCount?: number;
   metricsAtProposal?: SkillHealthMetrics | null;
   metricsPostApply?: SkillHealthMetrics | null;

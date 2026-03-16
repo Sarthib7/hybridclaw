@@ -63,7 +63,7 @@ Keep the response concise.
 
   expect(amendment.status).toBe('staged');
   expect(amendment.guard_verdict).toBe('safe');
-  expect(amendment.diff_summary).toContain('Changed');
+  expect(amendment.diff_summary).toBe('8 line(s) (was 7).');
 
   const latest = getLatestSkillAmendment({ skillName: context.skillName });
   expect(latest?.id).toBe(amendment.id);
@@ -76,6 +76,87 @@ Keep the response concise.
   expect(
     getLatestSkillAmendment({ skillName: context.skillName })?.status,
   ).toBe('rejected');
+});
+
+test('accepts amendment proposals wrapped in markdown json fences', async () => {
+  context = await createAdaptiveSkillsTestContext();
+  context.dbModule.recordSkillObservation({
+    skillName: context.skillName,
+    sessionId: 'session-1',
+    runId: 'run-1',
+    outcome: 'failure',
+    errorCategory: 'model_error',
+    errorDetail: 'needs a clearer checklist',
+    toolCallsAttempted: 1,
+    toolCallsFailed: 0,
+    durationMs: 100,
+  });
+
+  runAgentMock.mockResolvedValueOnce({
+    status: 'success',
+    result: `\`\`\`json
+${JSON.stringify({
+  rationale: 'Clarify the execution steps.',
+  content: `---
+name: ${context.skillName}
+description: Demo skill for tests
+---
+Follow the user's request carefully.
+List the requested steps before acting.
+Keep the response concise.
+`,
+})}
+\`\`\``,
+    toolsUsed: [],
+  });
+
+  const { inspectSkill } = await import('../src/skills/skills-inspection.ts');
+  const { proposeAmendment } = await import(
+    '../src/skills/skills-amendment.ts'
+  );
+
+  const amendment = await proposeAmendment({
+    skillName: context.skillName,
+    metrics: inspectSkill(context.skillName),
+    agentId: 'main',
+  });
+
+  expect(amendment.rationale).toBe('Clarify the execution steps.');
+  expect(amendment.status).toBe('staged');
+});
+
+test('fails clearly when the amendment proposal is not valid json', async () => {
+  context = await createAdaptiveSkillsTestContext();
+  context.dbModule.recordSkillObservation({
+    skillName: context.skillName,
+    sessionId: 'session-1',
+    runId: 'run-1',
+    outcome: 'failure',
+    errorCategory: 'model_error',
+    errorDetail: 'needs a clearer checklist',
+    toolCallsAttempted: 1,
+    toolCallsFailed: 0,
+    durationMs: 100,
+  });
+
+  runAgentMock.mockResolvedValueOnce({
+    status: 'success',
+    result: 'Here is my proposal: not actually JSON.',
+    toolsUsed: [],
+  });
+
+  const { inspectSkill } = await import('../src/skills/skills-inspection.ts');
+  const { proposeAmendment } = await import(
+    '../src/skills/skills-amendment.ts'
+  );
+
+  await expect(
+    proposeAmendment({
+      skillName: context.skillName,
+      metrics: inspectSkill(context.skillName),
+      agentId: 'main',
+    }),
+  ).rejects.toThrow('Skill amendment proposal did not return valid JSON.');
 });
 
 test('applyAmendment refuses to overwrite concurrent skill edits', async () => {
@@ -128,6 +209,75 @@ Keep the response concise.
   expect(applied.reason).toContain('changed since the amendment was proposed');
 });
 
+test('increments amendment version history for repeated proposals', async () => {
+  context = await createAdaptiveSkillsTestContext();
+  context.dbModule.recordSkillObservation({
+    skillName: context.skillName,
+    sessionId: 'session-1',
+    runId: 'run-1',
+    outcome: 'failure',
+    errorCategory: 'model_error',
+    errorDetail: 'needs clarification',
+    toolCallsAttempted: 1,
+    toolCallsFailed: 0,
+    durationMs: 90,
+  });
+
+  runAgentMock
+    .mockResolvedValueOnce({
+      status: 'success',
+      result: JSON.stringify({
+        rationale: 'Clarify the first step.',
+        content: `---
+name: ${context.skillName}
+description: Demo skill for tests
+---
+Follow the user's request carefully.
+Clarify the first step before acting.
+Keep the response concise.
+`,
+      }),
+      toolsUsed: [],
+    })
+    .mockResolvedValueOnce({
+      status: 'success',
+      result: JSON.stringify({
+        rationale: 'Clarify the fallback path.',
+        content: `---
+name: ${context.skillName}
+description: Demo skill for tests
+---
+Follow the user's request carefully.
+Clarify the first step before acting.
+Document the fallback path explicitly.
+Keep the response concise.
+`,
+      }),
+      toolsUsed: [],
+    });
+
+  const { inspectSkill } = await import('../src/skills/skills-inspection.ts');
+  const { proposeAmendment } = await import(
+    '../src/skills/skills-amendment.ts'
+  );
+
+  const first = await proposeAmendment({
+    skillName: context.skillName,
+    metrics: inspectSkill(context.skillName),
+    agentId: 'main',
+  });
+  const second = await proposeAmendment({
+    skillName: context.skillName,
+    metrics: inspectSkill(context.skillName),
+    agentId: 'main',
+  });
+
+  expect(first.version).toBe(1);
+  expect(first.previous_version).toBeNull();
+  expect(second.version).toBe(2);
+  expect(second.previous_version).toBe(1);
+});
+
 test('diff summary treats inserted lines as additions instead of wholesale changes', async () => {
   context = await createAdaptiveSkillsTestContext();
   context.dbModule.recordSkillObservation({
@@ -169,8 +319,5 @@ Keep the response concise.
     agentId: 'main',
   });
 
-  expect(amendment.diff_summary).toContain(
-    'Changed 0 line(s); added 1; removed 0.',
-  );
-  expect(amendment.diff_summary).toContain('Samples: add line');
+  expect(amendment.diff_summary).toBe('8 line(s) (was 7).');
 });

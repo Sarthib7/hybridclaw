@@ -1,12 +1,18 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import {
   getLatestSkillAmendment,
-  getSkillAmendmentById,
   updateAmendmentStatus,
 } from '../memory/db.js';
 import type { AdaptiveSkillsConfig } from './adaptive-skills-types.js';
+import { adaptiveSkillsSessionId } from './adaptive-skills-session.js';
+import { requireAmendmentInStatus } from './skills-amendment.js';
 import { inspectSkill } from './skills-inspection.js';
+
+function sha256(content: string): string {
+  return createHash('sha256').update(content).digest('hex');
+}
 
 export function evaluateAmendment(input: {
   skillName: string;
@@ -81,12 +87,21 @@ export async function rollbackAmendment(input: {
   amendmentId: number;
   reason: string;
 }): Promise<{ ok: boolean; reason?: string }> {
-  const amendment = getSkillAmendmentById(input.amendmentId);
-  if (!amendment) {
-    return { ok: false, reason: 'Amendment not found.' };
+  const required = requireAmendmentInStatus({
+    amendmentId: input.amendmentId,
+    status: 'applied',
+    failureReason: 'Only applied amendments can be rolled back.',
+  });
+  if (!required.ok) {
+    return required;
   }
-  if (amendment.status !== 'applied') {
-    return { ok: false, reason: 'Only applied amendments can be rolled back.' };
+  const { amendment } = required;
+  const currentContent = fs.readFileSync(amendment.skill_file_path, 'utf-8');
+  if (sha256(currentContent) !== amendment.proposed_content_hash) {
+    return {
+      ok: false,
+      reason: 'Skill file changed since the amendment was applied.',
+    };
   }
 
   fs.writeFileSync(
@@ -100,7 +115,7 @@ export async function rollbackAmendment(input: {
     metricsPostApply: inspectSkill(amendment.skill_name),
   });
   recordAuditEvent({
-    sessionId: `adaptive-skills:${amendment.skill_name}`,
+    sessionId: adaptiveSkillsSessionId(amendment.skill_name),
     runId: makeAuditRunId('skill-amendment'),
     event: {
       type: 'skill.amendment.rolled_back',

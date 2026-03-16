@@ -1,3 +1,5 @@
+import type { SkillGuardVerdict } from './skills-guard.js';
+
 export type SkillExecutionOutcome = 'success' | 'failure' | 'partial';
 
 export type SkillErrorCategory =
@@ -15,8 +17,6 @@ export type SkillAmendmentStatus =
   | 'applied'
   | 'rolled_back'
   | 'rejected';
-
-export type AdaptiveSkillsGuardVerdict = 'safe' | 'caution' | 'dangerous';
 
 export interface SkillErrorCluster {
   category: SkillErrorCategory;
@@ -85,7 +85,7 @@ export interface SkillAmendment {
   diff_summary: string;
   proposed_by: string;
   reviewed_by: string | null;
-  guard_verdict: AdaptiveSkillsGuardVerdict;
+  guard_verdict: SkillGuardVerdict;
   guard_findings_count: number;
   metrics_at_proposal: SkillHealthMetrics | null;
   metrics_post_apply: SkillHealthMetrics | null;

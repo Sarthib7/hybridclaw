@@ -14,6 +14,10 @@ import {
   SECURITY_POLICY_VERSION,
   updateRuntimeConfig,
 } from './config/runtime-config.js';
+import {
+  resolveTuiCommandLabel,
+  shouldPrintTuiStartHint,
+} from './onboarding-tui-hint.js';
 import { isCodexModel, resolveModelProvider } from './providers/factory.js';
 import {
   ensureRuntimeInstructionCopies,
@@ -376,6 +380,13 @@ function printWarn(text: string): void {
 
 function printMeta(label: string, value: string): void {
   console.log(`${MUTED}${label}:${RESET} ${TEAL}${value}${RESET}`);
+}
+
+function printTuiStartHint(commandLabel: string): void {
+  if (!shouldPrintTuiStartHint(commandLabel)) return;
+  printInfo(
+    `Start HybridClaw now with \`${resolveTuiCommandLabel(commandLabel)}\`.`,
+  );
 }
 
 function styledPromptWithIcon(question: string, icon: string): string {
@@ -742,13 +753,15 @@ async function runHybridAIApiKeyOnboarding(params: {
   if (switchedModel) {
     printSuccess(`Default model set to: ${defaultHybridAIModel()}`);
   }
+  printTuiStartHint(commandLabel);
   console.log();
 }
 
 async function runCodexOnboarding(params: {
   rl: readline.Interface;
+  commandLabel: string;
 }): Promise<void> {
-  const { rl } = params;
+  const { rl, commandLabel } = params;
   const existing = getCodexAuthStatus();
   if (existing.authenticated) {
     printSetup('Reconfiguring OpenAI Codex credentials.');
@@ -779,6 +792,7 @@ async function runCodexOnboarding(params: {
   if (switchedModel) {
     printSuccess(`Default model set to: ${defaultCodexModel()}`);
   }
+  printTuiStartHint(commandLabel);
   console.log();
 }
 
@@ -832,6 +846,7 @@ async function runOpenRouterOnboarding(params: {
       `No OpenRouter default model is configured. Set hybridai.defaultModel to an openrouter/... model in ${runtimeConfigPath()} if needed.`,
     );
   }
+  printTuiStartHint(commandLabel);
   console.log();
 }
 
@@ -925,7 +940,7 @@ export async function ensureRuntimeCredentials(
     const authMethod =
       options.preferredAuth || (await promptAuthMethod(rl, currentModel));
     if (authMethod === 'openai-codex') {
-      await runCodexOnboarding({ rl });
+      await runCodexOnboarding({ rl, commandLabel });
       return;
     }
     if (authMethod === 'openrouter') {

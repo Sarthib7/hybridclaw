@@ -9,7 +9,7 @@ interface BotCacheEntry {
 
 let botCache: BotCacheEntry | null = null;
 
-function normalizeBots(payload: unknown): HybridAIBot[] {
+export function normalizeBots(payload: unknown): HybridAIBot[] {
   const data = payload as
     | {
         data?: Record<string, unknown>[];

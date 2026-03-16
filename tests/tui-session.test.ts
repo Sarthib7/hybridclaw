@@ -27,7 +27,7 @@ test('resolveTuiRunOptions preserves explicit resume session ids', () => {
   ).toEqual({
     sessionId: '20260316_122238_532f05',
     startedAtMs: now.getTime(),
-    resumeCommand: 'hybridclaw --resume',
+    resumeCommand: 'hybridclaw tui --resume',
   });
 });
 
@@ -45,18 +45,20 @@ test('buildTuiExitSummaryLines formats the session summary block', () => {
         { toolName: 'bash', count: 6 },
         { toolName: 'read', count: 3 },
       ],
+      readFileCount: 3,
       modifiedFileCount: 7,
       createdFileCount: 2,
-      resumeCommand: 'hybridclaw --resume',
+      deletedFileCount: 1,
+      resumeCommand: 'hybridclaw tui --resume',
     }),
   ).toEqual([
     'Session 20260316_122238_532f05 completed in 7m 41s',
     '',
     'Tokens:     12,847 in / 8,203 out  (~$0.42)',
     'Tool calls: 23 (14 edit, 6 bash, 3 read)',
-    'Files:      7 modified, 2 created',
+    'Files:      3 read, 7 modified, 2 created, 1 deleted',
     '',
-    'Resume: hybridclaw --resume 20260316_122238_532f05',
+    'Resume: hybridclaw tui --resume 20260316_122238_532f05',
   ]);
 });
 

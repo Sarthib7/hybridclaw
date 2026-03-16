@@ -1191,7 +1191,7 @@ describe('CLI hybridai commands', () => {
       expect.objectContaining({
         sessionId: expect.stringMatching(/^\d{8}_\d{6}_[0-9a-f]{6}$/),
         startedAtMs: expect.any(Number),
-        resumeCommand: 'hybridclaw --resume',
+        resumeCommand: 'hybridclaw tui --resume',
       }),
     );
     expect(tuiModuleLoaded).toHaveBeenCalledTimes(1);
@@ -1207,7 +1207,7 @@ describe('CLI hybridai commands', () => {
     expect(runTui).toHaveBeenCalledWith(
       expect.objectContaining({
         sessionId: '20260316_122238_532f05',
-        resumeCommand: 'hybridclaw --resume',
+        resumeCommand: 'hybridclaw tui --resume',
       }),
     );
   });
@@ -1222,7 +1222,7 @@ describe('CLI hybridai commands', () => {
     expect(runTui).toHaveBeenCalledWith(
       expect.objectContaining({
         sessionId: '20260316_122238_532f05',
-        resumeCommand: 'hybridclaw --resume',
+        resumeCommand: 'hybridclaw tui --resume',
       }),
     );
   });

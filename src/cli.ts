@@ -394,7 +394,7 @@ async function launchTui(argv: string[]): Promise<void> {
   const { resolveTuiRunOptions } = await import('./tui-session.js');
   const options = resolveTuiRunOptions({
     resumeSessionId: parsed.resumeSessionId,
-    resumeCommand: 'hybridclaw --resume',
+    resumeCommand: 'hybridclaw tui --resume',
   });
   await ensureTuiInstructionApproval('hybridclaw tui', options.sessionId);
   await ensureGatewayForTui('hybridclaw tui');

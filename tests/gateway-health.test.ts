@@ -168,8 +168,10 @@ async function importFreshHealth(options?: {
       { toolName: 'read', count: 3 },
     ],
     fileChanges: {
+      readCount: 3,
       modifiedCount: 7,
       createdCount: 2,
+      deletedCount: 1,
     },
   }));
   const getSessionById = vi.fn(() => ({ show_mode: 'all' }));
@@ -715,8 +717,10 @@ describe('gateway health server', () => {
           { toolName: 'read', count: 3 },
         ],
         fileChanges: {
+          readCount: 3,
           modifiedCount: 7,
           createdCount: 2,
+          deletedCount: 1,
         },
       },
     });

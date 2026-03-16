@@ -289,7 +289,7 @@ let tuiShowMode: SessionShowMode = DEFAULT_SESSION_SHOW_MODE;
 let tuiSlashMenu: TuiSlashMenuController | null = null;
 let tuiSessionId = generateTuiSessionId();
 let tuiSessionStartedAtMs = Date.now();
-let tuiResumeCommand = 'hybridclaw --resume';
+let tuiResumeCommand = 'hybridclaw tui --resume';
 let tuiExitInProgress = false;
 
 function mapApprovalSelectionToCommand(
@@ -934,8 +934,10 @@ async function fetchTuiExitSummary(): Promise<{
   toolCallCount: number;
   toolBreakdown: Array<{ toolName: string; count: number }>;
   fileChanges: {
+    readCount: number;
     modifiedCount: number;
     createdCount: number;
+    deletedCount: number;
   };
 } | null> {
   try {
@@ -957,6 +959,7 @@ async function finalizeTuiExit(): Promise<void> {
   const summary = await fetchTuiExitSummary();
 
   console.log();
+  console.log();
   for (const line of buildTuiExitSummaryLines({
     sessionId: tuiSessionId,
     durationMs: Date.now() - tuiSessionStartedAtMs,
@@ -965,8 +968,10 @@ async function finalizeTuiExit(): Promise<void> {
     costUsd: summary?.costUsd ?? 0,
     toolCallCount: summary?.toolCallCount ?? 0,
     toolBreakdown: summary?.toolBreakdown ?? [],
+    readFileCount: summary?.fileChanges.readCount ?? 0,
     modifiedFileCount: summary?.fileChanges.modifiedCount ?? 0,
     createdFileCount: summary?.fileChanges.createdCount ?? 0,
+    deletedFileCount: summary?.fileChanges.deletedCount ?? 0,
     resumeCommand: tuiResumeCommand,
   })) {
     console.log(line);
@@ -1652,8 +1657,8 @@ export async function runTui(options?: Partial<TuiRunOptions>): Promise<void> {
       ? Math.max(0, Math.floor(options.startedAtMs))
       : Date.now();
   tuiResumeCommand =
-    String(options?.resumeCommand || 'hybridclaw --resume').trim() ||
-    'hybridclaw --resume';
+    String(options?.resumeCommand || 'hybridclaw tui --resume').trim() ||
+    'hybridclaw tui --resume';
   activeRunAbortController = null;
   proactivePollInFlight = false;
   tuiFullAutoState = DEFAULT_TUI_FULLAUTO_STATE;

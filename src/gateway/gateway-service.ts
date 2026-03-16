@@ -1,5 +1,4 @@
 import { spawnSync } from 'node:child_process';
-import fs from 'node:fs';
 import path from 'node:path';
 import { CronExpressionParser } from 'cron-parser';
 import { runAgent } from '../agent/agent.js';
@@ -85,6 +84,7 @@ import {
   getQueuedProactiveMessageCount,
   getRecentStructuredAuditForSession,
   getSessionCount,
+  getSessionFileChangeCounts,
   getSessionMessageCounts,
   getSessionToolCallBreakdown,
   getSessionUsageTotalsSince,
@@ -2512,13 +2512,6 @@ export function getGatewayHistory(
     .reverse();
 }
 
-const WORKSPACE_SUMMARY_IGNORED_DIRS = new Set([
-  '.git',
-  '.session-exports',
-  '.session-transcripts',
-  'node_modules',
-]);
-
 function resolveHistorySummarySinceMs(
   session: Session | undefined,
   sinceMs?: number | null,
@@ -2530,65 +2523,6 @@ function resolveHistorySummarySinceMs(
   const createdAtMs = parseTimestamp(session?.created_at)?.getTime() ?? 0;
   if (createdAtMs > 0) return createdAtMs;
   return Date.now();
-}
-
-function countWorkspaceFileChangesSince(
-  workspacePath: string,
-  sinceMs: number,
-): { modifiedCount: number; createdCount: number } {
-  if (!Number.isFinite(sinceMs) || sinceMs <= 0) {
-    return { modifiedCount: 0, createdCount: 0 };
-  }
-  if (!fs.existsSync(workspacePath)) {
-    return { modifiedCount: 0, createdCount: 0 };
-  }
-
-  let modifiedCount = 0;
-  let createdCount = 0;
-  const stack = [workspacePath];
-
-  while (stack.length > 0) {
-    const current = stack.pop();
-    if (!current) continue;
-
-    let entries: fs.Dirent[] = [];
-    try {
-      entries = fs.readdirSync(current, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-
-    for (const entry of entries) {
-      const fullPath = path.join(current, entry.name);
-      if (entry.isDirectory()) {
-        if (WORKSPACE_SUMMARY_IGNORED_DIRS.has(entry.name)) continue;
-        stack.push(fullPath);
-        continue;
-      }
-      if (!entry.isFile()) continue;
-
-      let stat: fs.Stats;
-      try {
-        stat = fs.statSync(fullPath);
-      } catch {
-        continue;
-      }
-
-      const modifiedAtMs = Number.isFinite(stat.mtimeMs) ? stat.mtimeMs : 0;
-      if (modifiedAtMs < sinceMs) continue;
-
-      const createdAtMs = Number.isFinite(stat.birthtimeMs)
-        ? stat.birthtimeMs
-        : 0;
-      if (createdAtMs >= sinceMs) {
-        createdCount += 1;
-      } else {
-        modifiedCount += 1;
-      }
-    }
-  }
-
-  return { modifiedCount, createdCount };
 }
 
 export function getGatewayHistorySummary(
@@ -2603,12 +2537,7 @@ export function getGatewayHistorySummary(
   const counts = getSessionMessageCounts(sessionId);
   const usage = getSessionUsageTotalsSince(sessionId, sinceTimestamp);
   const toolBreakdown = getSessionToolCallBreakdown(sessionId, sinceTimestamp);
-  const fileChanges = session
-    ? countWorkspaceFileChangesSince(
-        path.resolve(agentWorkspaceDir(session.agent_id)),
-        sinceMs,
-      )
-    : { modifiedCount: 0, createdCount: 0 };
+  const fileChanges = getSessionFileChangeCounts(sessionId, sinceTimestamp);
 
   return {
     messageCount: counts.totalMessages,

@@ -14,8 +14,10 @@ export interface TuiExitSummary {
   costUsd: number;
   toolCallCount: number;
   toolBreakdown: Array<{ toolName: string; count: number }>;
+  readFileCount: number;
   modifiedFileCount: number;
   createdFileCount: number;
+  deletedFileCount: number;
   resumeCommand: string;
 }
 
@@ -50,13 +52,13 @@ export function resolveTuiRunOptions(params?: {
   const now = params?.now instanceof Date ? params.now : new Date();
   const resumeSessionId = String(params?.resumeSessionId || '').trim();
   const resumeCommand = String(
-    params?.resumeCommand || 'hybridclaw --resume',
+    params?.resumeCommand || 'hybridclaw tui --resume',
   ).trim();
 
   return {
     sessionId: resumeSessionId || generateTuiSessionId(now),
     startedAtMs: now.getTime(),
-    resumeCommand: resumeCommand || 'hybridclaw --resume',
+    resumeCommand: resumeCommand || 'hybridclaw tui --resume',
   };
 }
 
@@ -107,7 +109,7 @@ export function buildTuiExitSummaryLines(summary: TuiExitSummary): string[] {
     '',
     `Tokens:     ${formatInteger(summary.inputTokenCount)} in / ${formatInteger(summary.outputTokenCount)} out  (~${formatApproxUsd(summary.costUsd)})`,
     toolCallsLine,
-    `Files:      ${formatInteger(summary.modifiedFileCount)} modified, ${formatInteger(summary.createdFileCount)} created`,
+    `Files:      ${formatInteger(summary.readFileCount)} read, ${formatInteger(summary.modifiedFileCount)} modified, ${formatInteger(summary.createdFileCount)} created, ${formatInteger(summary.deletedFileCount)} deleted`,
     '',
     `Resume: ${summary.resumeCommand} ${summary.sessionId}`,
   ];

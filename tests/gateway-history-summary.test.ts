@@ -29,10 +29,6 @@ afterEach(() => {
   }
 });
 
-async function wait(ms: number): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 test('getGatewayHistorySummary reports windowed usage, tools, and file changes', async () => {
   process.env.HOME = makeTempHome();
   vi.resetModules();
@@ -43,7 +39,6 @@ test('getGatewayHistorySummary reports windowed usage, tools, and file changes',
   const { emitToolExecutionAuditEvents, makeAuditRunId } = await import(
     '../src/audit/audit-events.ts'
   );
-  const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
   const { memoryService } = await import('../src/memory/memory-service.ts');
   const { getGatewayHistorySummary } = await import(
     '../src/gateway/gateway-service.ts'
@@ -67,11 +62,6 @@ test('getGatewayHistorySummary reports windowed usage, tools, and file changes',
       content: 'world',
     },
   });
-  const workspacePath = agentWorkspaceDir(session.agent_id);
-  fs.mkdirSync(workspacePath, { recursive: true });
-
-  const modifiedFilePath = path.join(workspacePath, 'existing.txt');
-  fs.writeFileSync(modifiedFilePath, 'before\n', 'utf8');
 
   recordUsageEvent({
     sessionId: session.id,
@@ -92,19 +82,17 @@ test('getGatewayHistorySummary reports windowed usage, tools, and file changes',
         result: 'ok',
         durationMs: 10,
       },
+      {
+        name: 'delete',
+        arguments: '{"path":"stale.txt"}',
+        result: 'approval required',
+        durationMs: 9,
+        blocked: true,
+      },
     ],
   });
 
-  await wait(25);
   const sinceMs = Date.now();
-  await wait(25);
-
-  fs.appendFileSync(modifiedFilePath, 'after\n', 'utf8');
-  const modifiedAt = new Date(sinceMs + 1_000);
-  fs.utimesSync(modifiedFilePath, modifiedAt, modifiedAt);
-
-  const createdFilePath = path.join(workspacePath, 'created.txt');
-  fs.writeFileSync(createdFilePath, 'new\n', 'utf8');
 
   recordUsageEvent({
     sessionId: session.id,
@@ -112,7 +100,7 @@ test('getGatewayHistorySummary reports windowed usage, tools, and file changes',
     model: 'gpt-5',
     inputTokens: 12_847,
     outputTokens: 8_203,
-    toolCalls: 3,
+    toolCalls: 4,
     costUsd: 0.42,
     timestamp: new Date(sinceMs + 2_000).toISOString(),
   });
@@ -122,21 +110,27 @@ test('getGatewayHistorySummary reports windowed usage, tools, and file changes',
     toolExecutions: [
       {
         name: 'edit',
-        arguments: '{}',
+        arguments: '{"path":"existing.txt","old":"a","new":"b"}',
         result: 'ok',
         durationMs: 12,
       },
       {
-        name: 'edit',
-        arguments: '{}',
+        name: 'write',
+        arguments: '{"path":"created.txt","contents":"hello"}',
         result: 'ok',
         durationMs: 15,
       },
       {
         name: 'read',
-        arguments: '{}',
+        arguments: '{"path":"existing.txt"}',
         result: 'ok',
         durationMs: 8,
+      },
+      {
+        name: 'delete',
+        arguments: '{"path":"stale.txt"}',
+        result: 'ok',
+        durationMs: 6,
       },
     ],
   });
@@ -144,17 +138,21 @@ test('getGatewayHistorySummary reports windowed usage, tools, and file changes',
   expect(getGatewayHistorySummary(session.id, { sinceMs })).toEqual({
     messageCount: 2,
     userMessageCount: 1,
-    toolCallCount: 3,
+    toolCallCount: 4,
     inputTokenCount: 12_847,
     outputTokenCount: 8_203,
     costUsd: 0.42,
     toolBreakdown: [
-      { toolName: 'edit', count: 2 },
+      { toolName: 'delete', count: 1 },
+      { toolName: 'edit', count: 1 },
       { toolName: 'read', count: 1 },
+      { toolName: 'write', count: 1 },
     ],
     fileChanges: {
+      readCount: 1,
       modifiedCount: 1,
       createdCount: 1,
+      deletedCount: 1,
     },
   });
 });
@@ -179,8 +177,10 @@ test('getGatewayHistorySummary returns zero counts for unknown sessions', async 
     costUsd: 0,
     toolBreakdown: [],
     fileChanges: {
+      readCount: 0,
       modifiedCount: 0,
       createdCount: 0,
+      deletedCount: 0,
     },
   });
 });

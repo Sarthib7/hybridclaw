@@ -1706,6 +1706,108 @@ export function getSessionToolCallBreakdown(
     );
 }
 
+function extractToolFilePath(argumentsValue: unknown): string | null {
+  if (!argumentsValue || typeof argumentsValue !== 'object') return null;
+  const pathValue = (argumentsValue as Record<string, unknown>).path;
+  if (typeof pathValue !== 'string') return null;
+  const normalized = pathValue.trim().replace(/\\/g, '/');
+  return normalized || null;
+}
+
+export function getSessionFileChangeCounts(
+  sessionId: string,
+  sinceTimestamp: string | null = null,
+): {
+  readCount: number;
+  modifiedCount: number;
+  createdCount: number;
+  deletedCount: number;
+} {
+  const normalizedSince =
+    typeof sinceTimestamp === 'string' && sinceTimestamp.trim()
+      ? sinceTimestamp.trim()
+      : null;
+  const rows = db
+    .prepare(
+      `SELECT event_type, payload
+       FROM audit_events
+       WHERE session_id = ?
+         AND event_type IN ('tool.call', 'tool.result')
+         AND (? IS NULL OR timestamp >= ?)
+       ORDER BY id ASC`,
+    )
+    .all(sessionId, normalizedSince, normalizedSince) as Array<{
+    event_type: string;
+    payload: string;
+  }>;
+
+  const toolCalls = new Map<
+    string,
+    {
+      toolName: string;
+      path: string | null;
+    }
+  >();
+  const readPaths = new Set<string>();
+  const modifiedPaths = new Set<string>();
+  const createdPaths = new Set<string>();
+  const deletedPaths = new Set<string>();
+
+  for (const row of rows) {
+    try {
+      const payload = JSON.parse(row.payload) as {
+        toolCallId?: unknown;
+        toolName?: unknown;
+        arguments?: unknown;
+        isError?: unknown;
+        blocked?: unknown;
+      };
+      const toolCallId = String(payload.toolCallId || '').trim();
+      if (!toolCallId) continue;
+
+      if (row.event_type === 'tool.call') {
+        const toolName = String(payload.toolName || '').trim();
+        if (!toolName) continue;
+        toolCalls.set(toolCallId, {
+          toolName,
+          path: extractToolFilePath(payload.arguments),
+        });
+        continue;
+      }
+
+      if (payload.isError === true || payload.blocked === true) continue;
+      const toolCall = toolCalls.get(toolCallId);
+      if (!toolCall?.path) continue;
+
+      switch (toolCall.toolName) {
+        case 'read':
+          readPaths.add(toolCall.path);
+          break;
+        case 'edit':
+          modifiedPaths.add(toolCall.path);
+          break;
+        case 'write':
+          createdPaths.add(toolCall.path);
+          break;
+        case 'delete':
+          deletedPaths.add(toolCall.path);
+          break;
+        default:
+          break;
+      }
+    } catch {
+      // Best effort only. Skip malformed audit payloads.
+    }
+  }
+
+  return {
+    readCount: readPaths.size,
+    modifiedCount: modifiedPaths.size,
+    createdCount: createdPaths.size,
+    deletedCount: deletedPaths.size,
+  };
+}
+
 export function listUsageByModel(params?: {
   agentId?: string;
   window?: UsageWindow;

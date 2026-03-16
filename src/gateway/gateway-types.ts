@@ -160,8 +160,10 @@ export interface GatewayHistoryToolBreakdownEntry {
 }
 
 export interface GatewayHistoryFileChanges {
+  readCount: number;
   modifiedCount: number;
   createdCount: number;
+  deletedCount: number;
 }
 
 export interface GatewayHistorySummary {

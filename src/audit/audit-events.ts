@@ -209,6 +209,7 @@ export function emitToolExecutionAuditEvents(input: {
         toolCallId,
         toolName: execution.name,
         isError: Boolean(execution.isError),
+        blocked: Boolean(execution.blocked),
         resultSummary: summarizeToolResult(execution.result || ''),
         durationMs: execution.durationMs,
       },

@@ -67,7 +67,10 @@ export interface PromptHookOutput {
 
 interface PromptHook {
   name: ExtendedPromptHookName;
-  isEnabled: (config: ReturnType<typeof getRuntimeConfig>) => boolean;
+  isEnabled: (
+    config: ReturnType<typeof getRuntimeConfig>,
+    context: PromptHookContext,
+  ) => boolean;
   run: (context: PromptHookContext) => string;
 }
 
@@ -436,7 +439,8 @@ const PROMPT_HOOKS: PromptHook[] = [
   },
   {
     name: 'session-context',
-    isEnabled: () => true,
+    isEnabled: (_config, context) =>
+      Boolean(context.runtimeInfo?.sessionContext),
     run: buildSessionContextHook,
   },
   {
@@ -486,7 +490,7 @@ export function runPromptHooks(context: PromptHookContext): PromptHookOutput[] {
 
   for (const hook of PROMPT_HOOKS) {
     if (!isHookAllowedForMode(hook.name, mode)) continue;
-    if (!hook.isEnabled(runtime)) continue;
+    if (!hook.isEnabled(runtime, context)) continue;
     const content = hook.run(context).trim();
     if (!content) continue;
     output.push({ name: hook.name, content });

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 
 import {
   addKnowledgeEntity,
@@ -583,6 +583,48 @@ describe.sequential('schema migrations', () => {
       'dm:439508376087560193',
     ]);
     expect(message.session_id).toBe('dm:439508376087560193');
+  });
+
+  test('createFreshSessionInstance retries generated ids until it finds a free one', async () => {
+    const dbPath = createTempDbPath();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-17T12:34:56.000Z'));
+    vi.resetModules();
+    vi.doMock('node:crypto', async () => {
+      const actual = await vi.importActual<typeof import('node:crypto')>(
+        'node:crypto',
+      );
+      const uuids = [
+        '11111111-1111-1111-1111-111111111111',
+        '22222222-2222-2222-2222-222222222222',
+      ];
+      return {
+        ...actual,
+        randomUUID: vi.fn(() => uuids.shift() || actual.randomUUID()),
+      };
+    });
+
+    try {
+      const {
+        createFreshSessionInstance,
+        getOrCreateSession,
+        initDatabase,
+      } = await import('../src/memory/db.js');
+
+      initDatabase({ quiet: true, dbPath });
+
+      const previousSession = getOrCreateSession('session-under-test', null, 'c1');
+      getOrCreateSession('sess_20260317_123456_11111111', null, 'c2');
+
+      const rotated = createFreshSessionInstance(previousSession.id);
+
+      expect(rotated.previousSession.id).toBe('session-under-test');
+      expect(rotated.session.id).toBe('sess_20260317_123456_22222222');
+    } finally {
+      vi.doUnmock('node:crypto');
+      vi.useRealTimers();
+      vi.resetModules();
+    }
   });
 });
 

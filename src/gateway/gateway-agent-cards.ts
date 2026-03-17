@@ -47,6 +47,8 @@ function buildAgentName(session: Session): string {
   if (parsedKey?.channelKind === 'scheduler') {
     return `Scheduler ${parsedKey.peerId}`;
   }
+  // Keep pre-hierarchical prefixes for rows created before v11 migration or
+  // restored from older exports.
   if (session.id.startsWith('heartbeat:')) {
     return `Heartbeat ${session.id.slice('heartbeat:'.length)}`;
   }
@@ -83,6 +85,8 @@ function buildAgentTask(session: Session, messages: StoredMessage[]): string {
   if (parsedKey?.channelKind === 'scheduler') {
     return 'Config-backed scheduler job delivering an automated agent turn.';
   }
+  // Keep pre-hierarchical prefixes for rows created before v11 migration or
+  // restored from older exports.
   if (session.id.startsWith('heartbeat:')) {
     return 'Periodic heartbeat session using the configured runtime workspace.';
   }

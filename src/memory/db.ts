@@ -2991,6 +2991,18 @@ function resolveNewSessionInstanceId(params: {
   return nextId;
 }
 
+function resolveFreshSessionInstanceId(
+  requestedSessionId?: string | null,
+): string {
+  const normalized = String(requestedSessionId || '').trim();
+  if (normalized) return normalized;
+  let nextId = generateSessionInstanceId();
+  while (selectSessionById(nextId)) {
+    nextId = generateSessionInstanceId();
+  }
+  return nextId;
+}
+
 export function resolveSessionIdCompat(sessionId: string): string {
   const normalized = String(sessionId || '').trim();
   if (!normalized) return normalized;
@@ -3152,8 +3164,7 @@ export function createFreshSessionInstance(
   deletedMessages: number;
 } {
   const previousSession = requireSessionById(resolveSessionIdCompat(sessionId));
-  const nextSessionId =
-    String(params?.nextSessionId || '').trim() || generateSessionInstanceId();
+  const nextSessionId = resolveFreshSessionInstanceId(params?.nextSessionId);
   const nowIso = new Date().toISOString();
   const deletedMessages = countSessionMessages(previousSession.id);
   const nextSessionKey = previousSession.session_key || previousSession.id;

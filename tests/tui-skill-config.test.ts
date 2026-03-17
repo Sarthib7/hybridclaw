@@ -21,6 +21,16 @@ const PALETTE = {
   red: '',
 };
 
+const ANSI_PALETTE = {
+  reset: '\x1b[0m',
+  bold: '\x1b[1m',
+  muted: '\x1b[90m',
+  teal: '\x1b[36m',
+  gold: '\x1b[33m',
+  green: '\x1b[32m',
+  red: '\x1b[31m',
+};
+
 function makeResponse(): GatewayAdminSkillsResponse {
   return {
     extraDirs: [],
@@ -113,6 +123,24 @@ test('renderTuiSkillConfigLines shows global override notes inside channel scope
   expect(rendered.lines.join('\n')).toContain('[discord]');
   expect(rendered.lines.join('\n')).toContain('global disable still applies');
   expect(rendered.lines.join('\n')).toContain('missing: python3');
+});
+
+test('renderTuiSkillConfigLines wraps scope tabs so email remains visible on narrow terminals', () => {
+  const response = makeResponse();
+  const draft = createTuiSkillConfigDraft(response);
+  const rendered = renderTuiSkillConfigLines({
+    response,
+    draft,
+    scope: 'whatsapp',
+    cursor: 0,
+    scrollOffset: 0,
+    width: 49,
+    height: 12,
+    palette: ANSI_PALETTE,
+  });
+
+  expect(rendered.lines[1]).toContain('[whatsapp]');
+  expect(rendered.lines[2]).toContain('email');
 });
 
 test('promptTuiSkillConfig saves local toggles across multiple scopes', async () => {

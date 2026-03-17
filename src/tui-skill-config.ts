@@ -54,6 +54,23 @@ function normalizeNameSet(values: string[] | undefined): Set<string> {
   );
 }
 
+function getAnsiSequenceLength(value: string, index: number): number {
+  if (value.charCodeAt(index) !== 27 || value[index + 1] !== '[') {
+    return 0;
+  }
+
+  let cursor = index + 2;
+  while (cursor < value.length) {
+    const code = value.charCodeAt(cursor);
+    if (code >= 64 && code <= 126) {
+      return cursor - index + 1;
+    }
+    cursor += 1;
+  }
+
+  return 0;
+}
+
 export function getTuiSkillConfigChannel(
   scope: TuiSkillConfigScope,
 ): SkillConfigChannelKind | undefined {
@@ -149,9 +166,42 @@ function countChangedScopes(mutations: TuiSkillConfigMutation[]): number {
 
 function truncateLine(value: string, width: number): string {
   if (width <= 0) return '';
-  if (value.length <= width) return value;
-  if (width === 1) return value.slice(0, 1);
-  return `${value.slice(0, width - 1)}…`;
+  let visibleLength = 0;
+  for (let index = 0; index < value.length; ) {
+    const ansiSequenceLength = getAnsiSequenceLength(value, index);
+    if (ansiSequenceLength > 0) {
+      index += ansiSequenceLength;
+      continue;
+    }
+    visibleLength += 1;
+    index += 1;
+  }
+  if (visibleLength <= width) return value;
+
+  const targetVisibleLength = width === 1 ? 1 : width - 1;
+  let output = '';
+  let writtenVisibleLength = 0;
+  const hasAnsi = value.includes('\x1b[');
+
+  for (
+    let index = 0;
+    index < value.length && writtenVisibleLength < targetVisibleLength;
+  ) {
+    const ansiSequenceLength = getAnsiSequenceLength(value, index);
+    if (ansiSequenceLength > 0) {
+      output += value.slice(index, index + ansiSequenceLength);
+      index += ansiSequenceLength;
+      continue;
+    }
+    output += value[index] || '';
+    writtenVisibleLength += 1;
+    index += 1;
+  }
+
+  if (width === 1) {
+    return hasAnsi ? `${output}\x1b[0m` : output;
+  }
+  return hasAnsi ? `${output}…\x1b[0m` : `${output}…`;
 }
 
 function scopeTab(
@@ -161,6 +211,55 @@ function scopeTab(
 ): string {
   if (!active) return `${palette.muted}${scope}${palette.reset}`;
   return `${palette.bold}${palette.gold}[${scope}]${palette.reset}`;
+}
+
+function visibleScopeTabLength(
+  scope: TuiSkillConfigScope,
+  active: boolean,
+): number {
+  return active ? scope.length + 2 : scope.length;
+}
+
+function buildScopeLines(
+  scope: TuiSkillConfigScope,
+  palette: TuiSkillConfigPalette,
+  width: number,
+): string[] {
+  const prefix = `  ${palette.muted}Scopes:${palette.reset} `;
+  const prefixVisibleLength = 10;
+  const continuation = '          ';
+  const continuationVisibleLength = continuation.length;
+  const lines: string[] = [];
+  let currentLine = prefix;
+  let currentVisibleLength = prefixVisibleLength;
+  let lineStartVisibleLength = prefixVisibleLength;
+
+  for (const item of TUI_SKILL_CONFIG_SCOPES) {
+    const active = item === scope;
+    const tab = scopeTab(item, active, palette);
+    const tabVisibleLength = visibleScopeTabLength(item, active);
+    const separatorVisibleLength =
+      currentVisibleLength > lineStartVisibleLength ? 2 : 0;
+    if (
+      currentVisibleLength + separatorVisibleLength + tabVisibleLength >
+        width &&
+      currentVisibleLength > lineStartVisibleLength
+    ) {
+      lines.push(currentLine);
+      currentLine = continuation;
+      currentVisibleLength = continuationVisibleLength;
+      lineStartVisibleLength = continuationVisibleLength;
+    }
+    if (currentVisibleLength > lineStartVisibleLength) {
+      currentLine += '  ';
+      currentVisibleLength += 2;
+    }
+    currentLine += tab;
+    currentVisibleLength += tabVisibleLength;
+  }
+
+  lines.push(currentLine);
+  return lines.map((line) => truncateLine(line, width));
 }
 
 function skillNotes(
@@ -205,7 +304,8 @@ export function renderTuiSkillConfigLines(params: {
     saving = false,
   } = params;
   const safeWidth = Math.max(20, width);
-  const headerLines = 5;
+  const scopeLines = buildScopeLines(scope, palette, safeWidth);
+  const headerLines = 4 + scopeLines.length;
   const footerLines = 2;
   const visibleRows = Math.max(1, height - headerLines - footerLines);
   let scrollOffset = Math.max(0, params.scrollOffset);
@@ -225,12 +325,7 @@ export function renderTuiSkillConfigLines(params: {
       `  ${palette.bold}${palette.gold}Skill Config${palette.reset}`,
       safeWidth,
     ),
-    truncateLine(
-      `  ${palette.muted}Scopes:${palette.reset} ${TUI_SKILL_CONFIG_SCOPES.map(
-        (item) => scopeTab(item, item === scope, palette),
-      ).join('  ')}`,
-      safeWidth,
-    ),
+    ...scopeLines,
     truncateLine(
       `  ${palette.muted}${saving ? 'Saving changes...' : '↑↓ move  ←→ scope  SPACE toggle  ENTER save  ESC cancel'}${palette.reset}`,
       safeWidth,

@@ -1,5 +1,7 @@
+import type { SkillConfigChannelKind } from '../channels/channel.js';
 import { GATEWAY_API_TOKEN, GATEWAY_BASE_URL } from '../config/config.js';
 import {
+  type GatewayAdminSkillsResponse,
   type GatewayChatApprovalEvent,
   type GatewayChatRequestBody,
   type GatewayChatResult,
@@ -16,6 +18,7 @@ import {
 } from './gateway-types.js';
 export { renderGatewayCommand };
 export type {
+  GatewayAdminSkillsResponse,
   GatewayChatResult,
   GatewayCommandResult,
   GatewayStatus,
@@ -241,6 +244,28 @@ export async function gatewayStatus(): Promise<GatewayStatus> {
 
 export async function gatewayHealth(): Promise<GatewayStatus> {
   return requestJson<GatewayStatus>('/health', { method: 'GET' });
+}
+
+export async function fetchGatewayAdminSkills(): Promise<GatewayAdminSkillsResponse> {
+  return requestJson<GatewayAdminSkillsResponse>('/api/admin/skills', {
+    method: 'GET',
+    headers: authHeaders(),
+  });
+}
+
+export async function saveGatewayAdminSkillEnabled(params: {
+  name: string;
+  enabled: boolean;
+  channel?: SkillConfigChannelKind;
+}): Promise<GatewayAdminSkillsResponse> {
+  return requestJson<GatewayAdminSkillsResponse>('/api/admin/skills', {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(),
+    },
+    body: JSON.stringify(params),
+  });
 }
 
 export async function gatewayPullProactive(

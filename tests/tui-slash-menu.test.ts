@@ -19,6 +19,7 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
   expect(labels).toContain('/fullauto on [prompt]');
   expect(labels).toContain('/bot list');
   expect(labels).toContain('/skill');
+  expect(labels).toContain('/skill config');
   expect(labels).toContain('/skill inspect <name>');
   expect(labels).toContain('/skill inspect --all');
   expect(labels).toContain('/skill runs <name>');
@@ -120,7 +121,7 @@ test('clears the current menu before readline redraws typed input', () => {
     rl as unknown as { _ttyWrite: (chunk: string, key: readline.Key) => void }
   )._ttyWrite('d', { name: 'd' });
 
-  expect(operations.findIndex((entry) => entry === 'tty:d')).toBeGreaterThan(
+  expect(operations.indexOf('tty:d')).toBeGreaterThan(
     operations.findIndex((entry) => entry.startsWith('write:')),
   );
 });

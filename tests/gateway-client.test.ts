@@ -93,3 +93,90 @@ test('gatewayChatStream parses approval events before the final result', async (
     result: 'I need your approval before I control a local app.',
   });
 });
+
+test('fetchGatewayAdminSkills requests the admin skill catalog', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            extraDirs: [],
+            disabled: ['apple-calendar'],
+            channelDisabled: {
+              discord: ['himalaya'],
+            },
+            skills: [],
+          }),
+          {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          },
+        ),
+    ),
+  );
+
+  const { fetchGatewayAdminSkills } = await importGatewayClient();
+  const result = await fetchGatewayAdminSkills();
+
+  expect(result).toEqual({
+    extraDirs: [],
+    disabled: ['apple-calendar'],
+    channelDisabled: {
+      discord: ['himalaya'],
+    },
+    skills: [],
+  });
+  expect(fetch).toHaveBeenCalledWith(
+    'http://gateway.test/api/admin/skills',
+    expect.objectContaining({
+      method: 'GET',
+    }),
+  );
+});
+
+test('saveGatewayAdminSkillEnabled writes optional channel scope to the admin endpoint', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            extraDirs: [],
+            disabled: [],
+            channelDisabled: {
+              discord: ['apple-calendar'],
+            },
+            skills: [],
+          }),
+          {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          },
+        ),
+    ),
+  );
+
+  const { saveGatewayAdminSkillEnabled } = await importGatewayClient();
+  await saveGatewayAdminSkillEnabled({
+    name: 'apple-calendar',
+    enabled: false,
+    channel: 'discord',
+  });
+
+  expect(fetch).toHaveBeenCalledWith(
+    'http://gateway.test/api/admin/skills',
+    expect.objectContaining({
+      method: 'PUT',
+      body: JSON.stringify({
+        name: 'apple-calendar',
+        enabled: false,
+        channel: 'discord',
+      }),
+    }),
+  );
+});

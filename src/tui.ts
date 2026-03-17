@@ -15,6 +15,7 @@ import {
 } from './config/config.js';
 import { extractGatewayChatApprovalEvent } from './gateway/chat-approval.js';
 import {
+  fetchGatewayAdminSkills,
   type GatewayChatApprovalEvent,
   type GatewayChatResult,
   type GatewayCommandResult,
@@ -25,6 +26,7 @@ import {
   gatewayPullProactive,
   gatewayStatus,
   renderGatewayCommand,
+  saveGatewayAdminSkillEnabled,
 } from './gateway/gateway-client.js';
 import {
   DEFAULT_SESSION_SHOW_MODE,
@@ -63,6 +65,7 @@ import {
   generateTuiSessionId,
   type TuiRunOptions,
 } from './tui-session.js';
+import { promptTuiSkillConfig } from './tui-skill-config.js';
 import {
   mapTuiApproveSlashToMessage,
   mapTuiSlashCommandToGatewayArgs,
@@ -523,7 +526,7 @@ function printHelp(): void {
     `  ${TEAL}/audit [sessionId]${RESET} Show recent structured audit events`,
   );
   console.log(
-    `  ${TEAL}/skill list|inspect <name>|inspect --all|runs <name>|amend <name> [--apply|--reject|--rollback]|history <name>${RESET} Manage skill health, runs, and amendments`,
+    `  ${TEAL}/skill config|list|inspect <name>|inspect --all|runs <name>|amend <name> [--apply|--reject|--rollback]|history <name>${RESET} Manage skill config, health, runs, and amendments`,
   );
   console.log(
     `  ${TEAL}/schedule add "<cron>" <prompt>${RESET} Add a scheduled task`,
@@ -1176,6 +1179,44 @@ async function promptModelSelection(
   return null;
 }
 
+async function promptSkillConfigSelection(
+  rl: readline.Interface,
+): Promise<void> {
+  clearTuiSlashMenu();
+  const response = await fetchGatewayAdminSkills();
+  if (response.skills.length === 0) {
+    printInfo('No skills found.');
+    return;
+  }
+
+  const result = await promptTuiSkillConfig({
+    rl,
+    response,
+    saveMutation: saveGatewayAdminSkillEnabled,
+    palette: {
+      reset: RESET,
+      bold: BOLD,
+      muted: MUTED,
+      teal: TEAL,
+      gold: GOLD,
+      green: GREEN,
+      red: RED,
+    },
+  });
+
+  if (result.cancelled) {
+    printInfo('Skill config cancelled.');
+    return;
+  }
+  if (result.savedCount === 0) {
+    printInfo('No skill config changes saved.');
+    return;
+  }
+  printInfo(
+    `Saved ${result.savedCount} skill change${result.savedCount === 1 ? '' : 's'} across ${result.changedScopeCount} scope${result.changedScopeCount === 1 ? '' : 's'}.`,
+  );
+}
+
 async function handleSlashCommand(
   input: string,
   rl: readline.Interface,
@@ -1245,6 +1286,16 @@ async function handleSlashCommand(
         return true;
       }
       await processMessage(approvalResult.message, rl);
+      return true;
+    }
+    case 'skill': {
+      const subcommand = (parts[1] || '').trim().toLowerCase();
+      if (subcommand !== 'config') break;
+      if (parts.length > 2) {
+        printInfo('Usage: /skill config');
+        return true;
+      }
+      await promptSkillConfigSelection(rl);
       return true;
     }
     case 'info':

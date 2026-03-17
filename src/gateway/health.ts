@@ -45,6 +45,7 @@ import {
   deleteGatewayAdminSession,
   type GatewayChatRequest,
   type GatewayCommandRequest,
+  GatewayRequestError,
   getGatewayAdminAgents,
   getGatewayAdminAudit,
   getGatewayAdminChannels,
@@ -1476,7 +1477,10 @@ export function startHealthServer(): void {
         } catch (err) {
           const errorText = err instanceof Error ? err.message : String(err);
           const statusCode =
-            err instanceof HttpRequestError ? err.statusCode : 500;
+            err instanceof HttpRequestError ||
+            err instanceof GatewayRequestError
+              ? err.statusCode
+              : 500;
           sendJson(res, statusCode, { error: errorText });
         }
       })();

@@ -482,6 +482,14 @@ async function importFreshHealth(options?: {
   const upsertGatewayAdminMcpServer = vi.fn(() => ({
     servers: [],
   }));
+  class GatewayRequestError extends Error {
+    statusCode: number;
+
+    constructor(statusCode: number, message: string) {
+      super(message);
+      this.statusCode = statusCode;
+    }
+  }
   const setGatewayAdminSkillEnabled = vi.fn(() => ({
     extraDirs: [],
     disabled: [],
@@ -533,6 +541,7 @@ async function importFreshHealth(options?: {
     createGatewayAdminAgent,
     deleteGatewayAdminAgent,
     deleteGatewayAdminSession,
+    GatewayRequestError,
     getGatewayAgents,
     getGatewayAdminAgents,
     getGatewayAdminAudit,
@@ -595,6 +604,7 @@ async function importFreshHealth(options?: {
     createGatewayAdminAgent,
     updateGatewayAdminAgent,
     deleteGatewayAdminAgent,
+    GatewayRequestError,
     setGatewayAdminSkillEnabled,
     handleGatewayMessage,
     handleGatewayCommand,
@@ -955,6 +965,61 @@ describe('gateway health server', () => {
       name: 'pdf',
     });
     expect(res.statusCode).toBe(200);
+  });
+
+  test('returns 400 for unsupported admin skill channels', async () => {
+    const state = await importFreshHealth();
+    state.setGatewayAdminSkillEnabled.mockImplementation(() => {
+      throw new state.GatewayRequestError(
+        400,
+        'Unsupported skill channel: irc',
+      );
+    });
+    const req = makeRequest({
+      method: 'PUT',
+      url: '/api/admin/skills',
+      body: {
+        name: 'pdf',
+        enabled: false,
+        channel: 'irc',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Unsupported skill channel: irc',
+    });
+  });
+
+  test('returns 400 for unknown admin skills', async () => {
+    const state = await importFreshHealth();
+    state.setGatewayAdminSkillEnabled.mockImplementation(() => {
+      throw new state.GatewayRequestError(
+        400,
+        'Skill `unknown` was not found.',
+      );
+    });
+    const req = makeRequest({
+      method: 'PUT',
+      url: '/api/admin/skills',
+      body: {
+        name: 'unknown',
+        enabled: false,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Skill `unknown` was not found.',
+    });
   });
 
   test('allows query-token auth for SSE admin events', async () => {

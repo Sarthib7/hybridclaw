@@ -1,7 +1,9 @@
+import { EventEmitter } from 'node:events';
 import type readline from 'node:readline';
 
 import { expect, test, vi } from 'vitest';
 
+import { SKILL_CONFIG_CHANNEL_KINDS } from '../src/channels/channel.js';
 import type { GatewayAdminSkillsResponse } from '../src/gateway/gateway-types.js';
 import {
   collectTuiSkillConfigMutations,
@@ -9,6 +11,7 @@ import {
   promptTuiSkillConfig,
   renderTuiSkillConfigLines,
   setTuiSkillEnabledInScope,
+  TUI_SKILL_CONFIG_SCOPES,
 } from '../src/tui-skill-config.js';
 
 const PALETTE = {
@@ -85,6 +88,13 @@ function makeResponse(): GatewayAdminSkillsResponse {
   };
 }
 
+test('TUI_SKILL_CONFIG_SCOPES derives channel scopes from the shared config channel list', () => {
+  expect(TUI_SKILL_CONFIG_SCOPES).toEqual([
+    'global',
+    ...SKILL_CONFIG_CHANNEL_KINDS,
+  ]);
+});
+
 test('collectTuiSkillConfigMutations compares global and per-channel diffs', () => {
   const response = makeResponse();
   const draft = createTuiSkillConfigDraft(response);
@@ -139,8 +149,9 @@ test('renderTuiSkillConfigLines wraps scope tabs so email remains visible on nar
     palette: ANSI_PALETTE,
   });
 
-  expect(rendered.lines[1]).toContain('[whatsapp]');
-  expect(rendered.lines[2]).toContain('email');
+  const scopeHeader = rendered.lines.slice(1, 3).join('\n');
+  expect(scopeHeader).toContain('[whatsapp]');
+  expect(scopeHeader).toContain('email');
 });
 
 test('promptTuiSkillConfig saves local toggles across multiple scopes', async () => {
@@ -160,27 +171,34 @@ test('promptTuiSkillConfig saves local toggles across multiple scopes', async ()
   const rl = {
     line: '',
     cursor: 0,
-    _ttyWrite: vi.fn(),
+    listeners: vi.fn((event: string) => {
+      if (event === 'line' || event === 'SIGINT') return [];
+      return [];
+    }),
+    on: vi.fn(),
+    off: vi.fn(),
+    prompt: vi.fn(),
   } as unknown as readline.Interface;
+  const input = Object.assign(new EventEmitter(), {
+    isTTY: true,
+    on: EventEmitter.prototype.on,
+    off: EventEmitter.prototype.off,
+  });
   const saveMutation = vi.fn(async () => undefined);
 
   const prompt = promptTuiSkillConfig({
     rl,
     response,
     saveMutation,
-    palette: PALETTE,
     output,
+    input,
   });
 
-  const ttyWrite = (
-    rl as unknown as { _ttyWrite: (chunk: string, key: readline.Key) => void }
-  )._ttyWrite;
-
-  ttyWrite(' ', { name: 'space' });
-  ttyWrite('', { name: 'right' });
-  ttyWrite('', { name: 'down' });
-  ttyWrite(' ', { name: 'space' });
-  ttyWrite('', { name: 'return' });
+  input.emit('keypress', ' ', { name: 'space' });
+  input.emit('keypress', '', { name: 'right' });
+  input.emit('keypress', '', { name: 'down' });
+  input.emit('keypress', ' ', { name: 'space' });
+  input.emit('keypress', '', { name: 'return' });
 
   await expect(prompt).resolves.toEqual({
     cancelled: false,

@@ -10,9 +10,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { SkillConfigChannelKind } from '../channels/channel.js';
-import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import { DATA_DIR } from '../config/config.js';
-import { getRuntimeConfig } from '../config/runtime-config.js';
+import {
+  getRuntimeConfig,
+  getRuntimeDisabledSkillNames,
+} from '../config/runtime-config.js';
 import { resolveInstallPath } from '../infra/install-root.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
@@ -1340,25 +1342,9 @@ export interface SkillCatalogEntry {
 }
 
 function getDisabledSkillNames(
-  channelKind?: SkillConfigChannelKind | string,
+  channelKind?: SkillConfigChannelKind,
 ): Set<string> {
-  const config = getRuntimeConfig();
-  const disabled = new Set(
-    (config.skills?.disabled ?? [])
-      .map((name) => String(name || '').trim())
-      .filter(Boolean),
-  );
-  const normalizedChannelKind = normalizeSkillConfigChannelKind(channelKind);
-  if (!normalizedChannelKind) return disabled;
-
-  for (const rawName of config.skills?.channelDisabled?.[
-    normalizedChannelKind
-  ] ?? []) {
-    const name = String(rawName || '').trim();
-    if (!name) continue;
-    disabled.add(name);
-  }
-  return disabled;
+  return getRuntimeDisabledSkillNames(getRuntimeConfig(), channelKind);
 }
 
 function collectResolvedSkillCandidates(): SkillCandidate[] {
@@ -1465,7 +1451,7 @@ export function loadSkillCatalog(): SkillCatalogEntry[] {
  */
 export function loadSkills(
   agentId: string,
-  channelKind?: SkillConfigChannelKind | string,
+  channelKind?: SkillConfigChannelKind,
 ): Skill[] {
   const workspaceDir = path.resolve(agentWorkspaceDir(agentId));
   fs.mkdirSync(workspaceDir, { recursive: true });

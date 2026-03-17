@@ -223,6 +223,7 @@ describe('runtime config migration logging', () => {
 
   it('normalizes per-channel disabled skills on startup', async () => {
     const homeDir = makeTempHome();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     writeRuntimeConfig(homeDir, (config) => {
       (
         config.skills as RuntimeConfig['skills'] & {
@@ -250,6 +251,9 @@ describe('runtime config migration logging', () => {
       email: [],
       msteams: ['apple-calendar', 'himalaya'],
     });
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[runtime-config] ignored unknown skills.channelDisabled key: unknown',
+    );
   });
 
   it('normalizes the legacy Teams dm pairing policy to allowlist on startup', async () => {

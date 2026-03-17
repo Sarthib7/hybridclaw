@@ -56,6 +56,19 @@ test('getChannel normalizes the teams alias only for registered channels', async
   expect(getChannel('teams')?.kind).toBe('msteams');
 });
 
+test('normalizeSkillConfigChannelKind accepts supported scopes and the teams alias', async () => {
+  const { SKILL_CONFIG_CHANNEL_KINDS, normalizeSkillConfigChannelKind } =
+    await importFreshChannelRegistryModules();
+
+  for (const kind of SKILL_CONFIG_CHANNEL_KINDS) {
+    expect(normalizeSkillConfigChannelKind(kind)).toBe(kind);
+  }
+
+  expect(normalizeSkillConfigChannelKind('teams')).toBe('msteams');
+  expect(normalizeSkillConfigChannelKind('tui')).toBeUndefined();
+  expect(normalizeSkillConfigChannelKind('scheduler')).toBeUndefined();
+});
+
 test('getChannel returns undefined for unregistered and unknown channel kinds', async () => {
   const { getChannel } = await importFreshChannelRegistryModules();
 

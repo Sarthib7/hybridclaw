@@ -221,6 +221,60 @@ async function importFreshCli(options?: {
     },
   }));
   const runtimeConfigPath = vi.fn(() => '/tmp/config.json');
+  const getRuntimeSkillScopeDisabledNames = vi.fn(
+    (
+      config: {
+        skills?: {
+          disabled?: string[];
+          channelDisabled?: Record<string, string[]>;
+        };
+      },
+      channelKind?: string,
+    ) => {
+      const rawDisabled = channelKind
+        ? (config.skills?.channelDisabled?.[channelKind] ?? [])
+        : (config.skills?.disabled ?? []);
+      return new Set(
+        rawDisabled.map((entry) => String(entry || '').trim()).filter(Boolean),
+      );
+    },
+  );
+  const setRuntimeSkillScopeEnabled = vi.fn(
+    (
+      draft: {
+        skills: {
+          disabled: string[];
+          channelDisabled?: Record<string, string[]>;
+        };
+      },
+      skillName: string,
+      enabled: boolean,
+      channelKind?: string,
+    ) => {
+      const rawDisabled = channelKind
+        ? (draft.skills.channelDisabled?.[channelKind] ?? [])
+        : draft.skills.disabled;
+      const disabled = new Set(
+        rawDisabled.map((entry) => String(entry || '').trim()).filter(Boolean),
+      );
+      if (enabled) {
+        disabled.delete(skillName);
+      } else {
+        disabled.add(skillName);
+      }
+      const nextDisabled = [...disabled].sort((left, right) =>
+        left.localeCompare(right),
+      );
+      if (channelKind) {
+        draft.skills.channelDisabled = {
+          ...(draft.skills.channelDisabled ?? {}),
+          [channelKind]: nextDisabled,
+        };
+        return;
+      }
+      draft.skills.disabled = nextDisabled;
+    },
+  );
   const updateRuntimeConfig = vi.fn(
     (mutator: (draft: Record<string, unknown>) => void) => {
       const draft = getRuntimeConfig();
@@ -308,8 +362,10 @@ async function importFreshCli(options?: {
   }));
   vi.doMock('../src/config/runtime-config.ts', () => ({
     ensureRuntimeConfigFile,
+    getRuntimeSkillScopeDisabledNames,
     getRuntimeConfig,
     runtimeConfigPath,
+    setRuntimeSkillScopeEnabled,
     updateRuntimeConfig,
   }));
   vi.doMock('../src/gateway/gateway-client.ts', () => ({

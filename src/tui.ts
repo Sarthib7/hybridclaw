@@ -1193,15 +1193,6 @@ async function promptSkillConfigSelection(
     rl,
     response,
     saveMutation: saveGatewayAdminSkillEnabled,
-    palette: {
-      reset: RESET,
-      bold: BOLD,
-      muted: MUTED,
-      teal: TEAL,
-      gold: GOLD,
-      green: GREEN,
-      red: RED,
-    },
   });
 
   if (result.cancelled) {

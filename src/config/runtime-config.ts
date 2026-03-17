@@ -23,6 +23,7 @@ import {
 } from '../session/session-routing.js';
 import type { AdaptiveSkillsConfig } from '../skills/adaptive-skills-types.js';
 import type { McpServerConfig } from '../types.js';
+import { normalizeTrimmedStringSet } from '../utils/normalized-strings.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
 export const CONFIG_VERSION = 16;
@@ -499,6 +500,20 @@ export interface RuntimeConfig {
   };
   scheduler: {
     jobs: RuntimeSchedulerJob[];
+  };
+}
+
+export interface RuntimeSkillScopeConfigDraft {
+  skills: {
+    disabled: string[];
+    channelDisabled?: Partial<Record<SkillConfigChannelKind, string[]>>;
+  };
+}
+
+export interface RuntimeSkillScopeConfigView {
+  skills?: {
+    disabled?: string[];
+    channelDisabled?: Partial<Record<SkillConfigChannelKind, string[]>>;
   };
 }
 
@@ -1035,10 +1050,68 @@ function normalizeSkillChannelDisabled(
   const channelDisabled: Partial<Record<SkillConfigChannelKind, string[]>> = {};
   for (const [key, rawDisabled] of Object.entries(rawChannelDisabled)) {
     const channelKind = normalizeSkillConfigChannelKind(key);
-    if (!channelKind) continue;
+    if (!channelKind) {
+      console.warn(
+        `[runtime-config] ignored unknown skills.channelDisabled key: ${key}`,
+      );
+      continue;
+    }
     channelDisabled[channelKind] = normalizeStringArray(rawDisabled, []);
   }
   return channelDisabled;
+}
+
+export function setRuntimeSkillScopeEnabled(
+  draft: RuntimeSkillScopeConfigDraft,
+  skillName: string,
+  enabled: boolean,
+  channelKind?: SkillConfigChannelKind,
+): void {
+  const disabled = getRuntimeSkillScopeDisabledNames(draft, channelKind);
+  if (enabled) {
+    disabled.delete(skillName);
+  } else {
+    disabled.add(skillName);
+  }
+  const nextDisabled = [...disabled].sort((left, right) =>
+    left.localeCompare(right),
+  );
+  if (channelKind) {
+    draft.skills.channelDisabled = {
+      ...(draft.skills.channelDisabled ?? {}),
+      [channelKind]: nextDisabled,
+    };
+    return;
+  }
+  draft.skills.disabled = nextDisabled;
+}
+
+export function getRuntimeSkillScopeDisabledNames(
+  config: RuntimeSkillScopeConfigView,
+  channelKind?: SkillConfigChannelKind | string,
+): Set<string> {
+  const normalizedChannelKind = normalizeSkillConfigChannelKind(channelKind);
+  const rawDisabled = normalizedChannelKind
+    ? (config.skills?.channelDisabled?.[normalizedChannelKind] ?? [])
+    : (config.skills?.disabled ?? []);
+  return normalizeTrimmedStringSet(rawDisabled);
+}
+
+export function getRuntimeDisabledSkillNames(
+  config: RuntimeSkillScopeConfigView,
+  channelKind?: SkillConfigChannelKind | string,
+): Set<string> {
+  const disabled = getRuntimeSkillScopeDisabledNames(config);
+  const normalizedChannelKind = normalizeSkillConfigChannelKind(channelKind);
+  if (!normalizedChannelKind) return disabled;
+
+  for (const name of getRuntimeSkillScopeDisabledNames(
+    config,
+    normalizedChannelKind,
+  )) {
+    disabled.add(name);
+  }
+  return disabled;
 }
 
 function cloneAgentModelConfig(

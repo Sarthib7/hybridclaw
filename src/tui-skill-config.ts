@@ -1,19 +1,20 @@
 import readline from 'node:readline';
-import type { SkillConfigChannelKind } from './channels/channel.js';
+import {
+  SKILL_CONFIG_CHANNEL_KINDS,
+  type SkillConfigChannelKind,
+} from './channels/channel.js';
 import type {
   GatewayAdminSkill,
   GatewayAdminSkillsResponse,
 } from './gateway/gateway-types.js';
+import { normalizeTrimmedStringSet } from './utils/normalized-strings.js';
+
+export type TuiSkillConfigScope = 'global' | SkillConfigChannelKind;
 
 export const TUI_SKILL_CONFIG_SCOPES = [
   'global',
-  'discord',
-  'msteams',
-  'whatsapp',
-  'email',
-] as const;
-
-export type TuiSkillConfigScope = (typeof TUI_SKILL_CONFIG_SCOPES)[number];
+  ...SKILL_CONFIG_CHANNEL_KINDS,
+] as const satisfies readonly TuiSkillConfigScope[];
 
 export interface TuiSkillConfigPalette {
   reset: string;
@@ -24,6 +25,17 @@ export interface TuiSkillConfigPalette {
   green: string;
   red: string;
 }
+
+export const DEFAULT_TUI_SKILL_CONFIG_PALETTE: Readonly<TuiSkillConfigPalette> =
+  Object.freeze({
+    reset: '\x1b[0m',
+    bold: '\x1b[1m',
+    muted: '\x1b[90m',
+    teal: '\x1b[36m',
+    gold: '\x1b[33m',
+    green: '\x1b[32m',
+    red: '\x1b[31m',
+  });
 
 export interface TuiSkillConfigDraft {
   disabled: Set<string>;
@@ -45,13 +57,28 @@ export interface TuiSkillConfigResult {
 interface InternalReadline extends readline.Interface {
   line: string;
   cursor: number;
-  _ttyWrite?: (chunk: string, key: readline.Key) => void;
+  _refreshLine?: () => void;
 }
 
-function normalizeNameSet(values: string[] | undefined): Set<string> {
-  return new Set(
-    (values ?? []).map((value) => String(value || '').trim()).filter(Boolean),
-  );
+interface TuiSkillConfigInput {
+  isTTY?: boolean;
+  on(
+    event: 'keypress',
+    listener: (chunk: string, key: readline.Key) => void,
+  ): this;
+  off(
+    event: 'keypress',
+    listener: (chunk: string, key: readline.Key) => void,
+  ): this;
+}
+
+function resolveTuiSkillConfigPalette(
+  palette?: Partial<TuiSkillConfigPalette>,
+): TuiSkillConfigPalette {
+  return {
+    ...DEFAULT_TUI_SKILL_CONFIG_PALETTE,
+    ...palette,
+  };
 }
 
 function getAnsiSequenceLength(value: string, index: number): number {
@@ -81,12 +108,12 @@ export function createTuiSkillConfigDraft(
   response: GatewayAdminSkillsResponse,
 ): TuiSkillConfigDraft {
   return {
-    disabled: normalizeNameSet(response.disabled),
+    disabled: normalizeTrimmedStringSet(response.disabled),
     channelDisabled: {
-      discord: normalizeNameSet(response.channelDisabled.discord),
-      msteams: normalizeNameSet(response.channelDisabled.msteams),
-      whatsapp: normalizeNameSet(response.channelDisabled.whatsapp),
-      email: normalizeNameSet(response.channelDisabled.email),
+      discord: normalizeTrimmedStringSet(response.channelDisabled.discord),
+      msteams: normalizeTrimmedStringSet(response.channelDisabled.msteams),
+      whatsapp: normalizeTrimmedStringSet(response.channelDisabled.whatsapp),
+      email: normalizeTrimmedStringSet(response.channelDisabled.email),
     },
   };
 }
@@ -140,8 +167,8 @@ export function collectTuiSkillConfigMutations(
   for (const scope of TUI_SKILL_CONFIG_SCOPES) {
     const channel = getTuiSkillConfigChannel(scope);
     const initialDisabled = channel
-      ? normalizeNameSet(response.channelDisabled[channel])
-      : normalizeNameSet(response.disabled);
+      ? normalizeTrimmedStringSet(response.channelDisabled[channel])
+      : normalizeTrimmedStringSet(response.disabled);
     const nextDisabled = getTuiSkillScopeDisabledNames(draft, scope);
 
     for (const skillName of skills) {
@@ -290,7 +317,7 @@ export function renderTuiSkillConfigLines(params: {
   scrollOffset: number;
   width: number;
   height: number;
-  palette: TuiSkillConfigPalette;
+  palette?: Partial<TuiSkillConfigPalette>;
   saving?: boolean;
 }): { lines: string[]; scrollOffset: number } {
   const {
@@ -300,9 +327,9 @@ export function renderTuiSkillConfigLines(params: {
     cursor,
     width,
     height,
-    palette,
     saving = false,
   } = params;
+  const palette = resolveTuiSkillConfigPalette(params.palette);
   const safeWidth = Math.max(20, width);
   const scopeLines = buildScopeLines(scope, palette, safeWidth);
   const headerLines = 4 + scopeLines.length;
@@ -402,17 +429,19 @@ export async function promptTuiSkillConfig(params: {
   rl: readline.Interface;
   response: GatewayAdminSkillsResponse;
   saveMutation: (mutation: TuiSkillConfigMutation) => Promise<unknown>;
-  palette: TuiSkillConfigPalette;
+  palette?: Partial<TuiSkillConfigPalette>;
   output?: NodeJS.WriteStream;
+  input?: TuiSkillConfigInput;
 }): Promise<TuiSkillConfigResult> {
-  const { rl, response, saveMutation, palette } = params;
+  const { rl, response, saveMutation } = params;
+  const palette = resolveTuiSkillConfigPalette(params.palette);
   const output = params.output || process.stdout;
+  const input = params.input || (process.stdin as TuiSkillConfigInput);
   const internal = rl as InternalReadline;
-  const originalTtyWrite = internal._ttyWrite?.bind(internal);
   const draft = createTuiSkillConfigDraft(response);
   const skills = response.skills;
 
-  if (!output.isTTY || !originalTtyWrite) {
+  if (!output.isTTY || input.isTTY === false) {
     return {
       cancelled: false,
       savedCount: 0,
@@ -420,11 +449,18 @@ export async function promptTuiSkillConfig(params: {
     };
   }
 
+  const savedLine = internal.line;
+  const savedCursor = internal.cursor;
+  const lineListeners = rl.listeners('line') as Array<(line: string) => void>;
+  const sigintListeners = rl.listeners('SIGINT') as Array<() => void>;
   let renderedLineCount = 0;
   let cursor = 0;
   let scopeIndex = 0;
   let scrollOffset = 0;
   let saving = false;
+  let restored = false;
+  let finish = (_result: TuiSkillConfigResult) => {};
+  let fail = (_error: unknown) => {};
 
   const clear = () => {
     if (renderedLineCount <= 0) return;
@@ -454,111 +490,143 @@ export async function promptTuiSkillConfig(params: {
   };
 
   const restore = () => {
+    if (restored) return;
+    restored = true;
     clear();
     output.write('\x1b[?25h');
-    internal._ttyWrite = originalTtyWrite;
+    input.off('keypress', handleKeypress);
+    rl.off('SIGINT', handleSigint);
+    for (const listener of lineListeners) {
+      rl.on('line', listener);
+    }
+    for (const listener of sigintListeners) {
+      rl.on('SIGINT', listener);
+    }
+    internal.line = savedLine;
+    internal.cursor = Math.min(savedCursor, savedLine.length);
+    if (internal._refreshLine) {
+      internal._refreshLine();
+    } else if (typeof rl.prompt === 'function') {
+      rl.prompt(true);
+    }
     output.off('resize', render);
   };
 
+  const handleSigint = () => {
+    finish({
+      cancelled: true,
+      savedCount: 0,
+      changedScopeCount: 0,
+    });
+  };
+
+  const handleKeypress = (_chunk: string, key: readline.Key) => {
+    if (saving) return;
+
+    const scope = TUI_SKILL_CONFIG_SCOPES[scopeIndex] ?? 'global';
+
+    if (key.ctrl === true && key.name === 'c') {
+      finish({
+        cancelled: true,
+        savedCount: 0,
+        changedScopeCount: 0,
+      });
+      return;
+    }
+
+    if (key.name === 'escape' || key.name === 'q') {
+      finish({
+        cancelled: true,
+        savedCount: 0,
+        changedScopeCount: 0,
+      });
+      return;
+    }
+
+    if (key.name === 'left' || key.name === 'h') {
+      scopeIndex =
+        (scopeIndex - 1 + TUI_SKILL_CONFIG_SCOPES.length) %
+        TUI_SKILL_CONFIG_SCOPES.length;
+      render();
+      return;
+    }
+
+    if (key.name === 'right' || key.name === 'l') {
+      scopeIndex = (scopeIndex + 1) % TUI_SKILL_CONFIG_SCOPES.length;
+      render();
+      return;
+    }
+
+    if (key.name === 'up' || key.name === 'k') {
+      cursor = (cursor - 1 + skills.length) % Math.max(1, skills.length);
+      render();
+      return;
+    }
+
+    if (key.name === 'down' || key.name === 'j') {
+      cursor = (cursor + 1) % Math.max(1, skills.length);
+      render();
+      return;
+    }
+
+    if (key.name === 'space') {
+      const selected = skills[cursor];
+      if (!selected) return;
+      const enabled = isTuiSkillEnabledInScope(draft, selected.name, scope);
+      setTuiSkillEnabledInScope(draft, selected.name, !enabled, scope);
+      render();
+      return;
+    }
+
+    if (key.name === 'return' || key.name === 'enter') {
+      const mutations = collectTuiSkillConfigMutations(response, draft);
+      if (mutations.length === 0) {
+        finish({
+          cancelled: false,
+          savedCount: 0,
+          changedScopeCount: 0,
+        });
+        return;
+      }
+
+      saving = true;
+      render();
+      void (async () => {
+        try {
+          for (const mutation of mutations) {
+            await saveMutation(mutation);
+          }
+          finish({
+            cancelled: false,
+            savedCount: mutations.length,
+            changedScopeCount: countChangedScopes(mutations),
+          });
+        } catch (error) {
+          fail(error);
+        }
+      })();
+    }
+  };
+
   return new Promise<TuiSkillConfigResult>((resolve, reject) => {
-    const finish = (result: TuiSkillConfigResult) => {
+    finish = (result: TuiSkillConfigResult) => {
       restore();
       resolve(result);
     };
 
-    const fail = (error: unknown) => {
+    fail = (error: unknown) => {
       restore();
       reject(error);
     };
 
-    internal._ttyWrite = (_chunk: string, key: readline.Key) => {
-      if (saving) return;
-
-      const scope = TUI_SKILL_CONFIG_SCOPES[scopeIndex] ?? 'global';
-
-      if (key.ctrl === true && key.name === 'c') {
-        finish({
-          cancelled: true,
-          savedCount: 0,
-          changedScopeCount: 0,
-        });
-        return;
-      }
-
-      if (key.name === 'escape' || key.name === 'q') {
-        finish({
-          cancelled: true,
-          savedCount: 0,
-          changedScopeCount: 0,
-        });
-        return;
-      }
-
-      if (key.name === 'left' || key.name === 'h') {
-        scopeIndex =
-          (scopeIndex - 1 + TUI_SKILL_CONFIG_SCOPES.length) %
-          TUI_SKILL_CONFIG_SCOPES.length;
-        render();
-        return;
-      }
-
-      if (key.name === 'right' || key.name === 'l') {
-        scopeIndex = (scopeIndex + 1) % TUI_SKILL_CONFIG_SCOPES.length;
-        render();
-        return;
-      }
-
-      if (key.name === 'up' || key.name === 'k') {
-        cursor = (cursor - 1 + skills.length) % Math.max(1, skills.length);
-        render();
-        return;
-      }
-
-      if (key.name === 'down' || key.name === 'j') {
-        cursor = (cursor + 1) % Math.max(1, skills.length);
-        render();
-        return;
-      }
-
-      if (key.name === 'space') {
-        const selected = skills[cursor];
-        if (!selected) return;
-        const enabled = isTuiSkillEnabledInScope(draft, selected.name, scope);
-        setTuiSkillEnabledInScope(draft, selected.name, !enabled, scope);
-        render();
-        return;
-      }
-
-      if (key.name === 'return' || key.name === 'enter') {
-        const mutations = collectTuiSkillConfigMutations(response, draft);
-        if (mutations.length === 0) {
-          finish({
-            cancelled: false,
-            savedCount: 0,
-            changedScopeCount: 0,
-          });
-          return;
-        }
-
-        saving = true;
-        render();
-        void (async () => {
-          try {
-            for (const mutation of mutations) {
-              await saveMutation(mutation);
-            }
-            finish({
-              cancelled: false,
-              savedCount: mutations.length,
-              changedScopeCount: countChangedScopes(mutations),
-            });
-          } catch (error) {
-            fail(error);
-          }
-        })();
-      }
-    };
-
+    for (const listener of lineListeners) {
+      rl.off('line', listener);
+    }
+    for (const listener of sigintListeners) {
+      rl.off('SIGINT', listener);
+    }
+    rl.on('SIGINT', handleSigint);
+    input.on('keypress', handleKeypress);
     output.on('resize', render);
     render();
   });

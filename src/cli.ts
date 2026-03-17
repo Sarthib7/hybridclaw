@@ -16,9 +16,7 @@ import {
   getHybridAIAuthStatus,
   loginHybridAIInteractive,
 } from './auth/hybridai-auth.js';
-import type {
-  SkillConfigChannelKind,
-} from './channels/channel.js';
+import type { SkillConfigChannelKind } from './channels/channel.js';
 import { normalizeSkillConfigChannelKind } from './channels/channel-registry.js';
 import {
   normalizeEmailAddress,
@@ -48,7 +46,9 @@ import {
 import {
   ensureRuntimeConfigFile,
   getRuntimeConfig,
+  getRuntimeSkillScopeDisabledNames,
   runtimeConfigPath,
+  setRuntimeSkillScopeEnabled,
   updateRuntimeConfig,
 } from './config/runtime-config.js';
 import { ensureRuntimeCredentials } from './onboarding.js';
@@ -1572,57 +1572,6 @@ function parseSkillScopeArgs(args: string[]): {
   }
 
   return { channelKind, remaining };
-}
-
-function getSkillScopeDisabledNames(
-  config: {
-    skills?: {
-      disabled?: string[];
-      channelDisabled?: Partial<Record<SkillConfigChannelKind, string[]>>;
-    };
-  },
-  channelKind?: SkillConfigChannelKind,
-): Set<string> {
-  const rawDisabled = channelKind
-    ? (config.skills?.channelDisabled?.[channelKind] ?? [])
-    : (config.skills?.disabled ?? []);
-  return new Set(
-    rawDisabled.map((name) => String(name || '').trim()).filter(Boolean),
-  );
-}
-
-function setSkillScopeEnabled(
-  draft: {
-    skills: {
-      disabled: string[];
-      channelDisabled?: Partial<Record<SkillConfigChannelKind, string[]>>;
-    };
-  },
-  skillName: string,
-  enabled: boolean,
-  channelKind?: SkillConfigChannelKind,
-): void {
-  const disabled = getSkillScopeDisabledNames(draft, channelKind);
-  if (enabled) {
-    disabled.delete(skillName);
-  } else {
-    disabled.add(skillName);
-  }
-  const nextDisabled = [...disabled].sort((left, right) =>
-    left.localeCompare(right),
-  );
-  if (channelKind) {
-    draft.skills.channelDisabled = {
-      ...(draft.skills.channelDisabled ?? {}),
-      [channelKind]: nextDisabled,
-    };
-    return;
-  }
-  draft.skills.disabled = nextDisabled;
-}
-
-function formatSkillScopeLabel(channelKind?: SkillConfigChannelKind): string {
-  return channelKind ? channelKind : 'global';
 }
 
 function parseUnifiedProviderArgs(args: string[]): {
@@ -3506,15 +3455,15 @@ async function handleSkillCommand(args: string[]): Promise<void> {
 
     const enabled = sub === 'enable';
     const nextConfig = updateRuntimeConfig((draft) => {
-      setSkillScopeEnabled(draft, skillName, enabled, channelKind);
+      setRuntimeSkillScopeEnabled(draft, skillName, enabled, channelKind);
     });
     console.log(
-      `${enabled ? 'Enabled' : 'Disabled'} ${skillName} in ${formatSkillScopeLabel(channelKind)} scope.`,
+      `${enabled ? 'Enabled' : 'Disabled'} ${skillName} in ${channelKind ?? 'global'} scope.`,
     );
     if (
       channelKind &&
       enabled &&
-      getSkillScopeDisabledNames(nextConfig).has(skillName)
+      getRuntimeSkillScopeDisabledNames(nextConfig).has(skillName)
     ) {
       console.log(`${skillName} remains globally disabled.`);
     }
@@ -3543,11 +3492,11 @@ async function handleSkillCommand(args: string[]): Promise<void> {
     }
 
     const currentConfig = getRuntimeConfig();
-    const scopeDisabled = getSkillScopeDisabledNames(
+    const scopeDisabled = getRuntimeSkillScopeDisabledNames(
       currentConfig,
       channelKind,
     );
-    const globalDisabled = getSkillScopeDisabledNames(currentConfig);
+    const globalDisabled = getRuntimeSkillScopeDisabledNames(currentConfig);
     for (const [index, skill] of catalog.entries()) {
       const marker = scopeDisabled.has(skill.name) ? '[x]' : '[ ]';
       const globalSuffix =
@@ -3566,7 +3515,7 @@ async function handleSkillCommand(args: string[]): Promise<void> {
     try {
       const answer = (
         await rl.question(
-          `Toggle which skill number for ${formatSkillScopeLabel(channelKind)} scope? `,
+          `Toggle which skill number for ${channelKind ?? 'global'} scope? `,
         )
       ).trim();
       if (!answer) {
@@ -3587,15 +3536,15 @@ async function handleSkillCommand(args: string[]): Promise<void> {
       }
       const enabled = scopeDisabled.has(selected.name);
       const nextConfig = updateRuntimeConfig((draft) => {
-        setSkillScopeEnabled(draft, selected.name, enabled, channelKind);
+        setRuntimeSkillScopeEnabled(draft, selected.name, enabled, channelKind);
       });
       console.log(
-        `${enabled ? 'Enabled' : 'Disabled'} ${selected.name} in ${formatSkillScopeLabel(channelKind)} scope.`,
+        `${enabled ? 'Enabled' : 'Disabled'} ${selected.name} in ${channelKind ?? 'global'} scope.`,
       );
       if (
         channelKind &&
         enabled &&
-        getSkillScopeDisabledNames(nextConfig).has(selected.name)
+        getRuntimeSkillScopeDisabledNames(nextConfig).has(selected.name)
       ) {
         console.log(`${selected.name} remains globally disabled.`);
       }

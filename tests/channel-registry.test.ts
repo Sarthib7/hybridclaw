@@ -3,6 +3,8 @@ import { expect, test } from 'vitest';
 import {
   DISCORD_CAPABILITIES,
   EMAIL_CAPABILITIES,
+  SYSTEM_CAPABILITIES,
+  TUI_CAPABILITIES,
   WHATSAPP_CAPABILITIES,
 } from '../src/channels/channel.js';
 import {
@@ -36,6 +38,15 @@ test('getChannelByContextId resolves Discord, WhatsApp, email, and Teams ids', (
   );
 });
 
+test('getChannel normalizes the teams alias to msteams', () => {
+  expect(getChannel('teams')?.kind).toBe('msteams');
+});
+
+test('getChannel returns undefined for unknown channel kinds', () => {
+  expect(getChannel('unknown')).toBeUndefined();
+  expect(getChannel('irc')).toBeUndefined();
+});
+
 test('listChannels returns registered channels', () => {
   registerChannel({
     kind: 'email',
@@ -59,6 +70,7 @@ test('capability presets match expected defaults', () => {
   expect(DISCORD_CAPABILITIES.typing).toBe(true);
   expect(WHATSAPP_CAPABILITIES.attachments).toBe(true);
   expect(WHATSAPP_CAPABILITIES.threads).toBe(false);
+  expect(TUI_CAPABILITIES).toBe(SYSTEM_CAPABILITIES);
   expect(EMAIL_CAPABILITIES.attachments).toBe(true);
   expect(EMAIL_CAPABILITIES.reactions).toBe(false);
 });

@@ -9,7 +9,7 @@ export type SessionChatType =
   | 'thread';
 
 export interface SessionSource {
-  channelKind: ChannelKind | string;
+  channelKind?: string;
   chatId: string;
   chatType: SessionChatType;
   userId?: string;
@@ -26,26 +26,51 @@ export interface SessionContext {
   connectedChannels: string[];
 }
 
+const CHANNEL_KIND_LABELS: Record<ChannelKind, string> = {
+  api: 'API',
+  cli: 'CLI',
+  discord: 'Discord',
+  email: 'Email',
+  heartbeat: 'Heartbeat',
+  msteams: 'Microsoft Teams',
+  scheduler: 'Scheduler',
+  tui: 'TUI',
+  web: 'Web',
+  whatsapp: 'WhatsApp',
+};
+
+const CHANNEL_KIND_SET = new Set<ChannelKind>(
+  Object.keys(CHANNEL_KIND_LABELS) as ChannelKind[],
+);
+
+const CHANNEL_KIND_ALIASES: Record<string, ChannelKind> = {
+  teams: 'msteams',
+};
+
 function normalizeOptional(value?: string | null): string | undefined {
   const normalized = String(value || '').trim();
   return normalized || undefined;
 }
 
-function normalizeChannelKind(value?: string | null): string | undefined {
+function normalizeChannelKind(value?: string | null): ChannelKind | undefined {
   const normalized = String(value || '')
     .trim()
     .toLowerCase();
-  return normalized || undefined;
+  if (!normalized) return undefined;
+  if (CHANNEL_KIND_SET.has(normalized as ChannelKind)) {
+    return normalized as ChannelKind;
+  }
+  return CHANNEL_KIND_ALIASES[normalized];
 }
 
 function normalizeChannelList(
   values?: string[],
   sourceChannelKind?: string | null,
 ): string[] {
-  const normalizedValues = Array.isArray(values)
+  const normalizedValues: ChannelKind[] = Array.isArray(values)
     ? values
         .map((value) => normalizeChannelKind(value))
-        .filter((value): value is string => Boolean(value))
+        .filter((value): value is ChannelKind => Boolean(value))
     : [];
   const normalizedSourceChannelKind = normalizeChannelKind(sourceChannelKind);
   if (normalizedSourceChannelKind) {
@@ -54,19 +79,18 @@ function normalizeChannelList(
   return Array.from(new Set(normalizedValues));
 }
 
-function formatChannelKind(kind: string): string {
-  const normalized = kind.trim().toLowerCase();
-  if (normalized === 'discord') return 'Discord';
-  if (normalized === 'email') return 'Email';
-  if (normalized === 'heartbeat') return 'Heartbeat';
-  if (normalized === 'msteams') return 'Microsoft Teams';
-  if (normalized === 'scheduler') return 'Scheduler';
-  if (normalized === 'tui') return 'TUI';
-  if (normalized === 'whatsapp') return 'WhatsApp';
-  if (normalized === 'web') return 'Web';
-  if (normalized === 'cli') return 'CLI';
-  if (normalized === 'api') return 'API';
-  return normalized || 'Unknown';
+function formatChannelKind(kind?: string | null): string {
+  const fallback = String(kind || '')
+    .trim()
+    .toLowerCase();
+  const normalized = normalizeChannelKind(fallback);
+  if (normalized) {
+    return CHANNEL_KIND_LABELS[normalized];
+  }
+  if (!fallback || fallback === 'unknown') {
+    return 'Unknown';
+  }
+  return fallback;
 }
 
 function formatChatType(type: SessionChatType): string {
@@ -81,7 +105,7 @@ function formatChatType(type: SessionChatType): string {
 export function buildSessionContext(params: SessionContext): SessionContext {
   return {
     source: {
-      channelKind: normalizeOptional(params.source.channelKind) || 'unknown',
+      channelKind: normalizeOptional(params.source.channelKind),
       chatId: String(params.source.chatId || '').trim(),
       chatType: params.source.chatType,
       userId: normalizeOptional(params.source.userId),
@@ -105,7 +129,7 @@ export function buildSessionContext(params: SessionContext): SessionContext {
 export function buildSessionContextPrompt(context: SessionContext): string {
   const lines = [
     '## Session Context',
-    `**Platform:** ${formatChannelKind(String(context.source.channelKind))} (${formatChatType(context.source.chatType)})`,
+    `**Platform:** ${formatChannelKind(context.source.channelKind)} (${formatChatType(context.source.chatType)})`,
     `**Session:** ${context.sessionId}`,
     `**Chat ID:** ${context.source.chatId}`,
     `**Agent:** ${context.agentId}`,

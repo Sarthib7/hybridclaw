@@ -13,6 +13,27 @@ import { isWhatsAppJid } from './whatsapp/phone.js';
 
 const DISCORD_SNOWFLAKE_RE = /^\d{16,22}$/;
 
+const CHANNEL_CAPABILITIES: Record<ChannelKind, ChannelInfo['capabilities']> = {
+  api: SYSTEM_CAPABILITIES,
+  cli: SYSTEM_CAPABILITIES,
+  discord: DISCORD_CAPABILITIES,
+  email: EMAIL_CAPABILITIES,
+  heartbeat: SYSTEM_CAPABILITIES,
+  msteams: MSTEAMS_CAPABILITIES,
+  scheduler: SYSTEM_CAPABILITIES,
+  tui: TUI_CAPABILITIES,
+  web: SYSTEM_CAPABILITIES,
+  whatsapp: WHATSAPP_CAPABILITIES,
+};
+
+const CHANNEL_KIND_SET = new Set<ChannelKind>(
+  Object.keys(CHANNEL_CAPABILITIES) as ChannelKind[],
+);
+
+const CHANNEL_KIND_ALIASES: Record<string, ChannelKind> = {
+  teams: 'msteams',
+};
+
 const channels = new Map<ChannelKind, ChannelInfo>();
 
 function normalizeChannelKind(kind?: string | null): ChannelKind | undefined {
@@ -20,42 +41,17 @@ function normalizeChannelKind(kind?: string | null): ChannelKind | undefined {
     .trim()
     .toLowerCase();
   if (!normalized) return undefined;
-  if (normalized === 'teams') return 'msteams';
-  if (
-    normalized === 'api' ||
-    normalized === 'cli' ||
-    normalized === 'discord' ||
-    normalized === 'email' ||
-    normalized === 'heartbeat' ||
-    normalized === 'msteams' ||
-    normalized === 'scheduler' ||
-    normalized === 'tui' ||
-    normalized === 'unknown' ||
-    normalized === 'web' ||
-    normalized === 'whatsapp'
-  ) {
-    return normalized;
+  if (CHANNEL_KIND_SET.has(normalized as ChannelKind)) {
+    return normalized as ChannelKind;
   }
-  return undefined;
+  return CHANNEL_KIND_ALIASES[normalized];
 }
 
 function buildDefaultChannelInfo(kind: ChannelKind): ChannelInfo {
-  const capabilities =
-    kind === 'discord'
-      ? DISCORD_CAPABILITIES
-      : kind === 'email'
-        ? EMAIL_CAPABILITIES
-        : kind === 'msteams'
-          ? MSTEAMS_CAPABILITIES
-          : kind === 'tui'
-            ? TUI_CAPABILITIES
-            : kind === 'whatsapp'
-              ? WHATSAPP_CAPABILITIES
-              : SYSTEM_CAPABILITIES;
   return {
     kind,
     id: kind,
-    capabilities,
+    capabilities: CHANNEL_CAPABILITIES[kind],
   };
 }
 

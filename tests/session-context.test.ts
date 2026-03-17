@@ -57,6 +57,43 @@ test('buildSessionContext includes the active source channel in connected channe
   expect(context.connectedChannels).toEqual(['tui', 'discord', 'email']);
 });
 
+test('buildSessionContext canonicalizes Teams and filters unsupported channels', () => {
+  const context = buildSessionContext({
+    source: {
+      channelKind: 'teams',
+      chatId: 'teams:thread',
+      chatType: 'group',
+    },
+    agentId: 'main',
+    sessionId: 'sess_20260317_114200_abcdef01',
+    connectedChannels: [' teams ', 'discord', 'matrix'],
+  });
+
+  expect(context.source.channelKind).toBe('teams');
+  expect(context.connectedChannels).toEqual(['msteams', 'discord']);
+  expect(buildSessionContextPrompt(context)).toContain(
+    '**Platform:** Microsoft Teams (group chat)',
+  );
+});
+
+test('buildSessionContext keeps missing channel kinds undefined until prompt render time', () => {
+  const context = buildSessionContext({
+    source: {
+      chatId: 'local-session',
+      chatType: 'system',
+    },
+    agentId: 'main',
+    sessionId: 'sess_20260317_114200_deadbeef',
+    connectedChannels: ['irc'],
+  });
+
+  expect(context.source.channelKind).toBeUndefined();
+  expect(context.connectedChannels).toEqual([]);
+  expect(buildSessionContextPrompt(context)).toContain(
+    '**Platform:** Unknown (system)',
+  );
+});
+
 test('buildSessionContextPrompt renders Discord context details', () => {
   const prompt = buildSessionContextPrompt(
     buildSessionContext({
@@ -124,6 +161,24 @@ test('buildSessionContextPrompt renders TUI and heartbeat sources', () => {
     '**Session:** sess_20260316_185427_deadbeef',
   );
   expect(heartbeatPrompt).toContain('**Connected channels:** heartbeat');
+});
+
+test('buildSessionContextPrompt falls back to unknown channel labels', () => {
+  const prompt = buildSessionContextPrompt(
+    buildSessionContext({
+      source: {
+        channelKind: 'irc',
+        chatId: '#ops',
+        chatType: 'channel',
+      },
+      agentId: 'main',
+      sessionId: 'sess_20260317_114200_feedface',
+      connectedChannels: ['irc'],
+    }),
+  );
+
+  expect(prompt).toContain('**Platform:** irc (channel)');
+  expect(prompt).toContain('**Connected channels:** none');
 });
 
 test('prompt hooks include session context when runtime info provides it', () => {

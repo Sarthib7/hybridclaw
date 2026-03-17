@@ -7,7 +7,6 @@ export type ChannelKind =
   | 'msteams'
   | 'scheduler'
   | 'tui'
-  | 'unknown'
   | 'web'
   | 'whatsapp';
 
@@ -27,7 +26,7 @@ export interface ChannelInfo {
   capabilities: ChannelCapabilities;
 }
 
-const DISABLED_CAPABILITIES: ChannelCapabilities = Object.freeze({
+export const SYSTEM_CAPABILITIES: ChannelCapabilities = Object.freeze({
   typing: false,
   reactions: false,
   threads: false,
@@ -47,9 +46,7 @@ export const DISCORD_CAPABILITIES: ChannelCapabilities = Object.freeze({
   maxMessageLength: 2_000,
 });
 
-export const TUI_CAPABILITIES: ChannelCapabilities = Object.freeze({
-  ...DISABLED_CAPABILITIES,
-});
+export const TUI_CAPABILITIES: ChannelCapabilities = SYSTEM_CAPABILITIES;
 
 export const WHATSAPP_CAPABILITIES: ChannelCapabilities = Object.freeze({
   typing: true,
@@ -62,7 +59,7 @@ export const WHATSAPP_CAPABILITIES: ChannelCapabilities = Object.freeze({
 });
 
 export const EMAIL_CAPABILITIES: ChannelCapabilities = Object.freeze({
-  ...DISABLED_CAPABILITIES,
+  ...SYSTEM_CAPABILITIES,
   attachments: true,
 });
 
@@ -74,8 +71,4 @@ export const MSTEAMS_CAPABILITIES: ChannelCapabilities = Object.freeze({
   attachments: true,
   messageEditing: true,
   maxMessageLength: 28_000,
-});
-
-export const SYSTEM_CAPABILITIES: ChannelCapabilities = Object.freeze({
-  ...DISABLED_CAPABILITIES,
 });

@@ -420,7 +420,7 @@ function resolveChannelType(
   ) {
     return inferredChannelType;
   }
-  return source || undefined;
+  return source && source !== 'unknown' ? source : undefined;
 }
 
 function resolveSessionAutoResetPolicy(channelId: string): SessionResetPolicy {
@@ -3375,12 +3375,10 @@ export async function handleGatewayMessage(
   });
   const { agentId, model, chatbotId } = resolvedRequest;
   const channelType =
-    resolveChannelType(req) ||
-    resolveSessionResetChannelKind(req.channelId) ||
-    'unknown';
+    resolveChannelType(req) || resolveSessionResetChannelKind(req.channelId);
   const connectedChannels = listChannels().map((channel) => channel.kind);
   const channel =
-    getChannel(channelType) ||
+    (channelType ? getChannel(channelType) : undefined) ||
     getChannelByContextId(req.channelId) ||
     undefined;
   if (session.agent_id !== agentId) {
@@ -3413,7 +3411,7 @@ export async function handleGatewayMessage(
   }
   const sessionContext = buildSessionContext({
     source: {
-      channelKind: channelType,
+      channelKind: channelType || channel?.kind,
       chatId: req.channelId,
       chatType:
         channelType === 'heartbeat' || channelType === 'scheduler'

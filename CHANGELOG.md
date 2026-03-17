@@ -9,6 +9,11 @@
   attachment-aware replies, allowlist-based DM/channel policies, and gateway
   visibility so one assistant can work across Discord, Teams, WhatsApp,
   email, web, and TUI surfaces.
+- **Extensible session routing**: Added marker-based canonical session keys,
+  `main_session_key` continuity scopes, explicit malformed-key detection, and
+  configurable DM routing so operators can keep direct messages isolated by
+  channel/peer or intentionally collapse verified aliases onto one linked
+  identity.
 - **Bundled workflow and app skills**: Added bundled skills for planning,
   review, publishing, and operations workflows plus integrations for Notion,
   Trello, GitHub PRs, Google Workspace, Discord, Himalaya email, 1Password,
@@ -32,6 +37,11 @@
 - **Operator defaults and provider signals**: OpenRouter requests send
   app-attribution headers, bot-set actions emit observability/audit events,
   and the email channel default poll interval is 30 seconds.
+- **Web and local session defaults**: Anonymous web chats now get unique
+  canonical session ids instead of sharing a default DM session, API
+  command/history calls fail closed without an explicit `sessionId`, and TUI,
+  Teams, email, WhatsApp, heartbeat, and scheduler flows now emit canonical
+  transport keys directly at ingress.
 
 ### Fixed
 

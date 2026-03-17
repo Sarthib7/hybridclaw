@@ -198,6 +198,7 @@ HybridClaw creates `~/.hybridclaw/config.json` on first run and hot-reloads most
 - Use `container.binds` for explicit host-to-container mounts in `host:container[:ro|rw]` format. Mounted paths appear inside the sandbox under `/workspace/extra/<container>`.
 - `mcpServers.*` declares Model Context Protocol servers that HybridClaw connects to per session and exposes as namespaced tools (`server__tool`).
 - `sessionReset.*` controls automatic daily and idle session expiry. The default policy resets both daily and after 24 hours idle at `04:00` in the gateway host's local timezone; set `sessionReset.defaultPolicy.mode` to `none` to disable automatic resets.
+- `sessionRouting.*` controls DM continuity scope. The default `per-channel-peer` mode keeps direct messages isolated by transport and peer identity; `per-linked-identity` plus `sessionRouting.identityLinks` can collapse verified aliases onto one shared main session.
 - `email.pollIntervalMs` defaults to `30000` (30 seconds) and is clamped to a minimum of `1000`.
 - `mcpServers.*.env` and `mcpServers.*.headers` are currently written to `~/.hybridclaw/config.json` as plain text. Use low-privilege tokens only, set `chmod 700 ~/.hybridclaw && chmod 600 ~/.hybridclaw/config.json`, and prefer `host` sandbox mode for stdio MCP servers that depend on host-installed tools.
 - `media.audio` controls shared inbound audio transcription. By default it auto-detects local CLIs first (`sherpa-onnx-offline`, `whisper-cli`, `whisper`), then `gemini`, then provider keys (`openai`, `groq`, `deepgram`, `google`).

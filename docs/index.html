@@ -694,7 +694,7 @@
       <button class="hero-copy-btn" type="button" onclick="navigator.clipboard.writeText('npm install -g @hybridaione/hybridclaw'); this.textContent='Copied'; setTimeout(() => this.textContent='Copy', 1400);">Copy</button>
     </div>
     <code>npm install -g @hybridaione/hybridclaw</code>
-    <div class="hero-install-note">Prerequisites: Node.js 22+. Docker provides full container isolation, while containerized deployments can switch the gateway to host sandbox mode to avoid nested Docker. Browser automation tooling ships with the agent runtime. HybridAI API key setup can be completed during onboarding. Latest tagged release: v0.7.1; the current repo also includes Teams, more bundled skills, TUI slash/history UX, and session reset policies.</div>
+    <div class="hero-install-note">Prerequisites: Node.js 22+. Docker provides full container isolation, while containerized deployments can switch the gateway to host sandbox mode to avoid nested Docker. Browser automation tooling ships with the agent runtime. HybridAI API key setup can be completed during onboarding. Latest tagged release: v0.7.1; the current repo also includes Teams, extensible session routing with DM isolation controls, more bundled skills, TUI slash/history UX, and session reset policies.</div>
   </div>
   <div class="hero-cta">
     <a href="#quickstart" class="btn btn-primary">Get Started</a>
@@ -755,8 +755,8 @@
       </div>
       <div class="feature-card">
       <div class="feature-icon">&#x23f3;</div>
-      <h3>Reset policy and faster safe tools</h3>
-      <p>Automatic session-reset policies can expire sessions daily or after long idle windows in the gateway host's local timezone, while safe read-only tool calls can batch in parallel without weakening guarded flows.</p>
+      <h3>Session routing and safer defaults</h3>
+      <p>Canonical <code>agent:...:channel:...:chat:...:peer:...</code> keys, DM isolation by default, opt-in linked-identity continuity, and stricter malformed-key rejection make session ownership explicit across web, TUI, and channel runtimes.</p>
       </div>
   </div>
 </section>
@@ -839,7 +839,7 @@
     <div class="feature-card">
       <div class="feature-icon">&#x1f9e0;</div>
       <h3>Remember what matters</h3>
-      <p>Persist and compact long-running conversations with canonical cross-channel continuity, automatic session-reset policies, and configurable token-budget controls.</p>
+      <p>Persist and compact long-running conversations with canonical session keys, per-channel DM isolation by default, optional linked-identity continuity, and configurable token-budget controls.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x23f0;</div>
@@ -1053,11 +1053,11 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Configuration</h3>
-      <p>Typed <code>config.json</code> with defaults, validation, and hot reload. Includes container isolation controls (<code>container.sandboxMode</code>, <code>container.memorySwap</code>, <code>container.network</code>), memory controls (<code>memory.decayRate</code>, <code>memory.consolidationIntervalHours</code>), compaction controls (<code>sessionCompaction.tokenBudget</code>, <code>sessionCompaction.budgetRatio</code>), Discord policy controls, and proactive <code>scheduler.jobs[]</code> automation. Secrets live in <code>~/.hybridclaw/credentials.json</code>.</p>
+      <p>Typed <code>config.json</code> with defaults, validation, and hot reload. Includes container isolation controls (<code>container.sandboxMode</code>, <code>container.memorySwap</code>, <code>container.network</code>), session routing controls (<code>sessionRouting.dmScope</code>, <code>sessionRouting.identityLinks</code>), memory controls (<code>memory.decayRate</code>, <code>memory.consolidationIntervalHours</code>), compaction controls (<code>sessionCompaction.tokenBudget</code>, <code>sessionCompaction.budgetRatio</code>), Discord policy controls, and proactive <code>scheduler.jobs[]</code> automation. Secrets live in <code>~/.hybridclaw/credentials.json</code>.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Memory Continuity</h3>
-      <p>Persistent workspace memory, semantic memory, typed entity/relation knowledge graph, canonical cross-channel sessions, and long-session compaction keep context coherent across Discord, Teams, WhatsApp, email, web, and terminal channels.</p>
+      <p>Persistent workspace memory, semantic memory, typed entity/relation knowledge graph, canonical transport session keys, linked-identity continuity scopes, and long-session compaction keep context coherent across Discord, Teams, WhatsApp, email, web, and terminal channels.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">SQLite Reliability</h3>
@@ -1340,7 +1340,7 @@
     </div>
     <div class="faq-item">
       <div class="faq-q">Does the agent remember things between conversations?</div>
-      <div class="faq-a">Yes. The active agent writes daily memory files (<code>memory/YYYY-MM-DD.md</code>) and curates long-term insights into <code>MEMORY.md</code>. It also maintains canonical cross-channel context per user/agent pair so continuity survives channel switches when sessions point at the same agent. Before session compaction, a dedicated flush turn ensures durable notes are persisted. These files plus <code>SOUL.md</code> are injected into every request.</div>
+      <div class="faq-a">Yes. The active agent writes daily memory files (<code>memory/YYYY-MM-DD.md</code>) and curates long-term insights into <code>MEMORY.md</code>. By default, direct-message continuity is isolated per channel kind and peer. Operators can opt into linked-identity continuity when verified aliases should share one main session scope. Before session compaction, a dedicated flush turn ensures durable notes are persisted. These files plus <code>SOUL.md</code> are injected into every request.</div>
     </div>
     <div class="faq-item">
       <div class="faq-q">Can I switch the assistant personality at runtime?</div>

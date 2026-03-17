@@ -1,3 +1,4 @@
+import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import {
   type HistoryOptimizationStats,
   optimizeHistoryMessagesForPrompt,
@@ -50,7 +51,10 @@ export function buildConversationContext(params: {
     blockedTools,
     currentUserContent,
   } = params;
-  const skills = loadSkills(agentId);
+  const skills = loadSkills(
+    agentId,
+    normalizeSkillConfigChannelKind(runtimeInfo?.channel?.kind),
+  );
   const explicitSkillInvocation =
     typeof currentUserContent === 'string' && currentUserContent.trim()
       ? resolveExplicitSkillInvocation(currentUserContent, skills)

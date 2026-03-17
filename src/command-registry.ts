@@ -929,6 +929,11 @@ function buildSlashCommandCatalogDefinitions(
       options: [
         {
           kind: 'subcommand',
+          name: 'config',
+          description: 'Open the interactive skill enable/disable checklist',
+        },
+        {
+          kind: 'subcommand',
           name: 'list',
           description: 'List available skills and their current availability',
         },

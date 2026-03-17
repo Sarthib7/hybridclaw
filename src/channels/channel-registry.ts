@@ -4,6 +4,8 @@ import {
   DISCORD_CAPABILITIES,
   EMAIL_CAPABILITIES,
   MSTEAMS_CAPABILITIES,
+  SKILL_CONFIG_CHANNEL_KINDS,
+  type SkillConfigChannelKind,
   SYSTEM_CAPABILITIES,
   TUI_CAPABILITIES,
   WHATSAPP_CAPABILITIES,
@@ -25,6 +27,9 @@ const CHANNEL_CAPABILITIES: Record<ChannelKind, ChannelInfo['capabilities']> = {
 
 const CHANNEL_KIND_SET = new Set<ChannelKind>(
   Object.keys(CHANNEL_CAPABILITIES) as ChannelKind[],
+);
+const SKILL_CONFIG_CHANNEL_KIND_SET = new Set<ChannelKind>(
+  SKILL_CONFIG_CHANNEL_KINDS,
 );
 
 const CHANNEL_KIND_ALIASES: Record<string, ChannelKind> = {
@@ -54,6 +59,22 @@ export function normalizeChannelKind(
     return normalized as ChannelKind;
   }
   return CHANNEL_KIND_ALIASES[normalized];
+}
+
+function isSkillConfigChannelKind(
+  kind: ChannelKind,
+): kind is SkillConfigChannelKind {
+  return SKILL_CONFIG_CHANNEL_KIND_SET.has(kind);
+}
+
+export function normalizeSkillConfigChannelKind(
+  kind?: string | null,
+): SkillConfigChannelKind | undefined {
+  const channelKind = normalizeChannelKind(kind);
+  if (!channelKind || !isSkillConfigChannelKind(channelKind)) {
+    return undefined;
+  }
+  return channelKind;
 }
 
 function buildDefaultChannelInfo(kind: ChannelKind): ChannelInfo {

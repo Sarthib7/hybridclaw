@@ -7,6 +7,16 @@ export type ChannelKind =
   | 'tui'
   | 'whatsapp';
 
+export const SKILL_CONFIG_CHANNEL_KINDS = [
+  'discord',
+  'email',
+  'msteams',
+  'whatsapp',
+] as const satisfies readonly ChannelKind[];
+
+export type SkillConfigChannelKind =
+  (typeof SKILL_CONFIG_CHANNEL_KINDS)[number];
+
 export interface ChannelCapabilities {
   typing: boolean;
   reactions: boolean;

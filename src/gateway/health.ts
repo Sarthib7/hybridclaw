@@ -45,6 +45,7 @@ import {
   deleteGatewayAdminSession,
   type GatewayChatRequest,
   type GatewayCommandRequest,
+  GatewayRequestError,
   getGatewayAdminAgents,
   getGatewayAdminAudit,
   getGatewayAdminChannels,
@@ -1058,10 +1059,17 @@ async function handleApiAdminSkills(
   const body = (await readJsonBody(req)) as {
     name?: unknown;
     enabled?: unknown;
+    channel?: unknown;
   };
   if (typeof body.enabled !== 'boolean') {
     sendJson(res, 400, {
       error: 'Expected boolean `enabled` in request body.',
+    });
+    return;
+  }
+  if (body.channel != null && typeof body.channel !== 'string') {
+    sendJson(res, 400, {
+      error: 'Expected string `channel` in request body.',
     });
     return;
   }
@@ -1071,6 +1079,7 @@ async function handleApiAdminSkills(
     setGatewayAdminSkillEnabled({
       name: String(body.name || ''),
       enabled: body.enabled,
+      channel: typeof body.channel === 'string' ? body.channel : undefined,
     }),
   );
 }
@@ -1468,7 +1477,10 @@ export function startHealthServer(): void {
         } catch (err) {
           const errorText = err instanceof Error ? err.message : String(err);
           const statusCode =
-            err instanceof HttpRequestError ? err.statusCode : 500;
+            err instanceof HttpRequestError ||
+            err instanceof GatewayRequestError
+              ? err.statusCode
+              : 500;
           sendJson(res, statusCode, { error: errorText });
         }
       })();

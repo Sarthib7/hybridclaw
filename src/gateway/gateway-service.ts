@@ -42,6 +42,7 @@ import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
 import {
   getChannel,
   getChannelByContextId,
+  normalizeSkillConfigChannelKind,
 } from '../channels/channel-registry.js';
 import {
   APP_VERSION,
@@ -69,6 +70,7 @@ import {
   type RuntimeConfig,
   runtimeConfigPath,
   saveRuntimeConfig,
+  setRuntimeSkillScopeEnabled,
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
@@ -266,6 +268,16 @@ import {
 
 const BOT_CACHE_TTL = 300_000; // 5 minutes
 const MAX_HISTORY_MESSAGES = 40;
+
+export class GatewayRequestError extends Error {
+  statusCode: number;
+
+  constructor(statusCode: number, message: string) {
+    super(message);
+    this.statusCode = statusCode;
+  }
+}
+
 const BASE_SUBAGENT_ALLOWED_TOOLS = [
   'read',
   'write',
@@ -545,6 +557,24 @@ function dedupeStrings(values: string[]): string[] {
     deduped.push(value);
   }
   return deduped;
+}
+
+function getAdminChannelDisabledSkills(
+  value: RuntimeConfig['skills']['channelDisabled'],
+): GatewayAdminSkillsResponse['channelDisabled'] {
+  return Object.fromEntries(
+    (
+      Object.entries(value ?? {}) as [
+        keyof NonNullable<RuntimeConfig['skills']['channelDisabled']>,
+        string[],
+      ][]
+    )
+      .map(([channel, names]) => [
+        channel,
+        [...names].sort((left, right) => left.localeCompare(right)),
+      ])
+      .sort(([left], [right]) => String(left).localeCompare(String(right))),
+  );
 }
 
 function buildGatewayProviderHealth(params: {
@@ -2593,6 +2623,9 @@ export function getGatewayAdminSkills(): GatewayAdminSkillsResponse {
     disabled: dedupeStrings(runtimeConfig.skills.disabled).sort((a, b) =>
       a.localeCompare(b),
     ),
+    channelDisabled: getAdminChannelDisabledSkills(
+      runtimeConfig.skills.channelDisabled,
+    ),
     skills: loadSkillCatalog().map((skill) => ({
       name: skill.name,
       description: skill.description,
@@ -2612,30 +2645,29 @@ export function getGatewayAdminSkills(): GatewayAdminSkillsResponse {
 export function setGatewayAdminSkillEnabled(input: {
   name: string;
   enabled: boolean;
+  channel?: string;
 }): GatewayAdminSkillsResponse {
   const name = String(input.name || '').trim();
   if (!name) {
-    throw new Error('Expected non-empty skill `name`.');
+    throw new GatewayRequestError(400, 'Expected non-empty skill `name`.');
+  }
+  const rawChannel = String(input.channel || '').trim();
+  const channelKind = rawChannel
+    ? normalizeSkillConfigChannelKind(rawChannel)
+    : undefined;
+  if (rawChannel && !channelKind) {
+    throw new GatewayRequestError(
+      400,
+      `Unsupported skill channel: ${rawChannel}`,
+    );
   }
   const known = loadSkillCatalog().some((skill) => skill.name === name);
   if (!known) {
-    throw new Error(`Skill \`${name}\` was not found.`);
+    throw new GatewayRequestError(400, `Skill \`${name}\` was not found.`);
   }
 
   updateRuntimeConfig((draft) => {
-    const disabled = new Set(
-      draft.skills.disabled
-        .map((entry) => String(entry || '').trim())
-        .filter(Boolean),
-    );
-    if (input.enabled) {
-      disabled.delete(name);
-    } else {
-      disabled.add(name);
-    }
-    draft.skills.disabled = [...disabled].sort((left, right) =>
-      left.localeCompare(right),
-    );
+    setRuntimeSkillScopeEnabled(draft, name, input.enabled, channelKind);
   });
 
   return getGatewayAdminSkills();

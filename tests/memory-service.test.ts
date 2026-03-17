@@ -515,7 +515,7 @@ describe.sequential('schema migrations', () => {
       .get('legacy_session_id') as { 1: number } | undefined;
     inspect.close();
 
-    expect(Number(schemaVersion)).toBe(12);
+    expect(Number(schemaVersion)).toBe(DATABASE_SCHEMA_VERSION);
     expect(hasLegacyColumn).toBeDefined();
   });
 });

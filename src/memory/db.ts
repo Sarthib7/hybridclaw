@@ -2994,30 +2994,28 @@ export function getOrCreateSession(
   },
 ): Session {
   const requestedSessionId = String(sessionId || '').trim();
-  const normalizedAgentId = agentId?.trim() || DEFAULT_AGENT_ID;
+  const requestedAgentId = agentId?.trim() || '';
   const forceNewCurrent = options?.forceNewCurrent === true;
   const canonicalSessionKey = resolveCanonicalSessionKey({
     requestedSessionId,
     guildId,
     channelId,
-    agentId: normalizedAgentId,
+    agentId: requestedAgentId || DEFAULT_AGENT_ID,
   });
   const exactSession = requestedSessionId
     ? selectSessionById(requestedSessionId)
     : undefined;
 
   if (exactSession) {
+    const nextAgentId =
+      requestedAgentId || exactSession.agent_id || DEFAULT_AGENT_ID;
     db.prepare(
       `UPDATE sessions
        SET last_active = datetime('now'),
            agent_id = ?,
            session_key = COALESCE(NULLIF(session_key, ''), ?)
        WHERE id = ?`,
-    ).run(
-      normalizedAgentId,
-      canonicalSessionKey || exactSession.id,
-      exactSession.id,
-    );
+    ).run(nextAgentId, canonicalSessionKey || exactSession.id, exactSession.id);
     return requireSessionById(exactSession.id);
   }
 
@@ -3032,6 +3030,8 @@ export function getOrCreateSession(
         nextSessionId: resolveNewSessionInstanceId({ requestedSessionId }),
       }).session;
     }
+    const nextAgentId =
+      requestedAgentId || existing.agent_id || DEFAULT_AGENT_ID;
     db.prepare(
       `UPDATE sessions
        SET last_active = datetime('now'),
@@ -3043,7 +3043,7 @@ export function getOrCreateSession(
            END
        WHERE id = ?`,
     ).run(
-      normalizedAgentId,
+      nextAgentId,
       canonicalSessionKey || existing.id,
       requestedSessionId !== canonicalSessionKey &&
         isLegacySessionKey(requestedSessionId)
@@ -3071,7 +3071,7 @@ export function getOrCreateSession(
     canonicalSessionKey || nextSessionId,
     guildId,
     channelId,
-    normalizedAgentId,
+    requestedAgentId || DEFAULT_AGENT_ID,
     requestedSessionId !== canonicalSessionKey &&
       isLegacySessionKey(requestedSessionId)
       ? requestedSessionId

@@ -3539,7 +3539,7 @@ export function getAnyChatbotId(): string | null {
     .prepare(
       `SELECT chatbot_id FROM sessions
        WHERE chatbot_id IS NOT NULL AND chatbot_id != ''
-       ORDER BY updated_at DESC
+       ORDER BY last_active DESC
        LIMIT 1`,
     )
     .get() as { chatbot_id: string } | undefined;

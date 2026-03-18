@@ -22,6 +22,7 @@ async function importFreshConnectionModule(options?: {
   deferAuthState?: boolean;
 }) {
   vi.resetModules();
+  const { APP_VERSION } = await import('../src/config/config.js');
 
   const sockets: Array<{
     config: {
@@ -148,6 +149,7 @@ async function importFreshConnectionModule(options?: {
 
   const module = await import('../src/channels/whatsapp/connection.ts');
   return {
+    APP_VERSION,
     ...module,
     qrcodeGenerate,
     sockets,
@@ -287,7 +289,7 @@ test('info-level WhatsApp logs omit structured metadata', async () => {
 });
 
 test('debug-level WhatsApp logs keep structured metadata', async () => {
-  const { createWhatsAppConnectionManager, sockets, whatsappLogger } =
+  const { APP_VERSION, createWhatsAppConnectionManager, sockets, whatsappLogger } =
     await importFreshConnectionModule({
       logLevel: 'debug',
     });
@@ -306,7 +308,7 @@ test('debug-level WhatsApp logs keep structured metadata', async () => {
   const updateHandlers = sockets[0]?.evHandlers.get('connection.update');
   updateHandlers?.[0]?.({ qr: 'test-qr' });
   expect(whatsappLogger.info).toHaveBeenCalledWith(
-    { appVersion: '0.7.1' },
+    { appVersion: APP_VERSION },
     'Scan the WhatsApp QR code in Linked Devices',
   );
 });
@@ -332,6 +334,7 @@ test('forced root debug level keeps structured metadata even if child logger lev
 
 test('provides WhatsApp retry replay lookup to Baileys and persists sent messages', async () => {
   const {
+    APP_VERSION,
     acquireWhatsAppAuthLock,
     createWhatsAppConnectionManager,
     releaseAuthLock,
@@ -348,7 +351,7 @@ test('provides WhatsApp retry replay lookup to Baileys and persists sent message
   expect(sockets[0]?.config.browser).toEqual([
     'HybridClaw',
     'Gateway',
-    '0.7.1',
+    APP_VERSION,
   ]);
   expect(typeof sockets[0]?.config.getMessage).toBe('function');
 

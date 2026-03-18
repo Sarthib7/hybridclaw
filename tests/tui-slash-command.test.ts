@@ -111,6 +111,9 @@ test('maps Discord-style slash commands to gateway command args', () => {
     'plugin',
     'list',
   ]);
+  expect(
+    mapTuiSlashCommandToGatewayArgs(['plugin', 'uninstall', 'demo-plugin']),
+  ).toEqual(['plugin', 'uninstall', 'demo-plugin']);
 });
 
 test('keeps explicit /skill invocations out of the slash-command path', () => {

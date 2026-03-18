@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, describe, expect, test, vi } from 'vitest';
+import type { RuntimeConfig } from '../src/config/runtime-config.js';
 
 const tempDirs: string[] = [];
 
@@ -186,5 +187,90 @@ describe('plugin install', () => {
         args: ['install', '--omit=dev', '--no-audit', '--no-fund'],
       }),
     );
+  });
+
+  test('uninstalls a home plugin and removes matching runtime config overrides', async () => {
+    const homeDir = makeTempDir('hybridclaw-plugin-home-');
+    const pluginDir = path.join(homeDir, '.hybridclaw', 'plugins', 'demo-plugin');
+    writePluginDir(pluginDir);
+
+    let config = {
+      plugins: {
+        list: [
+          { id: 'demo-plugin', enabled: true, config: { workspaceId: 'a' } },
+          { id: 'other-plugin', enabled: true, config: {} },
+          { id: 'demo-plugin', enabled: false, config: {} },
+        ],
+      },
+    } as RuntimeConfig;
+
+    const getRuntimeConfig = () => structuredClone(config);
+    const updateRuntimeConfig = vi.fn(
+      (mutator: (draft: RuntimeConfig) => void) => {
+        const draft = structuredClone(config);
+        mutator(draft);
+        config = draft;
+        return structuredClone(config);
+      },
+    );
+
+    const { uninstallPlugin } = await import('../src/plugins/plugin-install.js');
+    const result = await uninstallPlugin('demo-plugin', {
+      homeDir,
+      getRuntimeConfig,
+      updateRuntimeConfig,
+    });
+
+    expect(result).toEqual({
+      pluginId: 'demo-plugin',
+      pluginDir,
+      removedPluginDir: true,
+      removedConfigOverrides: 2,
+    });
+    expect(fs.existsSync(pluginDir)).toBe(false);
+    expect(config.plugins.list).toEqual([
+      { id: 'other-plugin', enabled: true, config: {} },
+    ]);
+    expect(updateRuntimeConfig).toHaveBeenCalledTimes(1);
+  });
+
+  test('uninstalls config-only plugin overrides when no home plugin directory exists', async () => {
+    const homeDir = makeTempDir('hybridclaw-plugin-home-');
+    let config = {
+      plugins: {
+        list: [{ id: 'demo-plugin', enabled: true, config: {} }],
+      },
+    } as RuntimeConfig;
+
+    const { uninstallPlugin } = await import('../src/plugins/plugin-install.js');
+    const result = await uninstallPlugin('demo-plugin', {
+      homeDir,
+      getRuntimeConfig: () => structuredClone(config),
+      updateRuntimeConfig: (mutator) => {
+        const draft = structuredClone(config);
+        mutator(draft);
+        config = draft;
+        return structuredClone(config);
+      },
+    });
+
+    expect(result).toEqual({
+      pluginId: 'demo-plugin',
+      pluginDir: path.join(homeDir, '.hybridclaw', 'plugins', 'demo-plugin'),
+      removedPluginDir: false,
+      removedConfigOverrides: 1,
+    });
+    expect(config.plugins.list).toEqual([]);
+  });
+
+  test('rejects invalid plugin ids during uninstall', async () => {
+    const homeDir = makeTempDir('hybridclaw-plugin-home-');
+    const { uninstallPlugin } = await import('../src/plugins/plugin-install.js');
+
+    await expect(
+      uninstallPlugin('../demo-plugin', {
+        homeDir,
+      }),
+    ).rejects.toThrow('Invalid plugin id');
   });
 });

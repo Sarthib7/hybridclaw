@@ -1258,5 +1258,7 @@ export async function ensurePluginManagerInitialized(): Promise<PluginManager> {
 
 export async function shutdownPluginManager(): Promise<void> {
   if (!singleton) return;
-  await singleton.shutdown();
+  const manager = singleton;
+  singleton = null;
+  await manager.shutdown();
 }

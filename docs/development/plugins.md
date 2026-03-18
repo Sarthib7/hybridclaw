@@ -11,6 +11,7 @@ Use the CLI to install a plugin from a local directory or npm package:
 hybridclaw plugin list
 hybridclaw plugin install ./plugins/example-plugin
 hybridclaw plugin install @scope/hybridclaw-plugin-example
+hybridclaw plugin uninstall example-plugin
 ```
 
 The install command:
@@ -22,6 +23,10 @@ The install command:
 
 `hybridclaw plugin list` shows discovered plugins with source, enabled state,
 registered tools/hooks, and any load error.
+
+`hybridclaw plugin uninstall <plugin-id>` removes the home-installed plugin
+directory and deletes matching `plugins.list[]` overrides from runtime config.
+Project-local plugin directories still need to be deleted manually.
 
 Required secrets or plugin-specific config values still need to be filled in
 after install.

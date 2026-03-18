@@ -224,6 +224,10 @@ export function mapCanonicalCommandToGatewayArgs(
     case 'plugin': {
       const sub = (parts[1] || '').trim().toLowerCase();
       if (!sub || sub === 'list') return ['plugin', 'list'];
+      if (sub === 'uninstall') {
+        const pluginId = (parts[2] || '').trim();
+        return pluginId ? ['plugin', 'uninstall', pluginId] : ['plugin', 'uninstall'];
+      }
       return null;
     }
 
@@ -562,12 +566,26 @@ function buildSlashCommandCatalogDefinitions(
     },
     {
       name: 'plugin',
-      description: 'List discovered plugins and their runtime status',
+      description: 'List or uninstall HybridClaw plugins',
       options: [
         {
           kind: 'subcommand',
           name: 'list',
           description: 'List discovered plugins, tools, hooks, and load errors',
+        },
+        {
+          kind: 'subcommand',
+          name: 'uninstall',
+          description:
+            'Remove a home-installed plugin and matching runtime config overrides',
+          options: [
+            {
+              kind: 'string',
+              name: 'id',
+              description: 'Plugin id to uninstall',
+              required: true,
+            },
+          ],
         },
       ],
     },
@@ -1243,6 +1261,10 @@ export function parseCanonicalSlashCommandArgs(
     case 'plugin': {
       const subcommand = normalizeSubcommand(interaction);
       if (subcommand === 'list') return ['plugin', 'list'];
+      if (subcommand === 'uninstall') {
+        const pluginId = normalizeStringOption(interaction, 'id', true);
+        return pluginId ? ['plugin', 'uninstall', pluginId] : null;
+      }
       return null;
     }
 

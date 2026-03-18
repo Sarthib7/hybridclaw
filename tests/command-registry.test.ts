@@ -18,6 +18,10 @@ test('registers plugin as a slash/text command', () => {
             kind: 'subcommand',
             name: 'list',
           }),
+          expect.objectContaining({
+            kind: 'subcommand',
+            name: 'uninstall',
+          }),
         ],
       }),
     ]),
@@ -32,4 +36,14 @@ test('parses /plugin list into gateway args', () => {
       getSubcommand: () => 'list',
     }),
   ).toEqual(['plugin', 'list']);
+});
+
+test('parses /plugin uninstall into gateway args', () => {
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'plugin',
+      getString: (name) => (name === 'id' ? 'demo-plugin' : null),
+      getSubcommand: () => 'uninstall',
+    }),
+  ).toEqual(['plugin', 'uninstall', 'demo-plugin']);
 });

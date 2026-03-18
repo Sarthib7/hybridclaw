@@ -76,6 +76,13 @@ async function importFreshCli(options?: {
     requiresEnv: string[];
     requiredConfigKeys: string[];
   };
+  pluginUninstallError?: Error | null;
+  pluginUninstallResult?: {
+    pluginId: string;
+    pluginDir: string;
+    removedPluginDir: boolean;
+    removedConfigOverrides: number;
+  };
   pluginListSummary?: Array<{
     id: string;
     name?: string;
@@ -188,6 +195,19 @@ async function importFreshCli(options?: {
         dependenciesInstalled: true,
         requiresEnv: [],
         requiredConfigKeys: [],
+      }
+    );
+  });
+  const uninstallPlugin = vi.fn(async (pluginId: string) => {
+    if (options?.pluginUninstallError) {
+      throw options.pluginUninstallError;
+    }
+    return (
+      options?.pluginUninstallResult || {
+        pluginId,
+        pluginDir: `/tmp/.hybridclaw/plugins/${pluginId}`,
+        removedPluginDir: true,
+        removedConfigOverrides: 0,
       }
     );
   });
@@ -431,9 +451,11 @@ async function importFreshCli(options?: {
   });
   vi.doMock('../src/plugins/plugin-install.ts', () => ({
     installPlugin,
+    uninstallPlugin,
   }));
   vi.doMock('../src/plugins/plugin-install.js', () => ({
     installPlugin,
+    uninstallPlugin,
   }));
   vi.doMock('../src/plugins/plugin-manager.js', () => ({
     ensurePluginManagerInitialized,
@@ -465,6 +487,7 @@ async function importFreshCli(options?: {
     resetWhatsAppAuthState,
     createWhatsAppConnectionManager,
     installPlugin,
+    uninstallPlugin,
     listPluginSummary,
     ensurePluginManagerInitialized,
     whatsappStart,
@@ -765,6 +788,31 @@ describe('CLI hybridai commands', () => {
     );
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('to set required config keys: workspaceId'),
+    );
+  });
+
+  it('uninstalls a plugin and reports removed runtime config overrides', async () => {
+    const { cli, uninstallPlugin } = await importFreshCli({
+      pluginUninstallResult: {
+        pluginId: 'example-plugin',
+        pluginDir: '/tmp/.hybridclaw/plugins/example-plugin',
+        removedPluginDir: true,
+        removedConfigOverrides: 2,
+      },
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['plugin', 'uninstall', 'example-plugin']);
+
+    expect(uninstallPlugin).toHaveBeenCalledWith('example-plugin');
+    expect(logSpy).toHaveBeenCalledWith(
+      'Uninstalled plugin example-plugin from /tmp/.hybridclaw/plugins/example-plugin.',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Removed 2 plugins.list[] overrides from '),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Restart the gateway to unload plugin changes if it is running:',
     );
   });
 

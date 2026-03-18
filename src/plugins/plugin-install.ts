@@ -3,6 +3,11 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import {
+  getRuntimeConfig,
+  type RuntimeConfig,
+  updateRuntimeConfig,
+} from '../config/runtime-config.js';
 import { loadPluginManifest } from './plugin-manager.js';
 import type { PluginManifest } from './plugin-types.js';
 
@@ -40,6 +45,24 @@ export interface InstallPluginResult {
   dependenciesInstalled: boolean;
   requiresEnv: string[];
   requiredConfigKeys: string[];
+}
+
+type PluginConfigGetter = () => RuntimeConfig;
+type PluginConfigUpdater = (
+  mutator: (draft: RuntimeConfig) => void,
+) => RuntimeConfig;
+
+export interface UninstallPluginOptions {
+  homeDir?: string;
+  getRuntimeConfig?: PluginConfigGetter;
+  updateRuntimeConfig?: PluginConfigUpdater;
+}
+
+export interface UninstallPluginResult {
+  pluginId: string;
+  pluginDir: string;
+  removedPluginDir: boolean;
+  removedConfigOverrides: number;
 }
 
 function defaultRunCommand({ command, args, cwd }: PluginCommand): void {
@@ -100,6 +123,21 @@ function resolvePluginSource(input: string, cwd: string): PluginSource {
     kind: 'npm-spec',
     spec: input,
   };
+}
+
+function normalizePluginId(input: string): string {
+  const pluginId = String(input || '').trim();
+  if (!pluginId) {
+    throw new Error(
+      'Missing plugin id. Use `hybridclaw plugin uninstall <plugin-id>`.',
+    );
+  }
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(pluginId)) {
+    throw new Error(
+      `Invalid plugin id "${pluginId}". Plugin ids may only contain letters, numbers, ".", "_" and "-".`,
+    );
+  }
+  return pluginId;
 }
 
 function assertPluginManifestDir(dir: string): void {
@@ -234,6 +272,15 @@ function getRequiredConfigKeys(manifest: PluginManifest): string[] {
   );
 }
 
+function countPluginConfigOverrides(
+  pluginId: string,
+  config: RuntimeConfig,
+): number {
+  return config.plugins.list.filter(
+    (entry) => String(entry?.id || '').trim() === pluginId,
+  ).length;
+}
+
 export async function installPlugin(
   source: string,
   options: InstallPluginOptions = {},
@@ -322,4 +369,42 @@ export async function installPlugin(
       fs.rmSync(dir, { recursive: true, force: true });
     }
   }
+}
+
+export async function uninstallPlugin(
+  pluginIdInput: string,
+  options: UninstallPluginOptions = {},
+): Promise<UninstallPluginResult> {
+  const pluginId = normalizePluginId(pluginIdInput);
+  const homeDir = options.homeDir ?? os.homedir();
+  const getConfig = options.getRuntimeConfig ?? getRuntimeConfig;
+  const updateConfig = options.updateRuntimeConfig ?? updateRuntimeConfig;
+  const pluginDir = path.join(homeDir, '.hybridclaw', 'plugins', pluginId);
+
+  const removedPluginDir = fs.existsSync(pluginDir);
+  if (removedPluginDir) {
+    fs.rmSync(pluginDir, { recursive: true, force: true });
+  }
+
+  const removedConfigOverrides = countPluginConfigOverrides(pluginId, getConfig());
+  if (removedConfigOverrides > 0) {
+    updateConfig((draft) => {
+      draft.plugins.list = draft.plugins.list.filter(
+        (entry) => String(entry?.id || '').trim() !== pluginId,
+      );
+    });
+  }
+
+  if (!removedPluginDir && removedConfigOverrides === 0) {
+    throw new Error(
+      `Plugin "${pluginId}" is not installed in ${path.join(homeDir, '.hybridclaw', 'plugins')} and has no matching plugins.list[] override.`,
+    );
+  }
+
+  return {
+    pluginId,
+    pluginDir,
+    removedPluginDir,
+    removedConfigOverrides,
+  };
 }

@@ -1,8 +1,13 @@
 import { expect, test, vi } from 'vitest';
 import { setupGatewayTest } from './helpers/gateway-test-setup.js';
 
-const { runAgentMock, ensurePluginManagerInitializedMock, pluginManagerMock } =
-  vi.hoisted(() => {
+const {
+  runAgentMock,
+  ensurePluginManagerInitializedMock,
+  shutdownPluginManagerMock,
+  uninstallPluginMock,
+  pluginManagerMock,
+} = vi.hoisted(() => {
     const pluginManager = {
       collectPromptContext: vi.fn(async () => ['plugin-memory-context']),
       getToolDefinitions: vi.fn(() => [
@@ -28,6 +33,13 @@ const { runAgentMock, ensurePluginManagerInitializedMock, pluginManagerMock } =
     return {
       runAgentMock: vi.fn(),
       ensurePluginManagerInitializedMock: vi.fn(async () => pluginManager),
+      shutdownPluginManagerMock: vi.fn(async () => {}),
+      uninstallPluginMock: vi.fn(async () => ({
+        pluginId: 'demo-plugin',
+        pluginDir: '/tmp/.hybridclaw/plugins/demo-plugin',
+        removedPluginDir: true,
+        removedConfigOverrides: 1,
+      })),
       pluginManagerMock: pluginManager,
     };
   });
@@ -38,7 +50,11 @@ vi.mock('../src/agent/agent.js', () => ({
 
 vi.mock('../src/plugins/plugin-manager.js', () => ({
   ensurePluginManagerInitialized: ensurePluginManagerInitializedMock,
-  shutdownPluginManager: vi.fn(async () => {}),
+  shutdownPluginManager: shutdownPluginManagerMock,
+}));
+
+vi.mock('../src/plugins/plugin-install.js', () => ({
+  uninstallPlugin: uninstallPluginMock,
 }));
 
 const { setupHome } = setupGatewayTest({
@@ -54,6 +70,8 @@ const { setupHome } = setupGatewayTest({
     pluginManagerMock.handleSessionReset.mockClear();
     pluginManagerMock.notifySessionStart.mockClear();
     pluginManagerMock.listPluginSummary.mockClear();
+    shutdownPluginManagerMock.mockClear();
+    uninstallPluginMock.mockClear();
   },
 });
 
@@ -186,4 +204,37 @@ test('handleGatewayCommand lists plugin summaries', async () => {
   expect(result.text).toContain('tools: demo_echo');
   expect(result.text).toContain('broken-plugin [home]');
   expect(result.text).toContain('error: register exploded');
+});
+
+test('handleGatewayCommand uninstalls a plugin and reloads the plugin manager', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-plugin-uninstall',
+    guildId: null,
+    channelId: 'web',
+    args: ['plugin', 'uninstall', 'demo-plugin'],
+  });
+
+  expect(uninstallPluginMock).toHaveBeenCalledWith('demo-plugin');
+  expect(shutdownPluginManagerMock).toHaveBeenCalled();
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Plugin Uninstalled');
+  expect(result.text).toContain(
+    'Uninstalled plugin `demo-plugin` from `/tmp/.hybridclaw/plugins/demo-plugin`.',
+  );
+  expect(result.text).toContain(
+    'Removed 1 matching `plugins.list[]` override.',
+  );
+  expect(result.text).toContain('Plugin runtime will reload on the next turn.');
 });

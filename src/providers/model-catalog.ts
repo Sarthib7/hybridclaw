@@ -5,12 +5,14 @@ import {
   discoverAllLocalModels,
   getDiscoveredLocalModelNames,
 } from './local-discovery.js';
+import { OPENAI_CODEX_MODEL_PREFIX } from './openai.js';
 import {
   discoverOpenRouterModels,
   getDiscoveredOpenRouterModelNames,
   isDiscoveredOpenRouterModelFree,
   isDiscoveredOpenRouterModelVisionCapable,
 } from './openrouter-discovery.js';
+import { OPENROUTER_MODEL_PREFIX } from './openrouter-utils.js';
 
 type ModelCatalogProviderFilter =
   | 'hybridai'
@@ -21,8 +23,6 @@ type ModelCatalogProviderFilter =
   | 'vllm'
   | 'local';
 
-const OPENAI_CODEX_MODEL_PREFIX = 'openai-codex/';
-const OPENROUTER_MODEL_PREFIX = 'openrouter/';
 const OLLAMA_MODEL_PREFIX = 'ollama/';
 const LMSTUDIO_MODEL_PREFIX = 'lmstudio/';
 const VLLM_MODEL_PREFIX = 'vllm/';

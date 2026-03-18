@@ -56,10 +56,13 @@ function isVisionCapableOpenRouterModel(
   const architecture = isRecord(entry.architecture) ? entry.architecture : null;
   if (architecture) {
     const modality = String(architecture.modality || '').toLowerCase();
-    // Modality strings like "text+image->text" indicate image input support.
-    if (modality.includes('image')) return true;
+    // Only the input side indicates whether the model accepts image input.
+    const inputSide = modality.includes('->')
+      ? (modality.split('->').at(0) ?? '')
+      : modality;
+    if (inputSide.includes('image')) return true;
   }
-  // Some entries expose a top-level capabilities array or object.
+  // Some entries expose a top-level capabilities array.
   if (Array.isArray(entry.capabilities)) {
     return entry.capabilities.some(
       (cap: unknown) => typeof cap === 'string' && /vision|image/i.test(cap),

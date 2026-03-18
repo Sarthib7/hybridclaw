@@ -81,6 +81,46 @@ const STATIC_MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   'gpt-5.3-codex-spark': 128_000,
 };
 
+function collectModelLookupCandidates(modelName: string): string[] {
+  const normalized = modelName.trim().toLowerCase();
+  if (!normalized) return [];
+
+  const candidates: string[] = [];
+  const seen = new Set<string>();
+  const queue = [normalized];
+
+  while (queue.length > 0) {
+    const candidate = queue.shift()?.trim().toLowerCase() ?? '';
+    if (!candidate || seen.has(candidate)) continue;
+
+    candidates.push(candidate);
+    seen.add(candidate);
+
+    if (candidate.includes('/')) {
+      queue.push(candidate.split('/').at(-1) ?? '');
+    }
+
+    if (candidate.includes(':')) {
+      queue.push(...candidate.split(':'));
+    }
+  }
+
+  return candidates;
+}
+
+function matchesModelFamily(candidateId: string, targetId: string): boolean {
+  if (!candidateId || !targetId) return false;
+  if (candidateId === targetId) return true;
+  const boundary = candidateId.at(targetId.length);
+  return (
+    candidateId.startsWith(targetId) &&
+    (boundary === '-' ||
+      boundary === '.' ||
+      boundary === ':' ||
+      boundary === '/')
+  );
+}
+
 export function resolveModelContextWindowFromList(
   models: HybridAIModel[],
   modelName: string,
@@ -90,21 +130,6 @@ export function resolveModelContextWindowFromList(
     return normalized.includes('/')
       ? (normalized.split('/').at(-1) ?? normalized)
       : normalized;
-  };
-  const matchesModelFamily = (
-    candidateId: string,
-    targetId: string,
-  ): boolean => {
-    if (!candidateId || !targetId) return false;
-    if (candidateId === targetId) return true;
-    const boundary = candidateId.at(targetId.length);
-    return (
-      candidateId.startsWith(targetId) &&
-      (boundary === '-' ||
-        boundary === '.' ||
-        boundary === ':' ||
-        boundary === '/')
-    );
   };
 
   const target = modelName.trim().toLowerCase();
@@ -145,45 +170,17 @@ export function resolveModelContextWindowFromList(
 export function resolveModelContextWindowFallback(
   modelName: string,
 ): number | null {
-  const matchesModelFamily = (
-    candidateId: string,
-    targetId: string,
-  ): boolean => {
-    if (!candidateId || !targetId) return false;
-    if (candidateId === targetId) return true;
-    const boundary = candidateId.at(targetId.length);
-    return (
-      candidateId.startsWith(targetId) &&
-      (boundary === '-' ||
-        boundary === '.' ||
-        boundary === ':' ||
-        boundary === '/')
-    );
-  };
+  const candidates = collectModelLookupCandidates(modelName);
+  if (candidates.length === 0) return null;
 
-  const normalized = modelName.trim().toLowerCase();
-  if (!normalized) return null;
-
-  const direct = STATIC_MODEL_CONTEXT_WINDOWS[normalized];
-  if (direct != null) return direct;
-
-  const slashTail = normalized.includes('/')
-    ? (normalized.split('/').at(-1) ?? '')
-    : normalized;
-  if (slashTail && STATIC_MODEL_CONTEXT_WINDOWS[slashTail] != null) {
-    return STATIC_MODEL_CONTEXT_WINDOWS[slashTail];
+  for (const candidate of candidates) {
+    const direct = STATIC_MODEL_CONTEXT_WINDOWS[candidate];
+    if (direct != null) return direct;
   }
 
-  const colonTail = normalized.includes(':')
-    ? (normalized.split(':').at(-1) ?? '')
-    : normalized;
-  if (colonTail && STATIC_MODEL_CONTEXT_WINDOWS[colonTail] != null) {
-    return STATIC_MODEL_CONTEXT_WINDOWS[colonTail];
-  }
-
-  // Family fallback for versioned ids, e.g. "gpt-5.1-2025-11-13".
-  const familyCandidates = [slashTail, colonTail, normalized].filter(Boolean);
-  for (const candidate of familyCandidates) {
+  // Family fallback for derived ids such as "gpt-5.1-2025-11-13" or
+  // provider/tag forms like "openai/gpt-5:latest".
+  for (const candidate of candidates) {
     const bestMatch = Object.keys(STATIC_MODEL_CONTEXT_WINDOWS)
       .filter((key) => matchesModelFamily(candidate, key))
       .sort((a, b) => b.length - a.length)
@@ -201,20 +198,7 @@ export function resolveModelContextWindowFallback(
  * "gpt-5:latest" still match.
  */
 export function isStaticModelVisionCapable(modelName: string): boolean {
-  const normalized = modelName.trim().toLowerCase();
-  if (!normalized) return false;
-
-  if (STATIC_VISION_CAPABLE_MODELS.has(normalized)) return true;
-
-  const slashTail = normalized.includes('/')
-    ? (normalized.split('/').at(-1) ?? '')
-    : normalized;
-  if (slashTail && STATIC_VISION_CAPABLE_MODELS.has(slashTail)) return true;
-
-  const colonTail = normalized.includes(':')
-    ? (normalized.split(':').at(-1) ?? '')
-    : normalized;
-  if (colonTail && STATIC_VISION_CAPABLE_MODELS.has(colonTail)) return true;
-
-  return false;
+  return collectModelLookupCandidates(modelName).some((candidate) =>
+    STATIC_VISION_CAPABLE_MODELS.has(candidate),
+  );
 }

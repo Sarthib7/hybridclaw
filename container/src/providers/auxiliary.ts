@@ -205,6 +205,7 @@ export async function callAuxiliaryModel(
         `Model "${context.model}" does not support vision/image inputs. ` +
           'Configure a vision-capable model via auxiliaryModels.vision in runtime config, ' +
           `or use a vision-enabled session model. Original error: ${message}`,
+        { cause: err },
       );
     }
     throw err;

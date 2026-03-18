@@ -65,4 +65,24 @@ describe('compactInLoop', () => {
       ),
     ).toBe(true);
   });
+
+  test('keeps the normalized summary within maxSummaryChars when truncating', async () => {
+    const result = await compactInLoop({
+      history: buildHistory(),
+      contextWindowTokens: 128_000,
+      summarize: async () => `\`\`\`md\n${'x'.repeat(7_000)}\n\`\`\``,
+    });
+
+    const summaryMessage = result.history.find((message) =>
+      String(message.content).startsWith('[In-loop compaction summary]\n'),
+    );
+    expect(summaryMessage).toBeDefined();
+
+    const summaryBody = String(summaryMessage?.content).slice(
+      '[In-loop compaction summary]\n'.length,
+    );
+    expect(summaryBody.length).toBeLessThanOrEqual(6_000);
+    expect(summaryBody.includes('```')).toBe(false);
+    expect(summaryBody.endsWith('\n\n...[truncated]')).toBe(true);
+  });
 });

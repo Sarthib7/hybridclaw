@@ -1,3 +1,4 @@
+import { truncateHeadTailText } from './text-truncation.js';
 import { normalizeContentText } from './token-usage.js';
 import type { ChatMessage } from './types.js';
 
@@ -20,22 +21,13 @@ function truncateInline(text: string, maxChars = 240): string {
 }
 
 function truncateForPrompt(text: string, maxChars: number): string {
-  if (text.length <= maxChars) return text;
-  const available = maxChars - SUMMARY_TRUNCATED_MARKER.length;
-  if (available <= 0) return text.slice(0, maxChars);
-
-  let headChars = Math.floor(available * 0.75);
-  let tailChars = Math.floor(available * 0.15);
-  if (headChars + tailChars > available) {
-    tailChars = Math.max(0, available - headChars);
-  } else {
-    headChars += available - (headChars + tailChars);
-  }
-
-  if (tailChars === 0) {
-    return `${text.slice(0, headChars)}${SUMMARY_TRUNCATED_MARKER}`;
-  }
-  return `${text.slice(0, headChars)}${SUMMARY_TRUNCATED_MARKER}${text.slice(text.length - tailChars)}`;
+  return truncateHeadTailText({
+    text,
+    maxChars,
+    marker: SUMMARY_TRUNCATED_MARKER,
+    headRatio: 0.75,
+    tailRatio: 0.15,
+  });
 }
 
 function countLeadingSystemMessages(history: ChatMessage[]): number {
@@ -55,9 +47,24 @@ function normalizeSummary(summary: string, maxChars: number): string {
       .trim();
   }
   if (normalized.length > maxChars) {
-    normalized = `${normalized.slice(0, maxChars)}${SUMMARY_TRUNCATED_MARKER}`;
+    const available = maxChars - SUMMARY_TRUNCATED_MARKER.length;
+    normalized =
+      available > 0
+        ? `${normalized.slice(0, available)}${SUMMARY_TRUNCATED_MARKER}`
+        : normalized.slice(0, maxChars);
   }
   return normalized.trim();
+}
+
+function hasSummaryContent(summary: string): boolean {
+  let normalized = summary.trim();
+  if (normalized.startsWith('```')) {
+    normalized = normalized
+      .replace(/^```[a-z0-9_-]*\s*/i, '')
+      .replace(/```$/i, '')
+      .trim();
+  }
+  return normalized.length > 0;
 }
 
 function buildCompactionRegion(history: ChatMessage[]): {
@@ -78,6 +85,9 @@ function buildCompactionRegion(history: ChatMessage[]): {
     Math.max(0, body.length - headCount),
   );
   if (headCount + tailCount >= body.length) {
+    // If the default protected slices would consume the whole body, fall back
+    // to a smaller 2+4 split so the compaction region still has something to
+    // summarize instead of collapsing to an empty middle.
     headCount = Math.min(2, Math.max(0, body.length - 1));
     tailCount = Math.min(4, Math.max(1, body.length - headCount - 1));
   }
@@ -211,15 +221,12 @@ export async function compactInLoop(params: {
     summary = buildHeuristicSummary(region.middle);
   }
 
-  const normalizedSummary = normalizeSummary(summary, maxSummaryChars);
-  if (!normalizedSummary) {
+  let activeSummary = summary;
+  if (!hasSummaryContent(activeSummary)) {
     summarySource = 'heuristic';
-    summary = buildHeuristicSummary(region.middle);
+    activeSummary = buildHeuristicSummary(region.middle);
   }
-  const finalSummary = normalizeSummary(
-    summarySource === 'heuristic' ? summary : normalizedSummary,
-    maxSummaryChars,
-  );
+  const finalSummary = normalizeSummary(activeSummary, maxSummaryChars);
   const summaryMessage: ChatMessage = {
     role: 'assistant',
     content: `${SUMMARY_LABEL}\n${finalSummary}`,

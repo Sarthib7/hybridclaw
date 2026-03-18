@@ -1,4 +1,9 @@
 import {
+  CONTEXT_GUARD_DEFAULTS,
+  normalizeContextGuardConfig,
+} from '../shared/context-guard-config.js';
+import { truncateHeadTailText } from './text-truncation.js';
+import {
   estimateChatMessageTokens,
   estimateMessageTokens,
   estimateToolResultTokens,
@@ -8,24 +13,14 @@ import {
 } from './token-usage.js';
 import type { ChatMessage, ContextGuardConfig } from './types.js';
 
-const DEFAULT_CONTEXT_GUARD_CONFIG: ContextGuardConfig = {
-  enabled: true,
-  perResultShare: 0.5,
-  compactionRatio: 0.75,
-  overflowRatio: 0.9,
-  maxRetries: 3,
-};
-
 const TOOL_RESULT_TRUNCATED_MARKER =
   '\n\n...[tool result truncated by context guard]...\n\n';
 export const COMPACTED_TOOL_RESULT_PLACEHOLDER =
   '[Historical tool result compacted to preserve context budget.]';
+const compactedToolMessages = new WeakSet<ChatMessage>();
 
 export interface ContextGuardResult {
-  totalTokensBefore: number;
   totalTokensAfter: number;
-  perResultLimitTokens: number;
-  compactionBudgetTokens: number;
   overflowBudgetTokens: number;
   truncatedToolResults: number;
   compactedToolResults: number;
@@ -35,41 +30,7 @@ export interface ContextGuardResult {
 function resolveConfig(
   config?: Partial<ContextGuardConfig>,
 ): ContextGuardConfig {
-  const perResultShare = Math.max(
-    0.1,
-    Math.min(
-      0.9,
-      config?.perResultShare ?? DEFAULT_CONTEXT_GUARD_CONFIG.perResultShare,
-    ),
-  );
-  const compactionRatio = Math.max(
-    0.2,
-    Math.min(
-      0.98,
-      config?.compactionRatio ?? DEFAULT_CONTEXT_GUARD_CONFIG.compactionRatio,
-    ),
-  );
-  const overflowRatio = Math.max(
-    compactionRatio,
-    Math.min(
-      0.99,
-      config?.overflowRatio ?? DEFAULT_CONTEXT_GUARD_CONFIG.overflowRatio,
-    ),
-  );
-
-  return {
-    enabled: config?.enabled ?? DEFAULT_CONTEXT_GUARD_CONFIG.enabled,
-    perResultShare,
-    compactionRatio,
-    overflowRatio,
-    maxRetries: Math.max(
-      0,
-      Math.min(
-        10,
-        config?.maxRetries ?? DEFAULT_CONTEXT_GUARD_CONFIG.maxRetries,
-      ),
-    ),
-  };
+  return normalizeContextGuardConfig(config, CONTEXT_GUARD_DEFAULTS);
 }
 
 function isToolMessage(message: ChatMessage): boolean {
@@ -77,9 +38,7 @@ function isToolMessage(message: ChatMessage): boolean {
 }
 
 function isCompactedToolMessage(message: ChatMessage): boolean {
-  return (
-    normalizeContentText(message.content) === COMPACTED_TOOL_RESULT_PLACEHOLDER
-  );
+  return compactedToolMessages.has(message);
 }
 
 function truncateToolResultText(content: string, maxTokens: number): string {
@@ -87,24 +46,13 @@ function truncateToolResultText(content: string, maxTokens: number): string {
     TOOL_RESULT_TRUNCATED_MARKER.length + 16,
     Math.floor(maxTokens * TOOL_RESULT_CHARS_PER_TOKEN),
   );
-  if (content.length <= maxChars) return content;
-
-  const available = maxChars - TOOL_RESULT_TRUNCATED_MARKER.length;
-  if (available <= 0) return content.slice(0, maxChars);
-
-  let headChars = Math.floor(available * 0.7);
-  let tailChars = Math.floor(available * 0.2);
-  if (headChars + tailChars > available) {
-    const scale = available / Math.max(1, headChars + tailChars);
-    headChars = Math.floor(headChars * scale);
-    tailChars = Math.floor(tailChars * scale);
-  }
-  headChars += Math.max(0, available - (headChars + tailChars));
-
-  if (tailChars <= 0) {
-    return `${content.slice(0, headChars)}${TOOL_RESULT_TRUNCATED_MARKER}`;
-  }
-  return `${content.slice(0, headChars)}${TOOL_RESULT_TRUNCATED_MARKER}${content.slice(content.length - tailChars)}`;
+  return truncateHeadTailText({
+    text: content,
+    maxChars,
+    marker: TOOL_RESULT_TRUNCATED_MARKER,
+    headRatio: 0.7,
+    tailRatio: 0.2,
+  });
 }
 
 function updateMessageContent(
@@ -142,23 +90,20 @@ export function applyContextGuard(params: {
     compactionBudgetTokens,
     Math.floor(contextWindowTokens * config.overflowRatio),
   );
-  let totalTokens = estimateMessageTokens(params.history, params.cache);
-  const totalTokensBefore = totalTokens;
-  let truncatedToolResults = 0;
-  let compactedToolResults = 0;
 
   if (!config.enabled || params.history.length === 0) {
     return {
-      totalTokensBefore,
-      totalTokensAfter: totalTokens,
-      perResultLimitTokens,
-      compactionBudgetTokens,
+      totalTokensAfter: 0,
       overflowBudgetTokens,
-      truncatedToolResults,
-      compactedToolResults,
+      truncatedToolResults: 0,
+      compactedToolResults: 0,
       tier3Triggered: false,
     };
   }
+
+  let totalTokens = estimateMessageTokens(params.history, params.cache);
+  let truncatedToolResults = 0;
+  let compactedToolResults = 0;
 
   for (const message of params.history) {
     if (!isToolMessage(message)) continue;
@@ -182,15 +127,13 @@ export function applyContextGuard(params: {
         COMPACTED_TOOL_RESULT_PLACEHOLDER,
         params.cache,
       );
+      compactedToolMessages.add(message);
       compactedToolResults += 1;
     }
   }
 
   return {
-    totalTokensBefore,
     totalTokensAfter: totalTokens,
-    perResultLimitTokens,
-    compactionBudgetTokens,
     overflowBudgetTokens,
     truncatedToolResults,
     compactedToolResults,

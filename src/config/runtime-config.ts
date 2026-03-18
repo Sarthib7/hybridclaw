@@ -2,6 +2,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  CONTEXT_GUARD_DEFAULTS,
+  normalizeContextGuardConfig,
+} from '../../container/shared/context-guard-config.js';
+import {
   type AgentConfig,
   type AgentDefaultsConfig,
   type AgentModelConfig,
@@ -873,13 +877,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       maxMessages: 80,
       maxChars: 24_000,
     },
-    inLoopGuard: {
-      enabled: true,
-      perResultShare: 0.5,
-      compactionRatio: 0.75,
-      overflowRatio: 0.9,
-      maxRetries: 3,
-    },
+    inLoopGuard: { ...CONTEXT_GUARD_DEFAULTS },
   },
   sessionReset: {
     defaultPolicy: {
@@ -3435,32 +3433,10 @@ function normalizeRuntimeConfig(
           { min: 4_000 },
         ),
       },
-      inLoopGuard: {
-        enabled: normalizeBoolean(
-          rawInLoopGuard.enabled,
-          DEFAULT_RUNTIME_CONFIG.sessionCompaction.inLoopGuard.enabled,
-        ),
-        perResultShare: normalizeNumber(
-          rawInLoopGuard.perResultShare,
-          DEFAULT_RUNTIME_CONFIG.sessionCompaction.inLoopGuard.perResultShare,
-          { min: 0.1, max: 0.9 },
-        ),
-        compactionRatio: normalizeNumber(
-          rawInLoopGuard.compactionRatio,
-          DEFAULT_RUNTIME_CONFIG.sessionCompaction.inLoopGuard.compactionRatio,
-          { min: 0.2, max: 0.98 },
-        ),
-        overflowRatio: normalizeNumber(
-          rawInLoopGuard.overflowRatio,
-          DEFAULT_RUNTIME_CONFIG.sessionCompaction.inLoopGuard.overflowRatio,
-          { min: 0.3, max: 0.99 },
-        ),
-        maxRetries: normalizeInteger(
-          rawInLoopGuard.maxRetries,
-          DEFAULT_RUNTIME_CONFIG.sessionCompaction.inLoopGuard.maxRetries,
-          { min: 0, max: 10 },
-        ),
-      },
+      inLoopGuard: normalizeContextGuardConfig(
+        rawInLoopGuard,
+        DEFAULT_RUNTIME_CONFIG.sessionCompaction.inLoopGuard,
+      ),
     },
     sessionReset: {
       defaultPolicy: {

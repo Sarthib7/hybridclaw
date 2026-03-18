@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.8.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.8.3)
+
+### Added
+
+- **Landing-page release highlights**: Added the 0.8.1 and 0.8.2 user-facing
+  updates to the docs landing page so the latest shipped changes are visible
+  from the project site.
+
 ## [0.8.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.8.2)
 
 ### Added

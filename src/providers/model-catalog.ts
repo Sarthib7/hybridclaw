@@ -1,5 +1,6 @@
 import { CONFIGURED_MODELS } from '../config/config.js';
 import { resolveModelProvider } from './factory.js';
+import { isStaticModelVisionCapable } from './hybridai-models.js';
 import {
   discoverAllLocalModels,
   getDiscoveredLocalModelNames,
@@ -10,7 +11,6 @@ import {
   isDiscoveredOpenRouterModelFree,
   isDiscoveredOpenRouterModelVisionCapable,
 } from './openrouter-discovery.js';
-import { isStaticModelVisionCapable } from './hybridai-models.js';
 
 type ModelCatalogProviderFilter =
   | 'hybridai'
@@ -179,9 +179,7 @@ export function isModelVisionCapable(model: string): boolean {
  * preferring models from the same provider prefix as `preferredModel`.
  * Returns null if no vision-capable model is found.
  */
-export function findVisionCapableModel(
-  preferredModel?: string,
-): string | null {
+export function findVisionCapableModel(preferredModel?: string): string | null {
   const allModels = getAvailableModelList();
   const visionModels = allModels.filter((m) => isModelVisionCapable(m));
   if (visionModels.length === 0) return null;

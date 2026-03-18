@@ -53,9 +53,7 @@ function readOpenRouterContextWindow(
 function isVisionCapableOpenRouterModel(
   entry: Record<string, unknown>,
 ): boolean {
-  const architecture = isRecord(entry.architecture)
-    ? entry.architecture
-    : null;
+  const architecture = isRecord(entry.architecture) ? entry.architecture : null;
   if (architecture) {
     const modality = String(architecture.modality || '').toLowerCase();
     // Modality strings like "text+image->text" indicate image input support.
@@ -64,8 +62,7 @@ function isVisionCapableOpenRouterModel(
   // Some entries expose a top-level capabilities array or object.
   if (Array.isArray(entry.capabilities)) {
     return entry.capabilities.some(
-      (cap: unknown) =>
-        typeof cap === 'string' && /vision|image/i.test(cap),
+      (cap: unknown) => typeof cap === 'string' && /vision|image/i.test(cap),
     );
   }
   return false;

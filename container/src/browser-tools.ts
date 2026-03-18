@@ -545,15 +545,10 @@ function resolveClickTarget(args: Record<string, unknown>): ClickTarget {
   const ref = String(args.ref || '').trim();
   const text = String(args.text || '').trim();
   const selector = String(args.selector || '').trim();
-  const targetAlias = String(args.target || '').trim();
-  if (selector && targetAlias && selector !== targetAlias) {
-    throw new Error('provide only one of selector or target');
-  }
-  const selectorValue = selector || targetAlias;
 
   const specifiedTargets = [
     ref ? 'ref' : null,
-    selectorValue ? 'selector' : null,
+    selector ? 'selector' : null,
     text ? 'text' : null,
   ].filter((value): value is string => Boolean(value));
   if (specifiedTargets.length > 1) {
@@ -561,7 +556,7 @@ function resolveClickTarget(args: Record<string, unknown>): ClickTarget {
   }
 
   if (!ref) {
-    if (selectorValue) return { raw: selectorValue, source: 'selector' };
+    if (selector) return { raw: selector, source: 'selector' };
     if (text) return { raw: text, source: 'text' };
     throw new Error('ref is required (or provide selector or text)');
   }
@@ -755,7 +750,7 @@ ${buildElementClickResultScript()}
 function buildTextClickScript(text: string, exact: boolean): string {
   return `(() => {
   const query = ${JSON.stringify(text)};
-  const exact = ${exact ? 'true' : 'false'};
+  const exact = ${JSON.stringify(exact)};
   const normalize = (value) =>
     String(value || '')
       .replace(/\\s+/g, ' ')

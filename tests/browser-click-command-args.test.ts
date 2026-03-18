@@ -61,7 +61,9 @@ test('browser_click preserves ref-based clicks', async () => {
   vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', tempRoot);
   vi.stubEnv('AGENT_BROWSER_BIN', createAgentBrowserStub(tempRoot));
 
-  const { executeBrowserTool } = await import('../container/src/browser-tools.js');
+  const { executeBrowserTool } = await import(
+    '../container/src/browser-tools.js'
+  );
 
   const output = await executeBrowserTool(
     'browser_click',
@@ -84,7 +86,9 @@ test('browser_click accepts selector fallback clicks', async () => {
   vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', tempRoot);
   vi.stubEnv('AGENT_BROWSER_BIN', createAgentBrowserStub(tempRoot));
 
-  const { executeBrowserTool } = await import('../container/src/browser-tools.js');
+  const { executeBrowserTool } = await import(
+    '../container/src/browser-tools.js'
+  );
 
   const selector = 'img[alt="Cover: Leben mit Bots"]';
   const output = await executeBrowserTool(
@@ -109,7 +113,9 @@ test('browser_click accepts visible-text fallback clicks', async () => {
   vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', tempRoot);
   vi.stubEnv('AGENT_BROWSER_BIN', createAgentBrowserStub(tempRoot));
 
-  const { executeBrowserTool } = await import('../container/src/browser-tools.js');
+  const { executeBrowserTool } = await import(
+    '../container/src/browser-tools.js'
+  );
 
   const output = await executeBrowserTool(
     'browser_click',

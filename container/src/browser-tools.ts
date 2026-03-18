@@ -674,10 +674,7 @@ function normalizeSnapshotMode(rawMode: unknown): SnapshotMode {
   throw new Error('mode must be one of "default", "interactive", or "full"');
 }
 
-function buildSnapshotCommandArgs(
-  mode: SnapshotMode,
-  full: boolean,
-): string[] {
+function buildSnapshotCommandArgs(mode: SnapshotMode, full: boolean): string[] {
   if (mode === 'interactive') return ['-i', ...SNAPSHOT_CURSOR_FLAGS];
   if (mode === 'full' || full) return [...SNAPSHOT_CURSOR_FLAGS];
   return ['-i', '-c', ...SNAPSHOT_CURSOR_FLAGS];

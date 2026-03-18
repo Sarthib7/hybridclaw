@@ -1271,10 +1271,10 @@ function pickReadWithoutReplyEmoji(): string {
   return Math.random() < 0.7 ? '👍' : '✅';
 }
 
-export function initDiscord(
+export async function initDiscord(
   onMessage: MessageHandler,
   onCommand: CommandHandler,
-): Client {
+): Promise<Client> {
   messageHandler = onMessage;
   commandHandler = onCommand;
   registerChannel({
@@ -2530,10 +2530,16 @@ export function initDiscord(
     });
   });
 
-  if (!DISCORD_TOKEN) {
+  const discordToken = String(DISCORD_TOKEN || '').trim();
+  if (!discordToken) {
     throw new Error('DISCORD_TOKEN is required to start the Discord bot');
   }
-  client.login(DISCORD_TOKEN);
+  try {
+    await client.login(discordToken);
+  } catch (error) {
+    client.destroy();
+    throw error;
+  }
   return client;
 }
 

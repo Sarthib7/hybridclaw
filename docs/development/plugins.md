@@ -20,6 +20,7 @@ The install command:
 - validates `hybridclaw.plugin.yaml`
 - installs npm dependencies when the plugin ships a `package.json` or npm
   install hints
+- disables npm lifecycle scripts during install-time dependency resolution
 
 `hybridclaw plugin list` shows discovered plugins with source, enabled state,
 registered tools/hooks, and any load error.
@@ -94,6 +95,15 @@ The manifest supports:
 - install hints under `install`
 - plugin config validation with `configSchema`
 - optional UI labels under `configUiHints`
+
+`configSchema` is validated with Ajv, so standard JSON Schema keywords such as
+`minLength`, `maxLength`, `pattern`, `minimum`, and `maximum` are enforced.
+
+For `requires.node`, use `>=22` for a minimum supported runtime. A bare numeric
+version pins the components you provide: `22` means Node 22.x, `22.3` means
+Node 22.3.x, and `22.3.1` means exactly 22.3.1.
+Plugins can only read environment variables declared in `requires.env` through
+`api.getCredential(...)`; undeclared process environment values are not exposed.
 
 ## Runtime API
 

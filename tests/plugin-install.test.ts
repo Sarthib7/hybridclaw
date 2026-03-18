@@ -57,6 +57,29 @@ function writePluginDir(dir: string, options?: { packageName?: string }): void {
   );
 }
 
+function writeManifestOnlyPluginDir(dir: string): void {
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, 'hybridclaw.plugin.yaml'),
+    [
+      'id: manifest-only-plugin',
+      'name: Manifest Only Plugin',
+      'version: 1.0.0',
+      'kind: tool',
+      'install:',
+      '  - kind: npm',
+      '    package: "@scope/manifest-only-dep"',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+  fs.writeFileSync(
+    path.join(dir, 'index.js'),
+    "export default { id: 'manifest-only-plugin', register() {} };\n",
+    'utf-8',
+  );
+}
+
 afterEach(() => {
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop();
@@ -116,7 +139,13 @@ describe('plugin install', () => {
     expect(runCommand).toHaveBeenCalledWith(
       expect.objectContaining({
         command: 'npm',
-        args: ['install', '--omit=dev', '--no-audit', '--no-fund'],
+        args: [
+          'install',
+          '--ignore-scripts',
+          '--omit=dev',
+          '--no-audit',
+          '--no-fund',
+        ],
       }),
     );
   });
@@ -184,7 +213,58 @@ describe('plugin install', () => {
       2,
       expect.objectContaining({
         command: 'npm',
-        args: ['install', '--omit=dev', '--no-audit', '--no-fund'],
+        args: [
+          'install',
+          '--ignore-scripts',
+          '--omit=dev',
+          '--no-audit',
+          '--no-fund',
+        ],
+      }),
+    );
+  });
+
+  test('installs manifest-declared npm packages with scripts disabled when no package.json is present', async () => {
+    const homeDir = makeTempDir('hybridclaw-plugin-home-');
+    const cwd = makeTempDir('hybridclaw-plugin-cwd-');
+    const sourceDir = path.join(cwd, 'manifest-only-plugin');
+    writeManifestOnlyPluginDir(sourceDir);
+
+    const runCommand = vi.fn();
+    const { installPlugin } = await import('../src/plugins/plugin-install.js');
+    const result = await installPlugin(sourceDir, {
+      homeDir,
+      cwd,
+      runCommand,
+    });
+
+    const installedDir = path.join(
+      homeDir,
+      '.hybridclaw',
+      'plugins',
+      'manifest-only-plugin',
+    );
+    expect(result).toEqual({
+      pluginId: 'manifest-only-plugin',
+      pluginDir: installedDir,
+      source: sourceDir,
+      alreadyInstalled: false,
+      dependenciesInstalled: true,
+      requiresEnv: [],
+      requiredConfigKeys: [],
+    });
+    expect(runCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: 'npm',
+        args: [
+          'install',
+          '--ignore-scripts',
+          '--omit=dev',
+          '--no-package-lock',
+          '--no-audit',
+          '--no-fund',
+          '@scope/manifest-only-dep',
+        ],
       }),
     );
   });

@@ -4,6 +4,7 @@ import { setupGatewayTest } from './helpers/gateway-test-setup.js';
 const {
   runAgentMock,
   ensurePluginManagerInitializedMock,
+  reloadPluginManagerMock,
   shutdownPluginManagerMock,
   uninstallPluginMock,
   pluginManagerMock,
@@ -33,6 +34,7 @@ const {
   return {
     runAgentMock: vi.fn(),
     ensurePluginManagerInitializedMock: vi.fn(async () => pluginManager),
+    reloadPluginManagerMock: vi.fn(async () => pluginManager),
     shutdownPluginManagerMock: vi.fn(async () => {}),
     uninstallPluginMock: vi.fn(async () => ({
       pluginId: 'demo-plugin',
@@ -50,6 +52,7 @@ vi.mock('../src/agent/agent.js', () => ({
 
 vi.mock('../src/plugins/plugin-manager.js', () => ({
   ensurePluginManagerInitialized: ensurePluginManagerInitializedMock,
+  reloadPluginManager: reloadPluginManagerMock,
   shutdownPluginManager: shutdownPluginManagerMock,
 }));
 
@@ -62,6 +65,7 @@ const { setupHome } = setupGatewayTest({
   cleanup: () => {
     runAgentMock.mockReset();
     ensurePluginManagerInitializedMock.mockClear();
+    reloadPluginManagerMock.mockClear();
     pluginManagerMock.collectPromptContext.mockClear();
     pluginManagerMock.getToolDefinitions.mockClear();
     pluginManagerMock.notifyBeforeAgentStart.mockClear();
@@ -158,6 +162,47 @@ test('handleGatewayMessage injects plugin prompt context and forwards plugin too
   );
 });
 
+test('handleGatewayMessage continues without plugins when plugin manager init fails', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  ensurePluginManagerInitializedMock.mockRejectedValueOnce(
+    new Error('plugin init failed'),
+  );
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'pluginless reply',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+
+  const result = await handleGatewayMessage({
+    sessionId: 'session-pluginless-test',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-42',
+    username: 'alice',
+    content: 'Still answer even if plugins explode.',
+    model: 'test-model',
+    chatbotId: 'bot-1',
+  });
+
+  expect(result.status).toBe('success');
+  expect(result.result).toBe('pluginless reply');
+  expect(pluginManagerMock.collectPromptContext).not.toHaveBeenCalled();
+  expect(pluginManagerMock.notifyBeforeAgentStart).not.toHaveBeenCalled();
+  expect(runAgentMock).toHaveBeenCalledWith(
+    expect.objectContaining({
+      pluginTools: [],
+    }),
+  );
+});
+
 test('handleGatewayCommand lists plugin summaries', async () => {
   setupHome();
 
@@ -204,6 +249,34 @@ test('handleGatewayCommand lists plugin summaries', async () => {
   expect(result.text).toContain('tools: demo_echo');
   expect(result.text).toContain('broken-plugin [home]');
   expect(result.text).toContain('error: register exploded');
+});
+
+test('handleGatewayCommand help continues without plugins when plugin manager init fails', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  ensurePluginManagerInitializedMock.mockRejectedValueOnce(
+    new Error('plugin init failed'),
+  );
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-plugin-help',
+    guildId: null,
+    channelId: 'web',
+    args: ['help'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('HybridClaw Commands');
+  expect(result.text).toContain('`plugin reload`');
 });
 
 test('handleGatewayCommand uninstalls a plugin and reloads the plugin manager', async () => {

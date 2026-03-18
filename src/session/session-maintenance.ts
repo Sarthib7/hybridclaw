@@ -14,7 +14,10 @@ import {
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { memoryService } from '../memory/memory-service.js';
-import { ensurePluginManagerInitialized } from '../plugins/plugin-manager.js';
+import {
+  ensurePluginManagerInitialized,
+  type PluginManager,
+} from '../plugins/plugin-manager.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
 import { resolveTaskModelPolicy } from '../providers/task-routing.js';
 import { loadSkills } from '../skills/skills.js';
@@ -114,6 +117,28 @@ function buildSystemPrompt(
   });
 }
 
+async function tryEnsurePluginManagerInitializedForSessionMaintenance(params: {
+  sessionId: string;
+  agentId: string;
+  channelId: string;
+  context: string;
+}): Promise<PluginManager | null> {
+  try {
+    return await ensurePluginManagerInitialized();
+  } catch (err) {
+    logger.warn(
+      {
+        sessionId: params.sessionId,
+        agentId: params.agentId,
+        channelId: params.channelId,
+        err,
+      },
+      `Plugin manager init failed; proceeding without ${params.context} plugin hooks`,
+    );
+    return null;
+  }
+}
+
 export async function runPreCompactionMemoryFlush(params: {
   sessionId: string;
   agentId: string;
@@ -203,13 +228,22 @@ export async function runPreCompactionMemoryFlush(params: {
       return;
     }
     memoryService.markSessionMemoryFlush(params.sessionId);
-    const pluginManager = await ensurePluginManagerInitialized();
-    await pluginManager.notifyMemoryFlush({
-      sessionId: params.sessionId,
-      agentId: params.agentId,
-      channelId: params.channelId,
-      olderMessages: params.olderMessages,
-    });
+    const pluginManager = await tryEnsurePluginManagerInitializedForSessionMaintenance(
+      {
+        sessionId: params.sessionId,
+        agentId: params.agentId,
+        channelId: params.channelId,
+        context: 'memory flush',
+      },
+    );
+    if (pluginManager) {
+      await pluginManager.notifyMemoryFlush({
+        sessionId: params.sessionId,
+        agentId: params.agentId,
+        channelId: params.channelId,
+        olderMessages: params.olderMessages,
+      });
+    }
   } catch (err) {
     logger.warn(
       { sessionId: params.sessionId, err },
@@ -352,14 +386,23 @@ export async function maybeCompactSession(params: {
   );
   if (!candidate || candidate.olderMessages.length === 0) return;
 
-  const pluginManager = await ensurePluginManagerInitialized();
-  await pluginManager.notifyBeforeCompaction({
-    sessionId: params.sessionId,
-    agentId: params.agentId,
-    channelId: params.channelId,
-    summary: session.session_summary,
-    olderMessages: candidate.olderMessages,
-  });
+  const pluginManager = await tryEnsurePluginManagerInitializedForSessionMaintenance(
+    {
+      sessionId: params.sessionId,
+      agentId: params.agentId,
+      channelId: params.channelId,
+      context: 'compaction',
+    },
+  );
+  if (pluginManager) {
+    await pluginManager.notifyBeforeCompaction({
+      sessionId: params.sessionId,
+      agentId: params.agentId,
+      channelId: params.channelId,
+      summary: session.session_summary,
+      olderMessages: candidate.olderMessages,
+    });
+  }
 
   await runPreCompactionMemoryFlush({
     ...params,
@@ -415,11 +458,13 @@ export async function maybeCompactSession(params: {
     },
     'Session compacted',
   );
-  await pluginManager.notifyAfterCompaction({
-    sessionId: params.sessionId,
-    agentId: params.agentId,
-    channelId: params.channelId,
-    summary,
-    olderMessages: candidate.olderMessages,
-  });
+  if (pluginManager) {
+    await pluginManager.notifyAfterCompaction({
+      sessionId: params.sessionId,
+      agentId: params.agentId,
+      channelId: params.channelId,
+      summary,
+      olderMessages: candidate.olderMessages,
+    });
+  }
 }

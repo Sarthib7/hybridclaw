@@ -44,12 +44,18 @@ export function createPluginApi(params: {
   registrationMode: PluginRegistrationMode;
   config: RuntimeConfig;
   pluginConfig: Record<string, unknown>;
+  declaredEnv: readonly string[];
   homeDir: string;
   cwd: string;
 }): HybridClawPluginApi {
   const pluginLogger = logger.child({
     pluginId: params.pluginId,
   }) as PluginLogger;
+  const declaredEnv = new Set(
+    params.declaredEnv
+      .map((key) => (typeof key === 'string' ? key.trim() : ''))
+      .filter((key) => key.length > 0),
+  );
   const config = deepFreezeClone(params.config);
   const pluginConfig = deepFreezeClone(params.pluginConfig);
   const runtime: PluginRuntime = Object.freeze({
@@ -101,6 +107,7 @@ export function createPluginApi(params: {
     getCredential(key: string): string | undefined {
       const normalized = String(key || '').trim();
       if (!normalized) return undefined;
+      if (!declaredEnv.has(normalized)) return undefined;
       const value = process.env[normalized];
       if (typeof value !== 'string') return undefined;
       const trimmed = value.trim();

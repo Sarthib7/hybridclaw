@@ -244,7 +244,13 @@ function installPluginDependencies(
   if (fs.existsSync(packageJsonPath)) {
     runCommand({
       command: 'npm',
-      args: ['install', '--omit=dev', '--no-audit', '--no-fund'],
+      args: [
+        'install',
+        '--ignore-scripts',
+        '--omit=dev',
+        '--no-audit',
+        '--no-fund',
+      ],
       cwd: pluginDir,
     });
     return true;
@@ -257,6 +263,7 @@ function installPluginDependencies(
     command: 'npm',
     args: [
       'install',
+      '--ignore-scripts',
       '--omit=dev',
       '--no-package-lock',
       '--no-audit',

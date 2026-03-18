@@ -119,6 +119,7 @@ import {
   ensurePluginManagerInitialized,
   reloadPluginManager,
   shutdownPluginManager,
+  type PluginManager,
 } from '../plugins/plugin-manager.js';
 import {
   modelRequiresChatbotId,
@@ -1382,6 +1383,35 @@ function normalizeRalphIterations(value: number): number {
 
 function badCommand(title: string, text: string): GatewayCommandResult {
   return { kind: 'error', title, text };
+}
+
+async function tryEnsurePluginManagerInitializedForGateway(params: {
+  sessionId: string;
+  channelId: string;
+  agentId?: string | null;
+  surface: 'chat' | 'command';
+}): Promise<{
+  pluginManager: PluginManager | null;
+  pluginInitError: unknown;
+}> {
+  try {
+    return {
+      pluginManager: await ensurePluginManagerInitialized(),
+      pluginInitError: null,
+    };
+  } catch (pluginInitError) {
+    logger.warn(
+      {
+        sessionId: params.sessionId,
+        channelId: params.channelId,
+        agentId: params.agentId ?? null,
+        surface: params.surface,
+        error: pluginInitError,
+      },
+      'Plugin manager init failed; proceeding without plugins',
+    );
+    return { pluginManager: null, pluginInitError };
+  }
 }
 
 function infoCommand(
@@ -3598,7 +3628,12 @@ export async function handleGatewayMessage(
   req: GatewayChatRequest,
 ): Promise<GatewayChatResult> {
   const startedAt = Date.now();
-  const pluginManager = await ensurePluginManagerInitialized();
+  const { pluginManager } = await tryEnsurePluginManagerInitializedForGateway({
+    sessionId: req.sessionId,
+    channelId: req.channelId,
+    agentId: req.agentId,
+    surface: 'chat',
+  });
   const runId = makeAuditRunId('turn');
   const source = req.source?.trim() || 'gateway.chat';
   const sessionResetPolicy = resolveSessionAutoResetPolicy(req.channelId);
@@ -3618,15 +3653,17 @@ export async function handleGatewayMessage(
   if (autoResetSession) {
     const previousSessionId = req.sessionId;
     req.sessionId = autoResetSession.id;
-    await pluginManager.handleSessionReset({
-      previousSessionId,
-      sessionId: req.sessionId,
-      userId: req.userId,
-      agentId:
-        req.agentId?.trim() || autoResetSession.agent_id || DEFAULT_AGENT_ID,
-      channelId: req.channelId,
-      reason: 'auto-reset',
-    });
+    if (pluginManager) {
+      await pluginManager.handleSessionReset({
+        previousSessionId,
+        sessionId: req.sessionId,
+        userId: req.userId,
+        agentId:
+          req.agentId?.trim() || autoResetSession.agent_id || DEFAULT_AGENT_ID,
+        channelId: req.channelId,
+        reason: 'auto-reset',
+      });
+    }
   }
   let session = memoryService.getOrCreateSession(
     req.sessionId,
@@ -3691,14 +3728,16 @@ export async function handleGatewayMessage(
     if (reboundSession) {
       const previousSessionId = req.sessionId;
       req.sessionId = reboundSession.id;
-      await pluginManager.handleSessionReset({
-        previousSessionId,
-        sessionId: req.sessionId,
-        userId: req.userId,
-        agentId,
-        channelId: req.channelId,
-        reason: 'auto-reset',
-      });
+      if (pluginManager) {
+        await pluginManager.handleSessionReset({
+          previousSessionId,
+          sessionId: req.sessionId,
+          userId: req.userId,
+          agentId,
+          channelId: req.channelId,
+          reason: 'auto-reset',
+        });
+      }
     }
     session = memoryService.getOrCreateSession(
       req.sessionId,
@@ -3744,14 +3783,16 @@ export async function handleGatewayMessage(
     const rotated = createFreshSessionInstance(req.sessionId);
     req.sessionId = rotated.session.id;
     session = rotated.session;
-    await pluginManager.handleSessionReset({
-      previousSessionId: rotated.previousSession.id,
-      sessionId: rotated.session.id,
-      userId: req.userId,
-      agentId,
-      channelId: req.channelId,
-      reason: 'workspace-reset',
-    });
+    if (pluginManager) {
+      await pluginManager.handleSessionReset({
+        previousSessionId: rotated.previousSession.id,
+        sessionId: rotated.session.id,
+        userId: req.userId,
+        agentId,
+        channelId: req.channelId,
+        reason: 'workspace-reset',
+      });
+    }
     logger.info(
       {
         sessionId: req.sessionId,
@@ -3785,12 +3826,14 @@ export async function handleGatewayMessage(
   }
   const turnIndex = session.message_count + 1;
   if (turnIndex === 1) {
-    await pluginManager.notifySessionStart({
-      sessionId: req.sessionId,
-      userId: req.userId,
-      agentId,
-      channelId: req.channelId,
-    });
+    if (pluginManager) {
+      await pluginManager.notifySessionStart({
+        sessionId: req.sessionId,
+        userId: req.userId,
+        agentId,
+        channelId: req.channelId,
+      });
+    }
   }
   const debugMeta = {
     sessionId: req.sessionId,
@@ -3954,13 +3997,15 @@ export async function handleGatewayMessage(
     recentMessages: canonicalContext.recent_messages,
   });
   const pluginPromptSummary = formatPluginPromptContext(
-    await pluginManager.collectPromptContext({
-      sessionId: req.sessionId,
-      userId: req.userId,
-      agentId,
-      channelId: req.channelId,
-      recentMessages: history,
-    }),
+    pluginManager
+      ? await pluginManager.collectPromptContext({
+          sessionId: req.sessionId,
+          userId: req.userId,
+          agentId,
+          channelId: req.channelId,
+          recentMessages: history,
+        })
+      : [],
   );
   const memoryContext = memoryService.buildPromptMemoryContext({
     session,
@@ -4132,12 +4177,15 @@ export async function handleGatewayMessage(
         promptMessages: messages.length,
       },
     });
-    await pluginManager.notifyBeforeAgentStart({
-      sessionId: req.sessionId,
-      userId: req.userId,
-      agentId,
-      channelId: req.channelId,
-    });
+    if (pluginManager) {
+      await pluginManager.notifyBeforeAgentStart({
+        sessionId: req.sessionId,
+        userId: req.userId,
+        agentId,
+        channelId: req.channelId,
+        model: model || undefined,
+      });
+    }
     agentStage = 'awaiting-agent-output';
     const output = await runAgent({
       sessionId: req.sessionId,
@@ -4158,7 +4206,7 @@ export async function handleGatewayMessage(
       abortSignal: activeGatewayRequest.signal,
       media,
       audioTranscriptsPrepended: audioPrelude.transcripts.length > 0,
-      pluginTools: pluginManager.getToolDefinitions(),
+      pluginTools: pluginManager?.getToolDefinitions() ?? [],
     });
     agentStage = 'processing-agent-output';
     const effectiveUserContent =
@@ -4393,35 +4441,53 @@ export async function handleGatewayMessage(
       userContent: effectiveUserContent,
       resultText,
     });
-    void pluginManager
-      .notifyTurnComplete({
-        sessionId: req.sessionId,
-        userId: req.userId,
-        agentId,
-        messages: storedTurnMessages,
-      })
-      .catch((error) => {
-        logger.warn(
-          { sessionId: req.sessionId, agentId, error },
-          'Plugin turn-complete hooks failed',
-        );
-      });
-    void pluginManager
-      .notifyAgentEnd({
-        sessionId: req.sessionId,
-        userId: req.userId,
-        agentId,
-        channelId: req.channelId,
-        messages: storedTurnMessages,
-        resultText,
-        toolNames: toolExecutions.map((execution) => execution.name),
-      })
-      .catch((error) => {
-        logger.warn(
-          { sessionId: req.sessionId, agentId, error },
-          'Plugin agent-end hooks failed',
-        );
-      });
+    if (pluginManager) {
+      void pluginManager
+        .notifyTurnComplete({
+          sessionId: req.sessionId,
+          userId: req.userId,
+          agentId,
+          messages: storedTurnMessages,
+        })
+        .catch((error) => {
+          logger.warn(
+            { sessionId: req.sessionId, agentId, error },
+            'Plugin turn-complete hooks failed',
+          );
+        });
+      void pluginManager
+        .notifyAgentEnd({
+          sessionId: req.sessionId,
+          userId: req.userId,
+          agentId,
+          channelId: req.channelId,
+          messages: storedTurnMessages,
+          resultText,
+          toolNames: toolExecutions.map((execution) => execution.name),
+          model: model || undefined,
+          durationMs: Date.now() - startedAt,
+          tokenUsage: output.tokenUsage
+            ? {
+                promptTokens: output.tokenUsage.apiUsageAvailable
+                  ? output.tokenUsage.apiPromptTokens
+                  : output.tokenUsage.estimatedPromptTokens,
+                completionTokens: output.tokenUsage.apiUsageAvailable
+                  ? output.tokenUsage.apiCompletionTokens
+                  : output.tokenUsage.estimatedCompletionTokens,
+                totalTokens: output.tokenUsage.apiUsageAvailable
+                  ? output.tokenUsage.apiTotalTokens
+                  : output.tokenUsage.estimatedTotalTokens,
+                modelCalls: output.tokenUsage.modelCalls,
+              }
+            : undefined,
+        })
+        .catch((error) => {
+          logger.warn(
+            { sessionId: req.sessionId, agentId, error },
+            'Plugin agent-end hooks failed',
+          );
+        });
+    }
 
     const result: GatewayChatResult = {
       status: 'success',
@@ -4604,7 +4670,12 @@ export async function runGatewayScheduledTask(
 export async function handleGatewayCommand(
   req: GatewayCommandRequest,
 ): Promise<GatewayCommandResult> {
-  let pluginManager = await ensurePluginManagerInitialized();
+  let { pluginManager, pluginInitError } =
+    await tryEnsurePluginManagerInitializedForGateway({
+      sessionId: req.sessionId,
+      channelId: req.channelId,
+      surface: 'command',
+    });
   const cmd = (req.args[0] || '').toLowerCase();
   const sessionResetPolicy = resolveSessionAutoResetPolicy(req.channelId);
   const expiryEvaluation = await prepareSessionAutoReset({
@@ -4619,14 +4690,16 @@ export async function handleGatewayCommand(
   if (autoResetSession) {
     const previousSessionId = req.sessionId;
     req.sessionId = autoResetSession.id;
-    await pluginManager.handleSessionReset({
-      previousSessionId,
-      sessionId: req.sessionId,
-      userId: String(req.userId || ''),
-      agentId: autoResetSession.agent_id || DEFAULT_AGENT_ID,
-      channelId: req.channelId,
-      reason: 'auto-reset',
-    });
+    if (pluginManager) {
+      await pluginManager.handleSessionReset({
+        previousSessionId,
+        sessionId: req.sessionId,
+        userId: String(req.userId || ''),
+        agentId: autoResetSession.agent_id || DEFAULT_AGENT_ID,
+        channelId: req.channelId,
+        reason: 'auto-reset',
+      });
+    }
   }
   let session = memoryService.getOrCreateSession(
     req.sessionId,
@@ -5480,6 +5553,14 @@ export async function handleGatewayCommand(
       case 'plugin': {
         const sub = (req.args[1] || 'list').toLowerCase();
         if (sub === 'list') {
+          if (!pluginManager) {
+            return badCommand(
+              'Plugin Runtime Unavailable',
+              pluginInitError instanceof Error
+                ? pluginInitError.message
+                : 'Plugin manager failed to initialize.',
+            );
+          }
           return infoCommand(
             'Plugins',
             formatPluginSummaryList(pluginManager.listPluginSummary()),
@@ -5516,6 +5597,7 @@ export async function handleGatewayCommand(
         if (sub === 'reload') {
           try {
             pluginManager = await reloadPluginManager();
+            pluginInitError = null;
             return infoCommand(
               'Plugins Reloaded',
               formatPluginSummaryList(pluginManager.listPluginSummary()),
@@ -5537,14 +5619,16 @@ export async function handleGatewayCommand(
         const rotated = createFreshSessionInstance(session.id);
         req.sessionId = rotated.session.id;
         session = rotated.session;
-        await pluginManager.handleSessionReset({
-          previousSessionId: rotated.previousSession.id,
-          sessionId: rotated.session.id,
-          userId: String(req.userId || ''),
-          agentId: resolveSessionAgentId(rotated.previousSession),
-          channelId: req.channelId,
-          reason: 'clear',
-        });
+        if (pluginManager) {
+          await pluginManager.handleSessionReset({
+            previousSessionId: rotated.previousSession.id,
+            sessionId: rotated.session.id,
+            userId: String(req.userId || ''),
+            agentId: resolveSessionAgentId(rotated.previousSession),
+            channelId: req.channelId,
+            reason: 'clear',
+          });
+        }
         if (typeof req.userId === 'string' && req.userId.trim()) {
           memoryService.clearCanonicalContext({
             agentId: resolveSessionAgentId(session),
@@ -5593,14 +5677,16 @@ export async function handleGatewayCommand(
           });
           req.sessionId = rotated.session.id;
           session = rotated.session;
-          await pluginManager.handleSessionReset({
-            previousSessionId: rotated.previousSession.id,
-            sessionId: rotated.session.id,
-            userId: String(req.userId || ''),
-            agentId: pending.agentId,
-            channelId: req.channelId,
-            reason: 'reset',
-          });
+          if (pluginManager) {
+            await pluginManager.handleSessionReset({
+              previousSessionId: rotated.previousSession.id,
+              sessionId: rotated.session.id,
+              userId: String(req.userId || ''),
+              agentId: pending.agentId,
+              channelId: req.channelId,
+              reason: 'reset',
+            });
+          }
           if (typeof req.userId === 'string' && req.userId.trim()) {
             memoryService.clearCanonicalContext({
               agentId: pending.agentId,

@@ -27,14 +27,22 @@ export interface PluginConfigUiHint {
 }
 
 export interface PluginConfigSchema {
+  [key: string]: unknown;
   type?: string | string[];
   description?: string;
   default?: unknown;
   enum?: unknown[];
   properties?: Record<string, PluginConfigSchema>;
   required?: string[];
-  items?: PluginConfigSchema;
-  additionalProperties?: boolean;
+  items?: PluginConfigSchema | PluginConfigSchema[];
+  additionalProperties?: boolean | PluginConfigSchema;
+  minimum?: number;
+  maximum?: number;
+  minLength?: number;
+  maxLength?: number;
+  minItems?: number;
+  maxItems?: number;
+  pattern?: string;
 }
 
 export interface PluginManifest {
@@ -120,6 +128,13 @@ export interface PluginPromptBuildContext {
   extraContext: string[];
 }
 
+export interface PluginTokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  modelCalls: number;
+}
+
 export interface PluginAgentEndContext {
   sessionId: string;
   userId: string;
@@ -128,6 +143,9 @@ export interface PluginAgentEndContext {
   messages: StoredMessage[];
   resultText: string;
   toolNames: string[];
+  model?: string;
+  durationMs?: number;
+  tokenUsage?: PluginTokenUsage;
 }
 
 export interface PluginToolHookContext {
@@ -207,6 +225,7 @@ export interface PluginHookHandlerMap {
     userId: string;
     agentId: string;
     channelId: string;
+    model?: string;
   }) => Promise<void> | void;
   agent_end: (context: PluginAgentEndContext) => Promise<void> | void;
   before_tool_call: (context: PluginToolHookContext) => Promise<void> | void;

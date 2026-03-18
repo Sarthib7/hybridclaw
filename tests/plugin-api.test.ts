@@ -42,6 +42,7 @@ test('createPluginApi exposes immutable config snapshots without freezing caller
     registrationMode: 'full',
     config,
     pluginConfig,
+    declaredEnv: [],
     homeDir: '/tmp/home',
     cwd: '/tmp/project',
   });
@@ -52,22 +53,26 @@ test('createPluginApi exposes immutable config snapshots without freezing caller
   expect(Object.isFrozen(api.pluginConfig)).toBe(true);
   expect(
     Object.isFrozen(
-      (api.pluginConfig as {
-        nested: {
-          enabled: boolean;
-        };
-      }).nested,
+      (
+        api.pluginConfig as {
+          nested: {
+            enabled: boolean;
+          };
+        }
+      ).nested,
     ),
   ).toBe(true);
   expect(Object.isFrozen(config)).toBe(false);
   expect(api.config).not.toBe(config);
   expect(api.pluginConfig).not.toBe(pluginConfig);
   expect(
-    (api.pluginConfig as {
-      nested: {
-        enabled: boolean;
-      };
-    }).nested,
+    (
+      api.pluginConfig as {
+        nested: {
+          enabled: boolean;
+        };
+      }
+    ).nested,
   ).not.toBe(pluginConfig.nested);
 
   config.plugins.list.push({
@@ -79,11 +84,13 @@ test('createPluginApi exposes immutable config snapshots without freezing caller
 
   expect(api.config.plugins.list).toEqual(originalPluginList);
   expect(
-    (api.pluginConfig as {
-      nested: {
-        enabled: boolean;
-      };
-    }).nested.enabled,
+    (
+      api.pluginConfig as {
+        nested: {
+          enabled: boolean;
+        };
+      }
+    ).nested.enabled,
   ).toBe(true);
 
   expect(() => {
@@ -95,4 +102,43 @@ test('createPluginApi exposes immutable config snapshots without freezing caller
       }
     ).nested.enabled = false;
   }).toThrow(TypeError);
+});
+
+test('createPluginApi only exposes manifest-declared credentials', () => {
+  const allowedKey = 'HYBRIDCLAW_PLUGIN_ALLOWED_TEST';
+  const blockedKey = 'HYBRIDCLAW_PLUGIN_BLOCKED_TEST';
+  const originalAllowed = process.env[allowedKey];
+  const originalBlocked = process.env[blockedKey];
+  process.env[allowedKey] = 'allowed-secret';
+  process.env[blockedKey] = 'blocked-secret';
+
+  try {
+    const api = createPluginApi({
+      manager: makePluginManagerStub(),
+      pluginId: 'demo-plugin',
+      pluginDir: '/tmp/demo-plugin',
+      registrationMode: 'full',
+      config: loadRuntimeConfig(),
+      pluginConfig: {},
+      declaredEnv: [allowedKey],
+      homeDir: '/tmp/home',
+      cwd: '/tmp/project',
+    });
+
+    expect(api.getCredential(allowedKey)).toBe('allowed-secret');
+    expect(api.getCredential(` ${allowedKey} `)).toBe('allowed-secret');
+    expect(api.getCredential(blockedKey)).toBeUndefined();
+    expect(api.getCredential('')).toBeUndefined();
+  } finally {
+    if (originalAllowed === undefined) {
+      delete process.env[allowedKey];
+    } else {
+      process.env[allowedKey] = originalAllowed;
+    }
+    if (originalBlocked === undefined) {
+      delete process.env[blockedKey];
+    } else {
+      process.env[blockedKey] = originalBlocked;
+    }
+  }
 });

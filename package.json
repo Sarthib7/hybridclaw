@@ -68,6 +68,7 @@
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.21",
+    "ajv": "^8.18.0",
     "better-sqlite3": "^12.8.0",
     "botbuilder": "^4.23.3",
     "cron-parser": "^5.5.0",

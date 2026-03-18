@@ -3,6 +3,7 @@ import { stripTypeScriptTypes } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { Ajv, type AnySchemaObject, type ErrorObject } from 'ajv';
 import { parse as parseYaml } from 'yaml';
 import type { ChannelInfo } from '../channels/channel.js';
 import {
@@ -25,10 +26,12 @@ import type {
   PluginAgentEndContext,
   PluginCandidate,
   PluginCommandDefinition,
+  PluginConfigUiHint,
   PluginCompactionContext,
   PluginConfigSchema,
   PluginHookHandlerMap,
   PluginHookName,
+  PluginInstallSpec,
   PluginLogger,
   PluginManifest,
   PluginMemoryFlushContext,
@@ -52,6 +55,14 @@ const DEFAULT_ENTRYPOINT_CANDIDATES = [
   path.join('dist', 'index.js'),
   'index.ts',
 ];
+
+const pluginConfigValidator = new Ajv({
+  allErrors: false,
+  removeAdditional: true,
+  strictSchema: true,
+  strictTypes: false,
+  useDefaults: true,
+});
 
 type RuntimePluginConfigEntryLike = {
   id: string;
@@ -103,6 +114,7 @@ type RegisteredChannel = {
 };
 
 type PluginRegistrationSnapshot = {
+  plugins: LoadedPlugin[];
   memoryLayers: RegisteredMemoryLayer[];
   promptHooks: RegisteredPromptHook[];
   services: RegisteredService[];
@@ -112,6 +124,7 @@ type PluginRegistrationSnapshot = {
   commands: Map<string, RegisteredCommand>;
   hooks: Map<PluginHookName, RegisteredHook[]>;
   registeredChannels: ChannelInfo[];
+  gatewayStartedAt: string | null;
 };
 
 export interface ExecutePluginToolParams {
@@ -132,8 +145,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value != null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function deepClone<T>(value: T): T {
-  return structuredClone(value);
+function safeString(value: () => unknown, fallback: string): string {
+  try {
+    const resolved = value();
+    return typeof resolved === 'string' && resolved.trim().length > 0
+      ? resolved
+      : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 function normalizeStringArray(value: unknown): string[] {
@@ -146,6 +166,58 @@ function normalizeStringArray(value: unknown): string[] {
     out.push(normalized);
   }
   return out;
+}
+
+function normalizeTrimmedString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim();
+  return normalized || undefined;
+}
+
+function normalizePluginKind(value: unknown): PluginManifest['kind'] {
+  return value === 'memory' ||
+    value === 'provider' ||
+    value === 'channel' ||
+    value === 'tool' ||
+    value === 'prompt-hook'
+    ? value
+    : undefined;
+}
+
+function normalizePluginInstallKind(value: unknown): PluginInstallSpec['kind'] {
+  return value === 'npm' || value === 'node' || value === 'download'
+    ? value
+    : 'npm';
+}
+
+function normalizePluginInstallSpecs(value: unknown): PluginInstallSpec[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return value.filter(isRecord).map((entry) => ({
+    kind: normalizePluginInstallKind(entry.kind),
+    package: normalizeTrimmedString(entry.package),
+    url: normalizeTrimmedString(entry.url),
+  }));
+}
+
+function normalizePluginConfigUiHints(
+  value: unknown,
+): Record<string, PluginConfigUiHint> | undefined {
+  if (!isRecord(value)) return undefined;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, entry]) => isRecord(entry))
+      .map(([key, entry]) => {
+        const hint = entry as Record<string, unknown>;
+        return [
+          key,
+          {
+            label: normalizeTrimmedString(hint.label),
+            placeholder: normalizeTrimmedString(hint.placeholder),
+            help: normalizeTrimmedString(hint.help),
+          },
+        ];
+      }),
+  );
 }
 
 function toPluginConfigEntries(
@@ -165,86 +237,30 @@ function normalizeManifest(input: unknown): PluginManifest {
     throw new Error('Plugin manifest must be a YAML object.');
   }
 
-  const id = typeof input.id === 'string' ? input.id.trim() : '';
+  const id = normalizeTrimmedString(input.id);
   if (!id) {
     throw new Error('Plugin manifest is missing `id`.');
   }
 
   return {
     id,
-    name: typeof input.name === 'string' ? input.name.trim() : undefined,
-    version:
-      typeof input.version === 'string' ? input.version.trim() : undefined,
-    description:
-      typeof input.description === 'string'
-        ? input.description.trim()
-        : undefined,
-    kind:
-      input.kind === 'memory' ||
-      input.kind === 'provider' ||
-      input.kind === 'channel' ||
-      input.kind === 'tool' ||
-      input.kind === 'prompt-hook'
-        ? input.kind
-        : undefined,
-    author: typeof input.author === 'string' ? input.author.trim() : undefined,
-    entrypoint:
-      typeof input.entrypoint === 'string'
-        ? input.entrypoint.trim()
-        : undefined,
+    name: normalizeTrimmedString(input.name),
+    version: normalizeTrimmedString(input.version),
+    description: normalizeTrimmedString(input.description),
+    kind: normalizePluginKind(input.kind),
+    author: normalizeTrimmedString(input.author),
+    entrypoint: normalizeTrimmedString(input.entrypoint),
     requires: isRecord(input.requires)
       ? {
           env: normalizeStringArray(input.requires.env),
-          node:
-            typeof input.requires.node === 'string'
-              ? input.requires.node.trim()
-              : undefined,
+          node: normalizeTrimmedString(input.requires.node),
         }
       : undefined,
-    install: Array.isArray(input.install)
-      ? input.install.filter(isRecord).map((entry) => ({
-          kind:
-            entry.kind === 'npm' ||
-            entry.kind === 'node' ||
-            entry.kind === 'download'
-              ? entry.kind
-              : 'npm',
-          package:
-            typeof entry.package === 'string'
-              ? entry.package.trim()
-              : undefined,
-          url: typeof entry.url === 'string' ? entry.url.trim() : undefined,
-        }))
-      : undefined,
+    install: normalizePluginInstallSpecs(input.install),
     configSchema: isRecord(input.configSchema)
       ? (input.configSchema as PluginConfigSchema)
       : undefined,
-    configUiHints: isRecord(input.configUiHints)
-      ? Object.fromEntries(
-          Object.entries(input.configUiHints)
-            .filter(([, value]) => isRecord(value))
-            .map(([key, value]) => {
-              const hint = value as Record<string, unknown>;
-              return [
-                key,
-                {
-                  label:
-                    typeof hint.label === 'string'
-                      ? hint.label.trim()
-                      : undefined,
-                  placeholder:
-                    typeof hint.placeholder === 'string'
-                      ? hint.placeholder.trim()
-                      : undefined,
-                  help:
-                    typeof hint.help === 'string'
-                      ? hint.help.trim()
-                      : undefined,
-                },
-              ];
-            }),
-        )
-      : undefined,
+    configUiHints: normalizePluginConfigUiHints(input.configUiHints),
   };
 }
 
@@ -285,6 +301,15 @@ function compareNumericTuple(left: number[], right: number[]): number {
   return 0;
 }
 
+function matchesNumericTuplePrefix(current: number[], expected: number[]): boolean {
+  for (let index = 0; index < expected.length; index += 1) {
+    if ((current[index] ?? 0) !== expected[index]) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function satisfiesNodeRequirement(requirement?: string): boolean {
   const normalized = String(requirement || '').trim();
   if (!normalized) return true;
@@ -306,126 +331,79 @@ function satisfiesNodeRequirement(requirement?: string): boolean {
       .split('.')
       .map((part) => Number.parseInt(part, 10))
       .filter(Number.isFinite);
-    return compareNumericTuple(current, expected) >= 0;
+    return matchesNumericTuplePrefix(current, expected);
   }
   return true;
 }
 
-function schemaTypeList(schema: PluginConfigSchema): string[] {
-  if (Array.isArray(schema.type)) {
-    return schema.type
-      .filter((value): value is string => typeof value === 'string')
-      .map((value) => value.trim())
-      .filter(Boolean);
-  }
-  if (typeof schema.type === 'string' && schema.type.trim()) {
-    return [schema.type.trim()];
-  }
-  return [];
+function decodeJsonPointerSegment(value: string): string {
+  return value.replaceAll('~1', '/').replaceAll('~0', '~');
 }
 
-function matchesSchemaType(type: string, value: unknown): boolean {
-  switch (type) {
-    case 'string':
-      return typeof value === 'string';
-    case 'boolean':
-      return typeof value === 'boolean';
-    case 'number':
-      return typeof value === 'number' && Number.isFinite(value);
-    case 'integer':
-      return typeof value === 'number' && Number.isInteger(value);
-    case 'array':
-      return Array.isArray(value);
-    case 'object':
-      return isRecord(value);
-    case 'null':
-      return value === null;
-    default:
-      return true;
+function formatAjvInstancePath(instancePath: string): string {
+  if (!instancePath) return 'plugin config';
+  const segments = instancePath
+    .split('/')
+    .slice(1)
+    .map(decodeJsonPointerSegment);
+  let output = 'plugin config';
+  for (const segment of segments) {
+    if (/^\d+$/.test(segment)) {
+      output += `[${segment}]`;
+      continue;
+    }
+    output += `.${segment}`;
   }
+  return output;
 }
 
-function validateSchemaValue(
-  schema: PluginConfigSchema,
-  value: unknown,
-  pointer: string,
-): unknown {
-  if (value === undefined && Object.hasOwn(schema, 'default')) {
-    value = deepClone(schema.default);
-  }
-
-  const allowedTypes = schemaTypeList(schema);
-  if (value !== undefined && allowedTypes.length > 0) {
-    const matched = allowedTypes.some((type) => matchesSchemaType(type, value));
-    if (!matched) {
-      throw new Error(
-        `${pointer} must be ${allowedTypes.join(' | ')}, received ${value === null ? 'null' : typeof value}.`,
-      );
+function formatAjvValidationError(error: ErrorObject): string {
+  const pointer = formatAjvInstancePath(error.instancePath);
+  if (error.keyword === 'required') {
+    const missingProperty = isRecord(error.params)
+      ? normalizeTrimmedString(error.params.missingProperty)
+      : undefined;
+    if (missingProperty) {
+      return `${pointer}.${missingProperty} is required.`;
     }
   }
-
-  if (value === undefined) return undefined;
-
-  if (Array.isArray(schema.enum) && schema.enum.length > 0) {
-    const matches = schema.enum.some((entry) => entry === value);
-    if (!matches) {
-      throw new Error(`${pointer} must be one of ${schema.enum.join(', ')}.`);
+  if (error.keyword === 'enum' && Array.isArray(error.schema)) {
+    return `${pointer} must be one of ${error.schema.join(', ')}.`;
+  }
+  if (error.keyword === 'additionalProperties') {
+    const additionalProperty = isRecord(error.params)
+      ? normalizeTrimmedString(error.params.additionalProperty)
+      : undefined;
+    if (additionalProperty) {
+      return `${pointer}.${additionalProperty} is not allowed.`;
     }
   }
-
-  if (Array.isArray(value)) {
-    if (!schema.items) return [...value];
-    return value.map((entry, index) =>
-      validateSchemaValue(
-        schema.items as PluginConfigSchema,
-        entry,
-        `${pointer}[${index}]`,
-      ),
-    );
-  }
-
-  if (isRecord(value) || allowedTypes.includes('object')) {
-    const source = isRecord(value) ? value : {};
-    const properties = isRecord(schema.properties) ? schema.properties : {};
-    const output: Record<string, unknown> = {};
-    const allowAdditional = schema.additionalProperties !== false;
-
-    for (const [key, propertySchema] of Object.entries(properties)) {
-      const normalized = validateSchemaValue(
-        propertySchema,
-        source[key],
-        `${pointer}.${key}`,
-      );
-      if (normalized !== undefined) {
-        output[key] = normalized;
-      }
-    }
-
-    const required = normalizeStringArray(schema.required);
-    for (const key of required) {
-      if (Object.hasOwn(output, key)) continue;
-      throw new Error(`${pointer}.${key} is required.`);
-    }
-
-    if (allowAdditional) {
-      for (const [key, rawValue] of Object.entries(source)) {
-        if (Object.hasOwn(properties, key)) continue;
-        output[key] = deepClone(rawValue);
-      }
-    }
-
-    return output;
-  }
-
-  return deepClone(value);
+  return `${pointer} ${error.message || 'is invalid'}.`;
 }
 
 export function validatePluginConfig(
   schema: PluginConfigSchema | undefined,
   value: Record<string, unknown> | undefined,
 ): Record<string, unknown> {
-  if (!schema) return deepClone(value || {});
-  const normalized = validateSchemaValue(schema, value || {}, 'plugin config');
+  if (!schema) return structuredClone(value || {});
+  let validate: ReturnType<typeof pluginConfigValidator.compile>;
+  try {
+    validate = pluginConfigValidator.compile(schema as AnySchemaObject);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : String(error || 'Unknown error');
+    throw new Error(`Invalid plugin config schema: ${message}`);
+  }
+
+  const normalized = structuredClone(value || {});
+  if (!validate(normalized)) {
+    const [firstError] = validate.errors || [];
+    if (firstError) {
+      throw new Error(formatAjvValidationError(firstError));
+    }
+    throw new Error('Plugin config is invalid.');
+  }
+
   if (!isRecord(normalized)) {
     throw new Error('Plugin config schema must resolve to an object.');
   }
@@ -445,9 +423,24 @@ async function importPluginModule(entrypoint: string): Promise<unknown> {
       `${stripped}\n//# sourceURL=${pathToFileURL(entrypoint).href}\n`,
       'utf-8',
     );
-    return import(
-      `${pathToFileURL(compiledPath).href}?t=${fs.statSync(compiledPath).mtimeMs}`
-    );
+    try {
+      return await import(
+        `${pathToFileURL(compiledPath).href}?t=${fs.statSync(compiledPath).mtimeMs}`
+      );
+    } finally {
+      try {
+        fs.rmSync(compiledPath, { force: true });
+      } catch (error) {
+        rootLogger.warn(
+          {
+            entrypoint,
+            compiledPath,
+            error,
+          },
+          'Failed to clean up temporary compiled plugin module',
+        );
+      }
+    }
   }
   return import(pathToFileURL(entrypoint).href);
 }
@@ -509,10 +502,14 @@ export class PluginManager {
       await this.initializing;
       return;
     }
+    const snapshot = this.createPluginRegistrationSnapshot();
     this.initializing = this.initializeInternal();
     try {
       await this.initializing;
       this.initialized = true;
+    } catch (error) {
+      this.restorePluginRegistrationSnapshot(snapshot);
+      throw error;
     } finally {
       this.initializing = null;
     }
@@ -522,15 +519,31 @@ export class PluginManager {
     const runtimeConfig = this.getConfig();
     const candidates = await this.discoverPlugins(runtimeConfig);
     for (const candidate of candidates) {
-      await this.loadPlugin(candidate, runtimeConfig);
+      try {
+        await this.loadPlugin(candidate, runtimeConfig);
+      } catch (error) {
+        this.recordPluginLoadFailure({ candidate, error });
+      }
     }
 
-    await this.startMemoryLayers();
-    await this.startServices();
+    try {
+      await this.startMemoryLayers();
+    } catch (error) {
+      this.logger.warn({ error }, 'Plugin memory layer startup phase crashed');
+    }
+    try {
+      await this.startServices();
+    } catch (error) {
+      this.logger.warn({ error }, 'Plugin service startup phase crashed');
+    }
     this.gatewayStartedAt = new Date().toISOString();
-    await this.dispatchHook('gateway_start', {
-      startedAt: this.gatewayStartedAt,
-    });
+    try {
+      await this.dispatchHook('gateway_start', {
+        startedAt: this.gatewayStartedAt,
+      });
+    } catch (error) {
+      this.logger.warn({ error }, 'Plugin gateway-start hook phase crashed');
+    }
   }
 
   async shutdown(): Promise<void> {
@@ -617,7 +630,7 @@ export class PluginManager {
         selected.set(entry.id, {
           ...candidate,
           enabled: true,
-          config: deepClone(entry.config || {}),
+          config: structuredClone(entry.config || {}),
         });
       } catch (error) {
         this.logger.warn(
@@ -741,6 +754,7 @@ export class PluginManager {
         registrationMode,
         config,
         pluginConfig: validatedConfig,
+        declaredEnv: candidate.manifest.requires?.env || [],
         homeDir: this.homeDir,
         cwd: this.cwd,
       });
@@ -779,34 +793,53 @@ export class PluginManager {
         hooksRegistered,
       });
     } catch (error) {
-      const errorMessage =
-        error instanceof Error
-          ? error.message
-          : String(error || 'Unknown error');
-      const pluginId = definition?.id?.trim() || candidate.id;
-      this.logger.warn(
-        {
-          pluginId,
-          pluginDir: candidate.dir,
-          entrypoint: candidate.entrypoint,
-          errorMessage,
-          error,
-        },
-        'Plugin failed to load',
-      );
-      this.plugins.push({
-        id: pluginId,
-        manifest: candidate.manifest,
+      this.recordPluginLoadFailure({
         candidate,
+        error,
         definition,
         api,
-        enabled: candidate.enabled,
-        status: 'failed',
-        error: errorMessage,
         toolsRegistered,
         hooksRegistered,
       });
     }
+  }
+
+  private recordPluginLoadFailure(params: {
+    candidate: PluginCandidate;
+    error: unknown;
+    definition?: HybridClawPluginDefinition;
+    api?: LoadedPlugin['api'];
+    toolsRegistered?: string[];
+    hooksRegistered?: string[];
+  }): void {
+    const errorMessage =
+      params.error instanceof Error
+        ? params.error.message
+        : String(params.error || 'Unknown error');
+    const pluginId = params.definition?.id?.trim() || params.candidate.id;
+    this.logger.warn(
+      {
+        pluginId,
+        pluginDir: params.candidate.dir,
+        entrypoint: params.candidate.entrypoint,
+        errorMessage,
+        error: params.error,
+      },
+      'Plugin failed to load',
+    );
+    if (this.plugins.some((plugin) => plugin.id === pluginId)) return;
+    this.plugins.push({
+      id: pluginId,
+      manifest: params.candidate.manifest,
+      candidate: params.candidate,
+      definition: params.definition,
+      api: params.api,
+      enabled: params.candidate.enabled,
+      status: 'failed',
+      error: errorMessage,
+      toolsRegistered: [...(params.toolsRegistered || [])],
+      hooksRegistered: [...(params.hooksRegistered || [])],
+    });
   }
 
   registerMemoryLayer(pluginId: string, layer: MemoryLayerPlugin): void {
@@ -894,6 +927,7 @@ export class PluginManager {
 
   private createPluginRegistrationSnapshot(): PluginRegistrationSnapshot {
     return {
+      plugins: [...this.plugins],
       memoryLayers: [...this.memoryLayers],
       promptHooks: [...this.promptHooks],
       services: [...this.services],
@@ -908,12 +942,14 @@ export class PluginManager {
         ]),
       ),
       registeredChannels: listChannels(),
+      gatewayStartedAt: this.gatewayStartedAt,
     };
   }
 
   private restorePluginRegistrationSnapshot(
     snapshot: PluginRegistrationSnapshot,
   ): void {
+    this.plugins = [...snapshot.plugins];
     this.memoryLayers = [...snapshot.memoryLayers];
     this.promptHooks = [...snapshot.promptHooks];
     this.services = [...snapshot.services];
@@ -927,6 +963,7 @@ export class PluginManager {
         [...entries],
       ]),
     );
+    this.gatewayStartedAt = snapshot.gatewayStartedAt;
 
     for (const channel of listChannels()) {
       unregisterChannel(channel.kind);
@@ -971,7 +1008,7 @@ export class PluginManager {
       .map((entry) => ({
         name: entry.tool.name,
         description: entry.tool.description,
-        parameters: deepClone(entry.tool.parameters as PluginToolSchema),
+        parameters: structuredClone(entry.tool.parameters as PluginToolSchema),
       }))
       .sort((left, right) => left.name.localeCompare(right.name));
   }
@@ -1071,6 +1108,7 @@ export class PluginManager {
     userId: string;
     agentId: string;
     channelId: string;
+    model?: string;
   }): Promise<void> {
     await this.ensureInitialized();
     await this.dispatchHook('before_agent_start', params);
@@ -1196,12 +1234,17 @@ export class PluginManager {
 
   private async startMemoryLayers(): Promise<void> {
     for (const entry of this.getOrderedMemoryLayerEntries()) {
-      if (!entry.layer.start) continue;
       try {
-        await entry.layer.start();
+        const start = entry.layer.start;
+        if (!start) continue;
+        await start.call(entry.layer);
       } catch (error) {
         this.logger.warn(
-          { pluginId: entry.pluginId, layerId: entry.layer.id, error },
+          {
+            pluginId: entry.pluginId,
+            layerId: safeString(() => entry.layer.id, '(unknown)'),
+            error,
+          },
           'Plugin memory layer failed to start',
         );
       }
@@ -1210,12 +1253,17 @@ export class PluginManager {
 
   private async startServices(): Promise<void> {
     for (const entry of this.services) {
-      if (!entry.service.start) continue;
       try {
-        await entry.service.start();
+        const start = entry.service.start;
+        if (!start) continue;
+        await start.call(entry.service);
       } catch (error) {
         this.logger.warn(
-          { pluginId: entry.pluginId, serviceId: entry.service.id, error },
+          {
+            pluginId: entry.pluginId,
+            serviceId: safeString(() => entry.service.id, '(unknown)'),
+            error,
+          },
           'Plugin service failed to start',
         );
       }
@@ -1258,8 +1306,15 @@ export function getPluginManager(): PluginManager {
 
 export async function ensurePluginManagerInitialized(): Promise<PluginManager> {
   const manager = getPluginManager();
-  await manager.ensureInitialized();
-  return manager;
+  try {
+    await manager.ensureInitialized();
+    return manager;
+  } catch (error) {
+    if (singleton === manager) {
+      singleton = null;
+    }
+    throw error;
+  }
 }
 
 export async function shutdownPluginManager(): Promise<void> {

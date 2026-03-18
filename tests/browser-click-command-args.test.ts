@@ -154,6 +154,6 @@ test('browser_click rejects ambiguous targeting inputs', async () => {
 
   expect(parsed.success).toBe(false);
   expect(parsed.error).toBe(
-    'browser_click accepts only one of ref, selector, or text'
+    'browser_click accepts only one of ref, selector, or text',
   );
 });

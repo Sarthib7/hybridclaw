@@ -22,6 +22,21 @@ import type {
   PluginToolDefinition,
 } from './plugin-types.js';
 
+function deepFreeze<T>(value: T, seen = new WeakSet<object>()): T {
+  if (value == null || typeof value !== 'object') return value;
+  const objectValue = value as Record<PropertyKey, unknown>;
+  if (seen.has(objectValue)) return value;
+  seen.add(objectValue);
+  for (const key of Reflect.ownKeys(objectValue)) {
+    deepFreeze(objectValue[key], seen);
+  }
+  return Object.freeze(value);
+}
+
+function deepFreezeClone<T>(value: T): T {
+  return deepFreeze(structuredClone(value));
+}
+
 export function createPluginApi(params: {
   manager: PluginManager;
   pluginId: string;
@@ -35,6 +50,8 @@ export function createPluginApi(params: {
   const pluginLogger = logger.child({
     pluginId: params.pluginId,
   }) as PluginLogger;
+  const config = deepFreezeClone(params.config);
+  const pluginConfig = deepFreezeClone(params.pluginConfig);
   const runtime: PluginRuntime = Object.freeze({
     cwd: params.cwd,
     homeDir: params.homeDir,
@@ -42,12 +59,12 @@ export function createPluginApi(params: {
     runtimeConfigPath: runtimeConfigPath(),
   });
 
-  return {
+  return Object.freeze({
     pluginId: params.pluginId,
     pluginDir: params.pluginDir,
     registrationMode: params.registrationMode,
-    config: Object.freeze(params.config),
-    pluginConfig: { ...params.pluginConfig },
+    config,
+    pluginConfig,
     logger: pluginLogger,
     runtime,
     registerMemoryLayer(layer: MemoryLayerPlugin): void {
@@ -89,5 +106,5 @@ export function createPluginApi(params: {
       const trimmed = value.trim();
       return trimmed || undefined;
     },
-  };
+  });
 }

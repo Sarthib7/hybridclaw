@@ -117,6 +117,7 @@ import { formatPluginSummaryList } from '../plugins/plugin-formatting.js';
 import { uninstallPlugin } from '../plugins/plugin-install.js';
 import {
   ensurePluginManagerInitialized,
+  reloadPluginManager,
   shutdownPluginManager,
 } from '../plugins/plugin-manager.js';
 import {
@@ -4603,7 +4604,7 @@ export async function runGatewayScheduledTask(
 export async function handleGatewayCommand(
   req: GatewayCommandRequest,
 ): Promise<GatewayCommandResult> {
-  const pluginManager = await ensurePluginManagerInitialized();
+  let pluginManager = await ensurePluginManagerInitialized();
   const cmd = (req.args[0] || '').toLowerCase();
   const sessionResetPolicy = resolveSessionAutoResetPolicy(req.channelId);
   const expiryEvaluation = await prepareSessionAutoReset({
@@ -4675,6 +4676,7 @@ export async function handleGatewayCommand(
           '`mcp toggle <name>` — Enable or disable an MCP server',
           '`mcp reconnect <name>` — Restart current session runtime so the server reconnects next turn',
           '`plugin list` — List discovered plugins and load status',
+          '`plugin reload` — Reload all plugins (picks up code changes without gateway restart)',
           '`plugin uninstall <plugin-id>` — Remove a home-installed plugin and matching runtime config overrides',
           '`clear` — Clear session history',
           '`reset [yes|no]` — Clear history, reset session settings, and remove the current agent workspace',
@@ -5511,9 +5513,23 @@ export async function handleGatewayCommand(
             );
           }
         }
+        if (sub === 'reload') {
+          try {
+            pluginManager = await reloadPluginManager();
+            return infoCommand(
+              'Plugins Reloaded',
+              formatPluginSummaryList(pluginManager.listPluginSummary()),
+            );
+          } catch (error) {
+            return badCommand(
+              'Plugin Reload Failed',
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+        }
         return badCommand(
           'Usage',
-          'Usage: `plugin list|uninstall <plugin-id>`',
+          'Usage: `plugin list|reload|uninstall <plugin-id>`',
         );
       }
 

@@ -276,7 +276,7 @@ export interface HybridClawPluginApi {
   readonly pluginDir: string;
   readonly registrationMode: PluginRegistrationMode;
   readonly config: Readonly<RuntimeConfig>;
-  readonly pluginConfig: Record<string, unknown>;
+  readonly pluginConfig: Readonly<Record<string, unknown>>;
   readonly logger: PluginLogger;
   readonly runtime: PluginRuntime;
   registerMemoryLayer(layer: MemoryLayerPlugin): void;

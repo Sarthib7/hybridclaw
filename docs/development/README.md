@@ -3,6 +3,8 @@
 These docs hold the deeper reference material that does not belong in the
 top-level contributor quickstart.
 
+- [Extensibility: Tools, Skills, and Plugins](./extensibility.md) for when to
+  use each extension mechanism and how they compose
 - [Architecture](./architecture.md) for the major runtime pieces and repository
   layout
 - [Runtime Internals](./runtime.md) for sandboxing, configuration, diagnostics,

@@ -1268,3 +1268,8 @@ export async function shutdownPluginManager(): Promise<void> {
   singleton = null;
   await manager.shutdown();
 }
+
+export async function reloadPluginManager(): Promise<PluginManager> {
+  await shutdownPluginManager();
+  return ensurePluginManagerInitialized();
+}

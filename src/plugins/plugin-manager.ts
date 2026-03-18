@@ -26,9 +26,9 @@ import type {
   PluginAgentEndContext,
   PluginCandidate,
   PluginCommandDefinition,
-  PluginConfigUiHint,
   PluginCompactionContext,
   PluginConfigSchema,
+  PluginConfigUiHint,
   PluginHookHandlerMap,
   PluginHookName,
   PluginInstallSpec,
@@ -190,7 +190,9 @@ function normalizePluginInstallKind(value: unknown): PluginInstallSpec['kind'] {
     : 'npm';
 }
 
-function normalizePluginInstallSpecs(value: unknown): PluginInstallSpec[] | undefined {
+function normalizePluginInstallSpecs(
+  value: unknown,
+): PluginInstallSpec[] | undefined {
   if (!Array.isArray(value)) return undefined;
   return value.filter(isRecord).map((entry) => ({
     kind: normalizePluginInstallKind(entry.kind),
@@ -301,7 +303,10 @@ function compareNumericTuple(left: number[], right: number[]): number {
   return 0;
 }
 
-function matchesNumericTuplePrefix(current: number[], expected: number[]): boolean {
+function matchesNumericTuplePrefix(
+  current: number[],
+  expected: number[],
+): boolean {
   for (let index = 0; index < expected.length; index += 1) {
     if ((current[index] ?? 0) !== expected[index]) {
       return false;

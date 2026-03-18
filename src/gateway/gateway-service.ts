@@ -117,9 +117,9 @@ import { formatPluginSummaryList } from '../plugins/plugin-formatting.js';
 import { uninstallPlugin } from '../plugins/plugin-install.js';
 import {
   ensurePluginManagerInitialized,
+  type PluginManager,
   reloadPluginManager,
   shutdownPluginManager,
-  type PluginManager,
 } from '../plugins/plugin-manager.js';
 import {
   modelRequiresChatbotId,

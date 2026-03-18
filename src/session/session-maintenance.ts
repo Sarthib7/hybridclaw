@@ -228,14 +228,13 @@ export async function runPreCompactionMemoryFlush(params: {
       return;
     }
     memoryService.markSessionMemoryFlush(params.sessionId);
-    const pluginManager = await tryEnsurePluginManagerInitializedForSessionMaintenance(
-      {
+    const pluginManager =
+      await tryEnsurePluginManagerInitializedForSessionMaintenance({
         sessionId: params.sessionId,
         agentId: params.agentId,
         channelId: params.channelId,
         context: 'memory flush',
-      },
-    );
+      });
     if (pluginManager) {
       await pluginManager.notifyMemoryFlush({
         sessionId: params.sessionId,
@@ -386,14 +385,13 @@ export async function maybeCompactSession(params: {
   );
   if (!candidate || candidate.olderMessages.length === 0) return;
 
-  const pluginManager = await tryEnsurePluginManagerInitializedForSessionMaintenance(
-    {
+  const pluginManager =
+    await tryEnsurePluginManagerInitializedForSessionMaintenance({
       sessionId: params.sessionId,
       agentId: params.agentId,
       channelId: params.channelId,
       context: 'compaction',
-    },
-  );
+    });
   if (pluginManager) {
     await pluginManager.notifyBeforeCompaction({
       sessionId: params.sessionId,

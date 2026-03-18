@@ -153,7 +153,9 @@ function writeNodeRequirementPlugin(
   fs.writeFileSync(
     path.join(pluginDir, 'index.ts'),
     [
-      ...(options.throwOnImport ? ["throw new Error('should not import');"] : []),
+      ...(options.throwOnImport
+        ? ["throw new Error('should not import');"]
+        : []),
       'export default {',
       `  id: '${options.pluginId}',`,
       '  register(api) {',
@@ -200,12 +202,9 @@ function writeLifecycleGetterPlugin(rootDir: string): void {
   fs.mkdirSync(pluginDir, { recursive: true });
   fs.writeFileSync(
     path.join(pluginDir, 'hybridclaw.plugin.yaml'),
-    [
-      'id: lifecycle-plugin',
-      'name: Lifecycle Plugin',
-      'kind: tool',
-      '',
-    ].join('\n'),
+    ['id: lifecycle-plugin', 'name: Lifecycle Plugin', 'kind: tool', ''].join(
+      '\n',
+    ),
     'utf-8',
   );
   fs.writeFileSync(
@@ -283,7 +282,9 @@ test('loadPluginManifest trims optional strings and normalizes nested sections',
     'utf-8',
   );
 
-  const { loadPluginManifest } = await import('../src/plugins/plugin-manager.js');
+  const { loadPluginManifest } = await import(
+    '../src/plugins/plugin-manager.js'
+  );
 
   expect(loadPluginManifest(manifestPath)).toEqual({
     id: 'demo-plugin',
@@ -325,7 +326,9 @@ test('loadPluginManifest rejects blank manifest ids', async () => {
   const manifestPath = path.join(cwd, 'hybridclaw.plugin.yaml');
   fs.writeFileSync(manifestPath, 'id: "   "\n', 'utf-8');
 
-  const { loadPluginManifest } = await import('../src/plugins/plugin-manager.js');
+  const { loadPluginManifest } = await import(
+    '../src/plugins/plugin-manager.js'
+  );
 
   expect(() => loadPluginManifest(manifestPath)).toThrow(
     'Plugin manifest is missing `id`.',
@@ -333,7 +336,9 @@ test('loadPluginManifest rejects blank manifest ids', async () => {
 });
 
 test('validatePluginConfig enforces common JSON Schema keywords via Ajv', async () => {
-  const { validatePluginConfig } = await import('../src/plugins/plugin-manager.js');
+  const { validatePluginConfig } = await import(
+    '../src/plugins/plugin-manager.js'
+  );
 
   const schema = {
     type: 'object',
@@ -376,7 +381,9 @@ test('validatePluginConfig enforces common JSON Schema keywords via Ajv', async 
 });
 
 test('validatePluginConfig applies defaults and strips additional properties', async () => {
-  const { validatePluginConfig } = await import('../src/plugins/plugin-manager.js');
+  const { validatePluginConfig } = await import(
+    '../src/plugins/plugin-manager.js'
+  );
 
   expect(
     validatePluginConfig(
@@ -427,7 +434,9 @@ test('plugin manager auto-discovers plugins from project directories without con
   expect(manager.getToolDefinitions()).toEqual([
     expect.objectContaining({ name: 'demo_echo' }),
   ]);
-  expect(fs.existsSync(compiledPluginModulePath(cwd, 'demo-plugin'))).toBe(false);
+  expect(fs.existsSync(compiledPluginModulePath(cwd, 'demo-plugin'))).toBe(
+    false,
+  );
   await expect(
     manager.executeTool({
       toolName: 'demo_echo',
@@ -538,12 +547,7 @@ test('plugin manager honors config overrides that disable an auto-discovered plu
 test('plugin manager disables plugins with missing required env vars before import', async () => {
   const homeDir = makeTempDir('hybridclaw-plugin-home-');
   const cwd = makeTempDir('hybridclaw-plugin-project-');
-  const pluginDir = path.join(
-    cwd,
-    '.hybridclaw',
-    'plugins',
-    'env-plugin',
-  );
+  const pluginDir = path.join(cwd, '.hybridclaw', 'plugins', 'env-plugin');
   fs.mkdirSync(pluginDir, { recursive: true });
   fs.writeFileSync(
     path.join(pluginDir, 'hybridclaw.plugin.yaml'),
@@ -592,8 +596,7 @@ test('plugin manager disables plugins with missing required env vars before impo
         id: 'env-plugin',
         enabled: false,
         status: 'failed',
-        error:
-          'Missing required env vars: HYBRIDCLAW_PLUGIN_MISSING_ENV_TEST.',
+        error: 'Missing required env vars: HYBRIDCLAW_PLUGIN_MISSING_ENV_TEST.',
         toolsRegistered: [],
         hooksRegistered: [],
       }),
@@ -605,8 +608,7 @@ test('plugin manager disables plugins with missing required env vars before impo
         version: undefined,
         source: 'project',
         enabled: false,
-        error:
-          'Missing required env vars: HYBRIDCLAW_PLUGIN_MISSING_ENV_TEST.',
+        error: 'Missing required env vars: HYBRIDCLAW_PLUGIN_MISSING_ENV_TEST.',
         tools: [],
         hooks: [],
       },
@@ -709,12 +711,7 @@ test('plugin manager isolates module load failures and continues loading healthy
     workspaceDefault: 'workspace-auto',
   });
 
-  const brokenDir = path.join(
-    cwd,
-    '.hybridclaw',
-    'plugins',
-    'broken-plugin',
-  );
+  const brokenDir = path.join(cwd, '.hybridclaw', 'plugins', 'broken-plugin');
   fs.mkdirSync(brokenDir, { recursive: true });
   fs.writeFileSync(
     path.join(brokenDir, 'hybridclaw.plugin.yaml'),
@@ -786,7 +783,9 @@ test('plugin manager isolates module load failures and continues loading healthy
       }),
     ]),
   );
-  expect(fs.existsSync(compiledPluginModulePath(cwd, 'demo-plugin'))).toBe(false);
+  expect(fs.existsSync(compiledPluginModulePath(cwd, 'demo-plugin'))).toBe(
+    false,
+  );
 });
 
 test('plugin manager isolates unexpected loadPlugin crashes and continues loading healthy plugins', async () => {
@@ -908,10 +907,12 @@ test('plugin manager removes temporary compiled modules after TypeScript import 
       }),
     ]),
   );
-  expect(fs.existsSync(compiledPluginModulePath(cwd, 'demo-plugin'))).toBe(false);
-  expect(
-    fs.existsSync(compiledPluginModulePath(cwd, 'throwing-plugin')),
-  ).toBe(false);
+  expect(fs.existsSync(compiledPluginModulePath(cwd, 'demo-plugin'))).toBe(
+    false,
+  );
+  expect(fs.existsSync(compiledPluginModulePath(cwd, 'throwing-plugin'))).toBe(
+    false,
+  );
 });
 
 test('plugin manager survives unexpected gateway_start phase crashes', async () => {
@@ -949,12 +950,7 @@ test('plugin manager survives unexpected gateway_start phase crashes', async () 
 test('plugin manager rolls back partial registration when register throws', async () => {
   const homeDir = makeTempDir('hybridclaw-plugin-home-');
   const cwd = makeTempDir('hybridclaw-plugin-project-');
-  const pluginDir = path.join(
-    cwd,
-    '.hybridclaw',
-    'plugins',
-    'broken-plugin',
-  );
+  const pluginDir = path.join(cwd, '.hybridclaw', 'plugins', 'broken-plugin');
   fs.mkdirSync(pluginDir, { recursive: true });
   fs.writeFileSync(
     path.join(pluginDir, 'hybridclaw.plugin.yaml'),

@@ -23,3 +23,5 @@ top-level contributor quickstart.
   config wiring, install workflow, and runtime hooks
 - [Adaptive Skills](./adaptive-skills.md) for the self-improving skill loop,
   retention, and operator workflows
+- [OpenTelemetry Tracing Plugin](./otel-plugin.md) for emitting OTLP traces
+  to Langfuse, Jaeger, Grafana Tempo, or any OTLP backend

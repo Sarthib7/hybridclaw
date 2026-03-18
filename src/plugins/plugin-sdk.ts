@@ -31,6 +31,7 @@ export type {
   PluginSessionResetContext,
   PluginToolDefinition,
   PluginToolHandlerContext,
+  PluginTokenUsage,
   PluginToolHookContext,
   PluginToolSchema,
   PluginToolSchemaProperty,

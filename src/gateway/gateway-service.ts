@@ -1525,10 +1525,6 @@ function formatConfiguredAgentModel(
   return model ? formatModelForDisplay(model) : '(none)';
 }
 
-function normalizeRequestedModelName(model: string | null | undefined): string {
-  return normalizeHybridAIModelForRuntime(String(model || '').trim());
-}
-
 function enableFullAutoCommand(params: {
   session: Session;
   req: GatewayCommandRequest;
@@ -4885,7 +4881,8 @@ export async function handleGatewayCommand(
             );
           }
 
-          const normalizedModelName = normalizeRequestedModelName(modelName);
+          const normalizedModelName =
+            normalizeHybridAIModelForRuntime(modelName);
           await refreshAvailableModelCatalogs();
           const availableModels = getAvailableModelList();
           if (
@@ -4955,9 +4952,7 @@ export async function handleGatewayCommand(
                 'Usage: `agent create <id> [--model <model>]`',
               );
             }
-            modelName = normalizeRequestedModelName(
-              String(trailingArgs[1]).trim(),
-            );
+            modelName = normalizeHybridAIModelForRuntime(trailingArgs[1]);
             await refreshAvailableModelCatalogs();
             const availableModels = getAvailableModelList();
             if (availableModels.length === 0) {
@@ -5036,7 +5031,7 @@ export async function handleGatewayCommand(
             );
             if (matched) {
               resolvedBotId = matched.id;
-              const botModel = normalizeRequestedModelName(matched.model);
+              const botModel = normalizeHybridAIModelForRuntime(matched.model);
               syncedModel = botModel || null;
             }
           } catch (err) {
@@ -5058,7 +5053,6 @@ export async function handleGatewayCommand(
               changed: previousBotId !== resolvedBotId,
               previousModel,
               syncedModel,
-              modelChanged: syncedModel ? previousModel !== syncedModel : false,
               userId: boundAuditActorField(req.userId),
               username: boundAuditActorField(req.username),
             },
@@ -5164,7 +5158,8 @@ export async function handleGatewayCommand(
               .join('\n');
             return infoCommand('Default Model', `${defaultLine}\n\n${list}`);
           }
-          const normalizedModelName = normalizeRequestedModelName(modelName);
+          const normalizedModelName =
+            normalizeHybridAIModelForRuntime(modelName);
           if (
             availableModels.length > 0 &&
             !availableModels.includes(normalizedModelName)
@@ -5186,7 +5181,8 @@ export async function handleGatewayCommand(
           const modelName = req.args[2];
           if (!modelName)
             return badCommand('Usage', 'Usage: `model set <name>`');
-          const normalizedModelName = normalizeRequestedModelName(modelName);
+          const normalizedModelName =
+            normalizeHybridAIModelForRuntime(modelName);
           if (
             availableModels.length > 0 &&
             !availableModels.includes(normalizedModelName)

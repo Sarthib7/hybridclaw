@@ -1057,6 +1057,10 @@ function parseCurrentModelFromInfo(
   return info?.current || null;
 }
 
+function getDisplayedDefaultHybridAIModel(): string {
+  return formatModelForDisplay(HYBRIDAI_MODEL);
+}
+
 function parseModelInfoFromInfo(
   result: GatewayCommandResult,
 ): { current: string; defaultModel: string } | null {
@@ -1066,11 +1070,11 @@ function parseModelInfoFromInfo(
     current:
       parsed.current ||
       parsed.defaultModel ||
-      formatModelForDisplay(HYBRIDAI_MODEL),
+      getDisplayedDefaultHybridAIModel(),
     defaultModel:
       parsed.defaultModel ||
       parsed.current ||
-      formatModelForDisplay(HYBRIDAI_MODEL),
+      getDisplayedDefaultHybridAIModel(),
   };
 }
 
@@ -1130,8 +1134,8 @@ async function fetchSessionAndDefaultModel(): Promise<{
   defaultModel: string;
 }> {
   const fallback = {
-    current: formatModelForDisplay(HYBRIDAI_MODEL),
-    defaultModel: formatModelForDisplay(HYBRIDAI_MODEL),
+    current: getDisplayedDefaultHybridAIModel(),
+    defaultModel: getDisplayedDefaultHybridAIModel(),
   };
   try {
     const result = await requestGatewayCommand(['model', 'info']);

@@ -5031,7 +5031,9 @@ export async function handleGatewayCommand(
             );
             if (matched) {
               resolvedBotId = matched.id;
-              const botModel = normalizeHybridAIModelForRuntime(matched.model);
+              const botModel = normalizeHybridAIModelForRuntime(
+                matched.model || '',
+              );
               syncedModel = botModel || null;
             }
           } catch (err) {

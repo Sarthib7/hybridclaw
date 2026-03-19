@@ -78,6 +78,20 @@ test('available model catalog merges configured and discovered local models', as
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: string) => {
+      if (input.endsWith('/api/v1/models')) {
+        return new Response(
+          JSON.stringify({
+            models: [
+              {
+                key: 'qwen/qwen3.5-9b',
+                max_context_length: 131_072,
+                loaded_instances: [],
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
       if (input.endsWith('/models')) {
         return new Response(
           JSON.stringify({

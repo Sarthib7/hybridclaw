@@ -4409,7 +4409,7 @@ export async function handleGatewayMessage(
     const resultText = output.result || 'No response from agent.';
     const memoryCitations = extractMemoryCitations(
       resultText,
-      memoryContext.citationIndex || [],
+      memoryContext.citationIndex,
     );
     if (memoryCitations.length > 0) {
       output.memoryCitations = memoryCitations;

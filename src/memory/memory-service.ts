@@ -300,6 +300,10 @@ function truncateInline(content: string, maxChars: number): string {
   return `${compact.slice(0, maxChars)}...`;
 }
 
+// Keep citation previews short so tagged memories stay readable in prompts and
+// channel footers without crowding out the main assistant response.
+const CITATION_CONTENT_MAX_CHARS = 220;
+
 class HashedTokenEmbeddingProvider implements EmbeddingProvider {
   private readonly dimensions: number;
 
@@ -676,7 +680,7 @@ export class MemoryService {
       (memory, i) => ({
         ref: `[mem:${i + 1}]`,
         memoryId: memory.id,
-        content: truncateInline(memory.content, 220),
+        content: truncateInline(memory.content, CITATION_CONTENT_MAX_CHARS),
         confidence: Math.max(0, Math.min(1, memory.confidence)),
       }),
     );

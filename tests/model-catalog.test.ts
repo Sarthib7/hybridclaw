@@ -255,7 +255,7 @@ test('vision fallback ignores OpenRouter models with image output only', async (
   expect(catalog.isModelVisionCapable('openrouter/zeus/vision-chat')).toBe(
     true,
   );
-  expect(
-    catalog.findVisionCapableModel('openrouter/acme/text-to-image'),
-  ).toBe('openrouter/zeus/vision-chat');
+  expect(catalog.findVisionCapableModel('openrouter/acme/text-to-image')).toBe(
+    'openrouter/zeus/vision-chat',
+  );
 });

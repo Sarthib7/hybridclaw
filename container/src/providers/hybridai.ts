@@ -37,11 +37,29 @@ interface StreamChunkPayload {
   choices?: StreamChoiceChunk[];
 }
 
+function normalizeHybridAIRequestModel(model: string): string {
+  const normalized = String(model || '').trim();
+  const prefix = 'hybridai/';
+  if (!normalized.toLowerCase().startsWith(prefix)) {
+    return normalized;
+  }
+  const upstreamModel = normalized.slice(prefix.length).trim();
+  if (
+    !upstreamModel ||
+    /^(openai-codex|openrouter|anthropic|ollama|lmstudio|vllm)\//i.test(
+      upstreamModel,
+    )
+  ) {
+    return normalized;
+  }
+  return upstreamModel;
+}
+
 function buildHybridAIRequestBody(
   args: NormalizedCallArgs,
 ): Record<string, unknown> {
   const request: Record<string, unknown> = {
-    model: args.model,
+    model: normalizeHybridAIRequestModel(args.model),
     chatbot_id: args.chatbotId,
     messages: args.messages,
     tools: args.tools,
@@ -170,7 +188,7 @@ export async function callHybridAIProviderStream(
 
   let buffer = '';
   let streamId = '';
-  let streamModel = args.model;
+  let streamModel = normalizeHybridAIRequestModel(args.model);
   let finishReason: string | null = null;
   let usage: ChatCompletionResponse['usage'] | undefined;
   let role = 'assistant';

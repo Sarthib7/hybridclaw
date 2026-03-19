@@ -63,7 +63,9 @@ export default {
       name: 'qmd',
       description: 'Show QMD plugin and index status',
       async handler(args) {
-        const subcommand = String(args[0] || 'status').trim().toLowerCase();
+        const subcommand = String(args[0] || 'status')
+          .trim()
+          .toLowerCase();
         if (subcommand && subcommand !== 'status') {
           return 'Usage: `qmd status`';
         }

@@ -2,7 +2,9 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 function normalizeWhitespace(value) {
-  return String(value || '').replace(/\r/g, '').trim();
+  return String(value || '')
+    .replace(/\r/g, '')
+    .trim();
 }
 
 function quoteYaml(value) {

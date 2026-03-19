@@ -126,7 +126,9 @@ test('QMD plugin injects external prompt context and exposes a status command', 
   expect(promptContext[0]).toContain('External QMD knowledge search results:');
   expect(promptContext[0]).toContain('Architecture Notes');
   expect(promptContext[0]).toContain('notes/architecture.md');
-  expect(promptContext[0]).toContain('Plugin commands are stored by the manager');
+  expect(promptContext[0]).toContain(
+    'Plugin commands are stored by the manager',
+  );
 
   const command = manager.findCommand('qmd');
   expect(command).toBeDefined();

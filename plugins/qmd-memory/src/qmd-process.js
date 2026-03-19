@@ -83,7 +83,9 @@ function normalizeResultItem(item) {
     path,
     snippet,
     context,
-    score: toFiniteNumber(source.score ?? nestedDocument.score ?? nestedDoc.score),
+    score: toFiniteNumber(
+      source.score ?? nestedDocument.score ?? nestedDoc.score,
+    ),
   };
 }
 
@@ -199,10 +201,14 @@ function formatResultBlock(result, config) {
 
   const lines = [titleLine];
   if (result.context) {
-    lines.push(`  Context: ${truncate(result.context, config.maxSnippetChars)}`);
+    lines.push(
+      `  Context: ${truncate(result.context, config.maxSnippetChars)}`,
+    );
   }
   if (result.snippet) {
-    lines.push(`  Snippet: ${truncate(result.snippet, config.maxSnippetChars)}`);
+    lines.push(
+      `  Snippet: ${truncate(result.snippet, config.maxSnippetChars)}`,
+    );
   }
   return lines.join('\n');
 }

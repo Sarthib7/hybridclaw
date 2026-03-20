@@ -160,6 +160,7 @@ async function importFreshHealth(options?: {
   gatewayApiToken?: string;
   authSecret?: string;
   hybridAiBaseUrl?: string;
+  runningInsideContainer?: boolean;
 }) {
   vi.resetModules();
 
@@ -554,6 +555,10 @@ async function importFreshHealth(options?: {
     HYBRIDAI_BASE_URL: options?.hybridAiBaseUrl || 'https://hybridai.one',
     MSTEAMS_WEBHOOK_PATH: '/api/msteams/messages',
     WEB_API_TOKEN: options?.webApiToken || '',
+    getSandboxAutoDetectionState: vi.fn(() => ({
+      runningInsideContainer: options?.runningInsideContainer === true,
+      sandboxModeExplicit: false,
+    })),
   }));
   vi.doMock('../src/infra/install-root.js', () => ({
     resolveInstallPath: vi.fn((...segments: string[]) =>
@@ -619,11 +624,13 @@ async function importFreshHealth(options?: {
     normalizeDiscordToolAction,
   }));
 
-  const health = await import('../src/gateway/health.js');
-  health.startHealthServer();
+  const gatewayHttpServer = await import(
+    '../src/gateway/gateway-http-server.js'
+  );
+  gatewayHttpServer.startGatewayHttpServer();
 
   if (!handler || !listenArgs) {
-    throw new Error('Health server did not initialize.');
+    throw new Error('Gateway HTTP server did not initialize.');
   }
 
   return {
@@ -681,7 +688,7 @@ afterEach(() => {
   }
 });
 
-describe('gateway health server', () => {
+describe('gateway HTTP server', () => {
   test('starts the HTTP server and serves the health endpoint without auth', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({ url: '/health' });
@@ -723,17 +730,34 @@ describe('gateway health server', () => {
     expect(res.body).toContain('<h1>Docs</h1>');
   });
 
-  test('redirects protected docs routes to HybridAI login when no session cookie is present', async () => {
+  test('serves /chat, /agents, and /admin without a session cookie outside Docker', async () => {
     const state = await importFreshHealth();
-    const req = makeRequest({ url: '/agents' });
-    const res = makeResponse();
 
-    state.handler(req as never, res as never);
+    for (const pathname of ['/chat', '/agents', '/admin']) {
+      const req = makeRequest({ url: pathname });
+      const res = makeResponse();
 
-    expect(res.statusCode).toBe(302);
-    expect(res.headers.Location).toBe(
-      'https://hybridai.one/login?context=hybridclaw&next=/admin_api_keys',
-    );
+      state.handler(req as never, res as never);
+
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['Content-Type']).toBe('text/html; charset=utf-8');
+    }
+  });
+
+  test('redirects /chat, /agents, and /admin to HybridAI login in Docker when no session cookie is present', async () => {
+    const state = await importFreshHealth({ runningInsideContainer: true });
+
+    for (const pathname of ['/chat', '/agents', '/admin']) {
+      const req = makeRequest({ url: pathname });
+      const res = makeResponse();
+
+      state.handler(req as never, res as never);
+
+      expect(res.statusCode).toBe(302);
+      expect(res.headers.Location).toBe(
+        'https://hybridai.one/login?context=hybridclaw&next=/admin_api_keys',
+      );
+    }
   });
 
   test('serves the standalone agents docs page with a valid session cookie', async () => {

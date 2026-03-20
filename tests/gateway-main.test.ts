@@ -115,7 +115,7 @@ function createGatewayMainTestState(options?: {
     runManagedMediaCleanup: vi.fn(async () => {}),
     executeWorkflow: vi.fn(async () => {}),
     setInterval: vi.fn(() => ({ timer: true })),
-    startHealthServer: vi.fn(),
+    startGatewayHttpServer: vi.fn(),
     startHeartbeat: vi.fn(),
     startDiscoveryLoop: vi.fn(),
     startHealthCheckLoop: vi.fn(),
@@ -302,8 +302,8 @@ async function importFreshGatewayMain(options?: {
     resumeEnabledFullAutoSessions: state.resumeEnabledFullAutoSessions,
     runGatewayScheduledTask: vi.fn(async () => {}),
   }));
-  vi.doMock('../src/gateway/health.js', () => ({
-    startHealthServer: state.startHealthServer,
+  vi.doMock('../src/gateway/gateway-http-server.js', () => ({
+    startGatewayHttpServer: state.startGatewayHttpServer,
   }));
   vi.doMock('../src/gateway/proactive-delivery.js', () => ({
     deliverProactiveMessage: vi.fn(async () => {}),
@@ -367,7 +367,7 @@ afterEach(() => {
   vi.doUnmock('../src/scheduler/heartbeat.js');
   vi.doUnmock('../src/scheduler/scheduler.js');
   vi.doUnmock('../src/gateway/gateway-service.js');
-  vi.doUnmock('../src/gateway/health.js');
+  vi.doUnmock('../src/gateway/gateway-http-server.js');
   vi.doUnmock('../src/gateway/proactive-delivery.js');
   vi.doUnmock('../src/gateway/managed-media-cleanup.js');
   vi.doUnmock('../src/workflow/executor.js');
@@ -382,7 +382,7 @@ describe('gateway bootstrap', () => {
     expect(state.initDatabase).toHaveBeenCalledTimes(1);
     expect(state.initGatewayService).toHaveBeenCalledTimes(1);
     expect(state.resumeEnabledFullAutoSessions).toHaveBeenCalledTimes(1);
-    expect(state.startHealthServer).toHaveBeenCalledTimes(1);
+    expect(state.startGatewayHttpServer).toHaveBeenCalledTimes(1);
     expect(state.initDiscord).toHaveBeenCalledTimes(1);
     expect(state.initMSTeams).toHaveBeenCalledTimes(1);
     expect(state.startHeartbeat).toHaveBeenCalledWith(
@@ -453,7 +453,7 @@ describe('gateway bootstrap', () => {
 
     expect(state.initDiscord).toHaveBeenCalledTimes(1);
     expect(state.initMSTeams).toHaveBeenCalledTimes(1);
-    expect(state.startHealthServer).toHaveBeenCalledTimes(1);
+    expect(state.startGatewayHttpServer).toHaveBeenCalledTimes(1);
     expect(state.loggerWarn).toHaveBeenCalledWith(
       'Discord integration disabled: DISCORD_TOKEN was rejected by Discord. Update or clear the token and restart the gateway.',
     );

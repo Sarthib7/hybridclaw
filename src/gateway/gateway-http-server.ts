@@ -13,6 +13,7 @@ import { handleMSTeamsWebhook } from '../channels/msteams/runtime.js';
 import {
   DATA_DIR,
   GATEWAY_API_TOKEN,
+  getSandboxAutoDetectionState,
   HEALTH_HOST,
   HEALTH_PORT,
   HYBRIDAI_BASE_URL,
@@ -291,6 +292,10 @@ function resolveHybridAILoginUrl(): string | null {
 }
 
 function requiresSessionAuth(pathname: string): boolean {
+  if (!getSandboxAutoDetectionState().runningInsideContainer) {
+    return false;
+  }
+
   return (
     pathname === '/chat' ||
     pathname === '/chat.html' ||
@@ -1405,7 +1410,7 @@ function handleApiArtifact(
   });
 }
 
-export function startHealthServer(): void {
+export function startGatewayHttpServer(): void {
   const server = http.createServer((req, res) => {
     const method = req.method || 'GET';
     const url = new URL(req.url || '/', 'http://localhost');

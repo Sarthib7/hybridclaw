@@ -98,7 +98,7 @@ import {
   runGatewayScheduledTask,
   stopGatewayPlugins,
 } from './gateway-service.js';
-import { startHealthServer } from './health.js';
+import { startGatewayHttpServer } from './gateway-http-server.js';
 import { runManagedMediaCleanup } from './managed-media-cleanup.js';
 import {
   cleanupExpiredPendingApprovals,
@@ -1613,7 +1613,7 @@ async function main(): Promise<void> {
   void runManagedMediaCleanup('startup').catch((error) => {
     logger.warn({ error }, 'Managed media cleanup failed during startup');
   });
-  startHealthServer();
+  startGatewayHttpServer();
   setupShutdown();
   const discordActive = await startDiscordIntegration();
   const msteamsActive = await startMSTeamsIntegration();

@@ -6,5 +6,8 @@
   "description": "HybridClaw memory plugin that queries QMD and exports session transcripts",
   "engines": {
     "node": "22.x"
+  },
+  "dependencies": {
+    "yaml": "^2.8.2"
   }
 }

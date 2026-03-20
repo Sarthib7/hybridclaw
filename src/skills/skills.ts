@@ -19,6 +19,7 @@ import { resolveInstallPath } from '../infra/install-root.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import type { ToolExecution } from '../types.js';
+import { hasExecutableCommand } from '../utils/executables.js';
 import { guardSkillDirectory } from './skills-guard.js';
 
 type SkillSource =
@@ -530,51 +531,8 @@ function parseHybridClawMetadata(frontmatter: FrontmatterParseResult): {
   };
 }
 
-let cachedPathEnv = '';
-let cachedPathExt = '';
-const hasBinaryCache = new Map<string, boolean>();
-
 export function hasBinary(binName: string): boolean {
-  const bin = binName.trim();
-  if (!bin) return false;
-
-  const currentPath = process.env.PATH || '';
-  const currentPathExt =
-    process.platform === 'win32' ? process.env.PATHEXT || '' : '';
-  if (cachedPathEnv !== currentPath || cachedPathExt !== currentPathExt) {
-    cachedPathEnv = currentPath;
-    cachedPathExt = currentPathExt;
-    hasBinaryCache.clear();
-  }
-
-  const cached = hasBinaryCache.get(bin);
-  if (cached != null) return cached;
-
-  const exts =
-    process.platform === 'win32'
-      ? [
-          '',
-          ...currentPathExt
-            .split(';')
-            .map((ext) => ext.trim())
-            .filter(Boolean),
-        ]
-      : [''];
-  for (const part of currentPath.split(path.delimiter).filter(Boolean)) {
-    for (const ext of exts) {
-      const candidate = path.join(part, `${bin}${ext}`);
-      try {
-        fs.accessSync(candidate, fs.constants.X_OK);
-        hasBinaryCache.set(bin, true);
-        return true;
-      } catch {
-        // continue scanning
-      }
-    }
-  }
-
-  hasBinaryCache.set(bin, false);
-  return false;
+  return hasExecutableCommand(binName);
 }
 
 function checkEligibility(skill: {

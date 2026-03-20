@@ -51,6 +51,11 @@ export interface CanonicalSlashInteractionInput {
   getSubcommand: () => string | null;
 }
 
+export interface PluginSlashCommandCatalogEntry {
+  name: string;
+  description?: string;
+}
+
 const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'agent',
   'bot',
@@ -231,6 +236,17 @@ export function mapCanonicalCommandToGatewayArgs(
     case 'plugin': {
       const sub = (parts[1] || '').trim().toLowerCase();
       if (!sub || sub === 'list') return ['plugin', 'list'];
+      if (sub === 'install') {
+        const source = parts.slice(2).join(' ').trim();
+        return source ? ['plugin', 'install', source] : ['plugin', 'install'];
+      }
+      if (sub === 'reinstall') {
+        const source = parts.slice(2).join(' ').trim();
+        return source
+          ? ['plugin', 'reinstall', source]
+          : ['plugin', 'reinstall'];
+      }
+      if (sub === 'reload') return ['plugin', 'reload'];
       if (sub === 'uninstall') {
         const pluginId = (parts[2] || '').trim();
         return pluginId
@@ -575,12 +591,53 @@ function buildSlashCommandCatalogDefinitions(
     },
     {
       name: 'plugin',
-      description: 'List or uninstall HybridClaw plugins',
+      description:
+        'List, install, reinstall, reload, or uninstall HybridClaw plugins',
       options: [
         {
           kind: 'subcommand',
           name: 'list',
-          description: 'List discovered plugins, tools, hooks, and load errors',
+          description:
+            'List discovered plugins, descriptions, commands, tools, hooks, and load errors',
+        },
+        {
+          kind: 'subcommand',
+          name: 'install',
+          description: 'Install a plugin from a local TUI/web session',
+          tuiMenu: {
+            label: '/plugin install <path|npm-spec>',
+            insertText: '/plugin install ',
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'source',
+              description: 'Local plugin path or npm package spec',
+              required: true,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'reinstall',
+          description: 'Replace an installed plugin from a local TUI/web session',
+          tuiMenu: {
+            label: '/plugin reinstall <path|npm-spec>',
+            insertText: '/plugin reinstall ',
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'source',
+              description: 'Local plugin path or npm package spec',
+              required: true,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'reload',
+          description: 'Reload all plugins without restarting the gateway',
         },
         {
           kind: 'subcommand',
@@ -1099,8 +1156,21 @@ export function buildCanonicalSlashCommandDefinitions(
 
 export function buildTuiSlashCommandDefinitions(
   modelChoices: Array<{ name: string; value: string }>,
+  pluginCommands: PluginSlashCommandCatalogEntry[] = [],
 ): CanonicalSlashCommandDefinition[] {
-  return buildSlashCommandCatalogDefinitions(modelChoices);
+  const definitions = buildSlashCommandCatalogDefinitions(modelChoices);
+  const known = new Set(definitions.map((definition) => definition.name));
+  for (const pluginCommand of pluginCommands) {
+    const name = pluginCommand.name.trim().toLowerCase();
+    if (!name || known.has(name)) continue;
+    definitions.push({
+      name,
+      description:
+        pluginCommand.description?.trim() || 'Run a plugin-provided command',
+    });
+    known.add(name);
+  }
+  return definitions;
 }
 
 export function parseCanonicalSlashCommandArgs(
@@ -1270,6 +1340,15 @@ export function parseCanonicalSlashCommandArgs(
     case 'plugin': {
       const subcommand = normalizeSubcommand(interaction);
       if (subcommand === 'list') return ['plugin', 'list'];
+      if (subcommand === 'install') {
+        const source = normalizeStringOption(interaction, 'source', true);
+        return source ? ['plugin', 'install', source] : null;
+      }
+      if (subcommand === 'reinstall') {
+        const source = normalizeStringOption(interaction, 'source', true);
+        return source ? ['plugin', 'reinstall', source] : null;
+      }
+      if (subcommand === 'reload') return ['plugin', 'reload'];
       if (subcommand === 'uninstall') {
         const pluginId = normalizeStringOption(interaction, 'id', true);
         return pluginId ? ['plugin', 'uninstall', pluginId] : null;

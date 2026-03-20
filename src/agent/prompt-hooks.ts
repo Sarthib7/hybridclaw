@@ -28,6 +28,7 @@ import { buildToolsSummary } from './tool-summary.js';
 export type PromptHookName =
   | 'bootstrap'
   | 'memory'
+  | 'retrieval'
   | 'safety'
   | 'runtime'
   | 'session-context';
@@ -50,6 +51,7 @@ export interface PromptRuntimeInfo {
 export interface PromptHookContext {
   agentId: string;
   sessionSummary?: string | null;
+  retrievedContext?: string | null;
   skills: Skill[];
   explicitSkillInvocation?: SkillInvocation | null;
   purpose?: 'conversation' | 'memory-flush';
@@ -119,6 +121,24 @@ function buildBootstrapHook(context: PromptHookContext): string {
 
 function buildMemoryHook(context: PromptHookContext): string {
   return buildSessionSummaryPrompt(context.sessionSummary);
+}
+
+export function buildRetrievedContextPrompt(
+  retrievedContext: string | null | undefined,
+): string {
+  const trimmed = retrievedContext?.trim() || '';
+  if (!trimmed) return '';
+  return [
+    '## Retrieved Context',
+    'Fresh external context retrieved for the current user request. This is not prior session memory.',
+    'If this section directly answers the request, answer from it even when the referenced source path is not available to workspace file tools.',
+    '',
+    trimmed,
+  ].join('\n');
+}
+
+function buildRetrievalHook(context: PromptHookContext): string {
+  return buildRetrievedContextPrompt(context.retrievedContext);
 }
 
 function buildSessionContextHook(context: PromptHookContext): string {
@@ -438,6 +458,11 @@ const PROMPT_HOOKS: PromptHook[] = [
     run: buildMemoryHook,
   },
   {
+    name: 'retrieval',
+    isEnabled: () => true,
+    run: buildRetrievalHook,
+  },
+  {
     name: 'session-context',
     isEnabled: (_config, context) =>
       Boolean(context.runtimeInfo?.sessionContext),
@@ -475,6 +500,7 @@ function isHookAllowedForMode(
   // Minimal mode keeps only safety + memory durability context.
   return (
     hookName === 'memory' ||
+    hookName === 'retrieval' ||
     hookName === 'safety' ||
     hookName === 'runtime' ||
     hookName === 'session-context'

@@ -814,19 +814,22 @@ function printPluginUsage(): void {
 Commands:
   hybridclaw plugin list
   hybridclaw plugin install <path|npm-spec>
+  hybridclaw plugin reinstall <path|npm-spec>
   hybridclaw plugin uninstall <plugin-id>
 
 Examples:
   hybridclaw plugin list
   hybridclaw plugin install ./plugins/example-plugin
   hybridclaw plugin install @scope/hybridclaw-plugin-example
+  hybridclaw plugin reinstall ./plugins/example-plugin
   hybridclaw plugin uninstall example-plugin
 
 Notes:
   - Plugins install into \`~/.hybridclaw/plugins/<plugin-id>\`.
   - Valid plugins in \`~/.hybridclaw/plugins/\` or \`./.hybridclaw/plugins/\` auto-discover at runtime.
-  - \`list\` shows discovered plugin status, source, tools, hooks, and load errors.
+  - \`list\` shows discovered plugin status, source, description, commands, tools, hooks, and load errors.
   - \`install\` validates \`hybridclaw.plugin.yaml\` and installs npm dependencies when needed.
+  - \`reinstall\` replaces the home-installed plugin tree and preserves existing \`plugins.list[]\` overrides.
   - \`uninstall\` removes the home-installed plugin directory and matching \`plugins.list[]\` overrides.
   - Use ${runtimeConfigPath()} only for plugin overrides such as disable flags, config values, or custom paths.`);
 }
@@ -3890,6 +3893,57 @@ async function handlePluginCommand(args: string[]): Promise<void> {
     return;
   }
 
+  if (sub === 'reinstall') {
+    const source = normalized[1];
+    if (!source) {
+      printPluginUsage();
+      throw new Error(
+        'Missing plugin source for `hybridclaw plugin reinstall <path|npm-spec>`.',
+      );
+    }
+    if (normalized.length !== 2) {
+      printPluginUsage();
+      throw new Error(
+        'Unexpected extra arguments for `hybridclaw plugin reinstall <path|npm-spec>`.',
+      );
+    }
+
+    const { reinstallPlugin } = await import('./plugins/plugin-install.js');
+    const result = await reinstallPlugin(source);
+
+    if (result.replacedExistingInstall) {
+      console.log(
+        `Reinstalled plugin ${result.pluginId} to ${result.pluginDir}.`,
+      );
+    } else {
+      console.log(
+        `Installed plugin ${result.pluginId} to ${result.pluginDir}.`,
+      );
+    }
+    if (result.dependenciesInstalled) {
+      console.log('Installed plugin npm dependencies.');
+    }
+    console.log(
+      `Plugin ${result.pluginId} will auto-discover from ${result.pluginDir}.`,
+    );
+    if (result.requiresEnv.length > 0) {
+      console.log(`Required env vars: ${result.requiresEnv.join(', ')}`);
+    }
+    if (result.requiredConfigKeys.length > 0) {
+      console.log(
+        `Add a plugins.list[] override in ${runtimeConfigPath()} to set required config keys: ${result.requiredConfigKeys.join(', ')}`,
+      );
+    } else {
+      console.log(
+        `No config entry is required unless you want plugin overrides in ${runtimeConfigPath()}.`,
+      );
+    }
+    console.log('Restart the gateway to load plugin changes:');
+    console.log('  hybridclaw gateway restart --foreground');
+    console.log('  hybridclaw gateway status');
+    return;
+  }
+
   if (sub === 'uninstall') {
     const pluginId = normalized[1];
     if (!pluginId) {
@@ -3936,7 +3990,7 @@ async function handlePluginCommand(args: string[]): Promise<void> {
   }
   printPluginUsage();
   throw new Error(
-    `Unknown plugin subcommand: ${sub}. Use \`hybridclaw plugin list\`, \`hybridclaw plugin install <path|npm-spec>\`, or \`hybridclaw plugin uninstall <plugin-id>\`.`,
+    `Unknown plugin subcommand: ${sub}. Use \`hybridclaw plugin list\`, \`hybridclaw plugin install <path|npm-spec>\`, \`hybridclaw plugin reinstall <path|npm-spec>\`, or \`hybridclaw plugin uninstall <plugin-id>\`.`,
   );
 }
 

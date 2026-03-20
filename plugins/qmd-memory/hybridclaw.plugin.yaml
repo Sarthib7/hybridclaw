@@ -4,6 +4,10 @@ version: 0.1.0
 kind: memory
 description: Search an external QMD index for markdown knowledge and optionally export session transcripts for indexing.
 entrypoint: src/index.js
+requires:
+  bins:
+    - name: qmd
+      configKey: command
 configSchema:
   type: object
   additionalProperties: false

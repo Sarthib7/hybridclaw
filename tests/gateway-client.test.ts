@@ -32,6 +32,7 @@ test('gatewayChatStream parses approval events before the final result', async (
       status: 'success',
       result: 'I need your approval before I control a local app.',
       toolsUsed: ['bash'],
+      pluginsUsed: ['qmd-memory'],
       pendingApproval: {
         approvalId: 'approve123',
         prompt: 'I need your approval before I control a local app.',
@@ -91,6 +92,7 @@ test('gatewayChatStream parses approval events before the final result', async (
   expect(result).toMatchObject({
     status: 'success',
     result: 'I need your approval before I control a local app.',
+    pluginsUsed: ['qmd-memory'],
   });
 });
 

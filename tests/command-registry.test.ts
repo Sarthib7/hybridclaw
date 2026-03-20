@@ -19,16 +19,28 @@ test('registers plugin as a slash/text command', async () => {
     expect.arrayContaining([
       expect.objectContaining({
         name: 'plugin',
-        options: [
+        options: expect.arrayContaining([
           expect.objectContaining({
             kind: 'subcommand',
             name: 'list',
           }),
           expect.objectContaining({
             kind: 'subcommand',
+            name: 'install',
+          }),
+          expect.objectContaining({
+            kind: 'subcommand',
+            name: 'reinstall',
+          }),
+          expect.objectContaining({
+            kind: 'subcommand',
+            name: 'reload',
+          }),
+          expect.objectContaining({
+            kind: 'subcommand',
             name: 'uninstall',
           }),
-        ],
+        ]),
       }),
     ]),
   );
@@ -43,6 +55,57 @@ test('parses /plugin list into gateway args', async () => {
       getSubcommand: () => 'list',
     }),
   ).toEqual(['plugin', 'list']);
+});
+
+test('parses /plugin reload into gateway args', async () => {
+  const { parseCanonicalSlashCommandArgs } = await importCommandRegistry();
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'plugin',
+      getString: () => null,
+      getSubcommand: () => 'reload',
+    }),
+  ).toEqual(['plugin', 'reload']);
+});
+
+test('parses /plugin install into gateway args', async () => {
+  const { parseCanonicalSlashCommandArgs, mapCanonicalCommandToGatewayArgs } =
+    await importCommandRegistry();
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'plugin',
+      getString: (name) =>
+        name === 'source' ? './plugins/qmd-memory' : null,
+      getSubcommand: () => 'install',
+    }),
+  ).toEqual(['plugin', 'install', './plugins/qmd-memory']);
+  expect(
+    mapCanonicalCommandToGatewayArgs([
+      'plugin',
+      'install',
+      './plugins/qmd-memory',
+    ]),
+  ).toEqual(['plugin', 'install', './plugins/qmd-memory']);
+});
+
+test('parses /plugin reinstall into gateway args', async () => {
+  const { parseCanonicalSlashCommandArgs, mapCanonicalCommandToGatewayArgs } =
+    await importCommandRegistry();
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'plugin',
+      getString: (name) =>
+        name === 'source' ? './plugins/qmd-memory' : null,
+      getSubcommand: () => 'reinstall',
+    }),
+  ).toEqual(['plugin', 'reinstall', './plugins/qmd-memory']);
+  expect(
+    mapCanonicalCommandToGatewayArgs([
+      'plugin',
+      'reinstall',
+      './plugins/qmd-memory',
+    ]),
+  ).toEqual(['plugin', 'reinstall', './plugins/qmd-memory']);
 });
 
 test('parses /plugin uninstall into gateway args', async () => {

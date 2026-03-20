@@ -1,44 +1,47 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { stringify as stringifyYaml } from 'yaml';
 
-function normalizeWhitespace(value) {
+function trimTextValue(value) {
   return String(value || '')
     .replace(/\r/g, '')
     .trim();
 }
 
-function quoteYaml(value) {
-  return JSON.stringify(String(value || ''));
-}
-
 function sanitizeSessionId(sessionId) {
-  const normalized = String(sessionId || '')
-    .trim()
+  const raw = String(sessionId || '').trim();
+  const normalized = raw
     .replace(/[^A-Za-z0-9._-]+/g, '-')
     .replace(/^-+|-+$/g, '');
-  return normalized || 'session';
+  if (normalized) return normalized;
+  const suffix = createHash('sha256').update(raw).digest('hex').slice(0, 12);
+  return `session-${suffix}`;
 }
 
 function formatMessageSection(message, index) {
-  const role = normalizeWhitespace(message.role) || 'unknown';
-  const createdAt = normalizeWhitespace(message.created_at) || 'unknown-time';
-  const username = normalizeWhitespace(message.username);
+  const role = trimTextValue(message.role) || 'unknown';
+  const createdAt = trimTextValue(message.created_at) || 'unknown-time';
+  const username = trimTextValue(message.username);
   const heading = username
     ? `## ${index + 1}. ${role} (${username}) · ${createdAt}`
     : `## ${index + 1}. ${role} · ${createdAt}`;
-  const content = normalizeWhitespace(message.content) || '_Empty message_';
+  const content = trimTextValue(message.content) || '_Empty message_';
   return [heading, '', content].join('\n');
 }
 
 export function buildSessionExportMarkdown(params) {
   const exportedAt = new Date().toISOString();
+  const frontmatterData = {
+    sessionId: String(params.sessionId || ''),
+    userId: String(params.userId || ''),
+    agentId: String(params.agentId || ''),
+    exportedAt,
+    messageCount: params.messages.length,
+  };
   const frontmatter = [
     '---',
-    `sessionId: ${quoteYaml(params.sessionId)}`,
-    `userId: ${quoteYaml(params.userId)}`,
-    `agentId: ${quoteYaml(params.agentId)}`,
-    `exportedAt: ${quoteYaml(exportedAt)}`,
-    `messageCount: ${params.messages.length}`,
+    stringifyYaml(frontmatterData).trimEnd(),
     '---',
   ].join('\n');
 

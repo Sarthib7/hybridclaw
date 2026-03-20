@@ -18,12 +18,14 @@ import {
 import { logger as rootLogger } from '../logger.js';
 import type { AIProvider } from '../providers/types.js';
 import type { StoredMessage } from '../types.js';
+import { hasExecutableCommand } from '../utils/executables.js';
 import { createPluginApi } from './plugin-api.js';
 import type {
   HybridClawPluginDefinition,
   LoadedPlugin,
   MemoryLayerPlugin,
   PluginAgentEndContext,
+  PluginBinaryRequirement,
   PluginCandidate,
   PluginCommandDefinition,
   PluginCompactionContext,
@@ -36,6 +38,7 @@ import type {
   PluginManifest,
   PluginMemoryFlushContext,
   PluginPromptBuildContext,
+  PluginPromptContextResult,
   PluginPromptHook,
   PluginRegistrationMode,
   PluginRuntimeToolDefinition,
@@ -102,6 +105,11 @@ type RegisteredCommand = {
   pluginId: string;
   command: PluginCommandDefinition;
 };
+
+export interface PluginCommandSummary {
+  name: string;
+  description?: string;
+}
 
 type RegisteredProvider = {
   pluginId: string;
@@ -201,6 +209,27 @@ function normalizePluginInstallSpecs(
   }));
 }
 
+function normalizePluginBinaryRequirements(
+  value: unknown,
+): PluginBinaryRequirement[] {
+  if (!Array.isArray(value)) return [];
+  const out: PluginBinaryRequirement[] = [];
+  for (const entry of value) {
+    if (typeof entry === 'string') {
+      const name = normalizeTrimmedString(entry);
+      if (!name) continue;
+      out.push({ name });
+      continue;
+    }
+    if (!isRecord(entry)) continue;
+    const name = normalizeTrimmedString(entry.name);
+    if (!name) continue;
+    const configKey = normalizeTrimmedString(entry.configKey);
+    out.push(configKey ? { name, configKey } : { name });
+  }
+  return out;
+}
+
 function normalizePluginConfigUiHints(
   value: unknown,
 ): Record<string, PluginConfigUiHint> | undefined {
@@ -254,6 +283,7 @@ function normalizeManifest(input: unknown): PluginManifest {
     entrypoint: normalizeTrimmedString(input.entrypoint),
     requires: isRecord(input.requires)
       ? {
+          bins: normalizePluginBinaryRequirements(input.requires.bins),
           env: normalizeStringArray(input.requires.env),
           node: normalizeTrimmedString(input.requires.node),
         }
@@ -339,6 +369,30 @@ function satisfiesNodeRequirement(requirement?: string): boolean {
     return matchesNumericTuplePrefix(current, expected);
   }
   return true;
+}
+
+function resolveRequiredBinaryCommand(
+  requirement: PluginBinaryRequirement,
+  config: Record<string, unknown>,
+): string {
+  if (requirement.configKey) {
+    const configured = normalizeTrimmedString(config[requirement.configKey]);
+    if (configured) return configured;
+  }
+  return requirement.name;
+}
+
+function formatMissingBinaryRequirement(params: {
+  requirement: PluginBinaryRequirement;
+  command: string;
+}): string {
+  if (
+    params.requirement.configKey &&
+    params.command.trim() !== params.requirement.name
+  ) {
+    return `${params.requirement.name} (from ${params.requirement.configKey}=${params.command})`;
+  }
+  return params.requirement.name;
 }
 
 function decodeJsonPointerSegment(value: string): string {
@@ -447,7 +501,9 @@ async function importPluginModule(entrypoint: string): Promise<unknown> {
       }
     }
   }
-  return import(pathToFileURL(entrypoint).href);
+  const entrypointUrl = pathToFileURL(entrypoint);
+  entrypointUrl.searchParams.set('t', String(fs.statSync(entrypoint).mtimeMs));
+  return import(entrypointUrl.href);
 }
 
 function resolvePluginDefinition(mod: unknown): HybridClawPluginDefinition {
@@ -737,6 +793,43 @@ export class PluginManager {
       return;
     }
 
+    const missingBins = (candidate.manifest.requires?.bins || [])
+      .map((requirement) => ({
+        requirement,
+        command: resolveRequiredBinaryCommand(requirement, candidate.config),
+      }))
+      .filter(
+        ({ command }) => !hasExecutableCommand(command, { cwd: this.cwd }),
+      );
+    if (missingBins.length > 0) {
+      const missingLabels = missingBins.map((entry) =>
+        formatMissingBinaryRequirement(entry),
+      );
+      const error = `Missing required binaries: ${missingLabels.join(', ')}.`;
+      this.logger.warn(
+        {
+          pluginId: candidate.id,
+          missingBins: missingBins.map((entry) => ({
+            name: entry.requirement.name,
+            configKey: entry.requirement.configKey,
+            command: entry.command,
+          })),
+        },
+        'Skipping plugin due to missing required binaries',
+      );
+      this.plugins.push({
+        id: candidate.id,
+        manifest: candidate.manifest,
+        candidate,
+        enabled: false,
+        status: 'failed',
+        error,
+        toolsRegistered: [],
+        hooksRegistered: [],
+      });
+      return;
+    }
+
     let definition: HybridClawPluginDefinition | undefined;
     let api: ReturnType<typeof createPluginApi> | undefined;
     let toolsRegistered: string[] = [];
@@ -917,17 +1010,34 @@ export class PluginManager {
     return [...this.plugins];
   }
 
+  listRegisteredCommands(): PluginCommandSummary[] {
+    return [...this.commands.values()]
+      .map(({ command }) => ({
+        name: command.name,
+        description: command.description,
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name));
+  }
+
   listPluginSummary(): PluginSummary[] {
-    return this.plugins.map((plugin) => ({
-      id: plugin.id,
-      name: plugin.manifest.name,
-      version: plugin.manifest.version,
-      source: plugin.candidate.source,
-      enabled: plugin.enabled,
-      error: plugin.error,
-      tools: [...plugin.toolsRegistered],
-      hooks: [...plugin.hooksRegistered],
-    }));
+    return this.plugins.map((plugin) => {
+      const commands = [...this.commands.values()]
+        .filter((entry) => entry.pluginId === plugin.id)
+        .map((entry) => entry.command.name);
+
+      return {
+        id: plugin.id,
+        name: plugin.manifest.name,
+        version: plugin.manifest.version,
+        description: plugin.manifest.description,
+        source: plugin.candidate.source,
+        enabled: plugin.enabled,
+        error: plugin.error,
+        commands,
+        tools: [...plugin.toolsRegistered],
+        hooks: [...plugin.hooksRegistered],
+      };
+    });
   }
 
   private createPluginRegistrationSnapshot(): PluginRegistrationSnapshot {
@@ -1030,16 +1140,17 @@ export class PluginManager {
     return this.commands.get(name)?.command;
   }
 
-  async collectPromptContext(params: {
+  async collectPromptContextDetails(params: {
     sessionId: string;
     userId: string;
     agentId: string;
     channelId: string;
     recentMessages: StoredMessage[];
-  }): Promise<string[]> {
+  }): Promise<PluginPromptContextResult> {
     await this.ensureInitialized();
 
     const extraContext: string[] = [];
+    const pluginIds = new Set<string>();
     for (const entry of [...this.memoryLayers].sort(
       (left, right) => left.layer.priority - right.layer.priority,
     )) {
@@ -1053,6 +1164,7 @@ export class PluginManager {
         });
         if (typeof value === 'string' && value.trim()) {
           extraContext.push(value.trim());
+          pluginIds.add(entry.pluginId);
         }
       } catch (error) {
         this.logger.warn(
@@ -1073,6 +1185,7 @@ export class PluginManager {
         const value = await entry.hook.render(hookContext);
         if (typeof value === 'string' && value.trim()) {
           extraContext.push(value.trim());
+          pluginIds.add(entry.pluginId);
         }
       } catch (error) {
         this.logger.warn(
@@ -1082,10 +1195,42 @@ export class PluginManager {
       }
     }
 
-    await this.dispatchHook('before_prompt_build', hookContext);
-    return extraContext.filter(
-      (value, index, list) => list.indexOf(value) === index,
-    );
+    const beforePromptBuildHooks =
+      (this.hooks.get('before_prompt_build') as RegisteredHook<'before_prompt_build'>[] | undefined) ||
+      [];
+    for (const entry of beforePromptBuildHooks) {
+      const contextLengthBefore = hookContext.extraContext.length;
+      try {
+        await entry.handler(hookContext);
+        if (hookContext.extraContext.length > contextLengthBefore) {
+          pluginIds.add(entry.pluginId);
+        }
+      } catch (error) {
+        this.logger.warn(
+          { pluginId: entry.pluginId, hookName: 'before_prompt_build', error },
+          'Plugin lifecycle hook failed',
+        );
+      }
+    }
+    return {
+      sections: extraContext.filter(
+        (value, index, list) => list.indexOf(value) === index,
+      ),
+      pluginIds: [...pluginIds].sort((left, right) =>
+        left.localeCompare(right),
+      ),
+    };
+  }
+
+  async collectPromptContext(params: {
+    sessionId: string;
+    userId: string;
+    agentId: string;
+    channelId: string;
+    recentMessages: StoredMessage[];
+  }): Promise<string[]> {
+    const result = await this.collectPromptContextDetails(params);
+    return result.sections;
   }
 
   async notifySessionStart(params: {
@@ -1327,6 +1472,11 @@ export function findLoadedPluginCommand(
 ): PluginCommandDefinition | undefined {
   if (!singleton) return undefined;
   return singleton.findCommand(name);
+}
+
+export function listLoadedPluginCommands(): PluginCommandSummary[] {
+  if (!singleton) return [];
+  return singleton.listRegisteredCommands();
 }
 
 export async function shutdownPluginManager(): Promise<void> {

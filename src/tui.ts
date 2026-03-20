@@ -19,6 +19,7 @@ import {
   type GatewayChatApprovalEvent,
   type GatewayChatResult,
   type GatewayCommandResult,
+  type GatewayPluginCommandSummary,
   gatewayChat,
   gatewayChatStream,
   gatewayCommand,
@@ -613,6 +614,14 @@ function printToolUsage(tools: string[]): void {
   );
 }
 
+function printPluginUsage(plugins: string[]): void {
+  if (plugins.length === 0) return;
+  clearTuiSlashMenu();
+  console.log(
+    `  ${MUTED}${JELLYFISH} plugins:${RESET} ${GREEN}${plugins.join(', ')}${RESET}`,
+  );
+}
+
 function terminalColumns(): number {
   return Math.max(24, process.stdout.columns || 120);
 }
@@ -632,6 +641,10 @@ function printGatewayCommandResult(result: GatewayCommandResult): void {
     return;
   }
   printInfo(renderGatewayCommand(result));
+}
+
+function isUnknownGatewayCommandResult(result: GatewayCommandResult): boolean {
+  return result.kind === 'error' && result.title === 'Unknown Command';
 }
 
 function pickOceanActivityVerb(): string {
@@ -854,6 +867,16 @@ function collectToolNames(result: GatewayChatResult): string[] {
   return Array.from(names);
 }
 
+function collectPluginNames(result: GatewayChatResult): string[] {
+  const names = new Set<string>();
+
+  for (const pluginName of result.pluginsUsed || []) {
+    if (pluginName) names.add(pluginName);
+  }
+
+  return Array.from(names);
+}
+
 function isInterruptedResult(result: GatewayChatResult): boolean {
   const errorText = result.error || '';
   return errorText.includes('aborted') || errorText.includes('Interrupted');
@@ -884,6 +907,12 @@ function clearTuiSlashMenu(): void {
 
 function syncTuiSlashMenu(): void {
   tuiSlashMenu?.sync();
+}
+
+function syncTuiSlashMenuEntries(
+  pluginCommands: GatewayPluginCommandSummary[] | undefined,
+): void {
+  tuiSlashMenu?.setEntries(buildTuiSlashMenuEntries(pluginCommands || []));
 }
 
 function isReadlineClosed(rl: readline.Interface): boolean {
@@ -1021,6 +1050,20 @@ async function runGatewayCommand(
     printGatewayCommandResult(result);
     const normalizedCommand = (args[0] || '').trim().toLowerCase();
     const normalizedSubcommand = (args[1] || '').trim().toLowerCase();
+    if (
+      normalizedCommand === 'plugin' &&
+      (normalizedSubcommand === 'install' ||
+        normalizedSubcommand === 'reinstall' ||
+        normalizedSubcommand === 'reload' ||
+        normalizedSubcommand === 'uninstall')
+    ) {
+      try {
+        const status = await gatewayStatus();
+        syncTuiSlashMenuEntries(status.pluginCommands);
+      } catch {
+        // Keep the existing menu entries when refresh fails.
+      }
+    }
     if (normalizedCommand === 'show') {
       tuiShowMode = isSessionShowMode(normalizedSubcommand)
         ? normalizedSubcommand
@@ -1333,9 +1376,22 @@ async function handleSlashCommand(
   }
 
   const gatewayArgs = mapTuiSlashCommandToGatewayArgs(parts);
-  if (!gatewayArgs) return false;
-  await runGatewayCommand(gatewayArgs, rl);
-  return true;
+  if (gatewayArgs) {
+    await runGatewayCommand(gatewayArgs, rl);
+    return true;
+  }
+
+  // Plugin-defined commands live on the gateway. Probe there before treating
+  // an unknown slash-prefixed line as normal chat text.
+  if (cmd && cmd !== 'skill') {
+    const result = await requestGatewayCommand(parts);
+    if (!isUnknownGatewayCommandResult(result)) {
+      printGatewayCommandResult(result);
+      return true;
+    }
+  }
+
+  return false;
 }
 
 async function processMessage(
@@ -1416,6 +1472,8 @@ async function processMessage(
     const toolNames = [
       ...new Set([...streamedToolNames, ...collectToolNames(result)]),
     ];
+    const pluginNames = collectPluginNames(result);
+    const hasUsageFooters = toolNames.length > 0 || pluginNames.length > 0;
     const hasStreamedText = sawVisibleTextDelta;
     const finalText = result.result || 'No response.';
     const pendingApproval = resolvePendingApproval(result, streamedApproval);
@@ -1423,13 +1481,14 @@ async function processMessage(
     s.flushVisibleText();
     s.stop();
     s.clearThinkingPreview();
-    if (toolNames.length > 0) {
+    if (hasUsageFooters) {
       if (!hasStreamedText) {
         s.clearTools();
       } else {
         process.stdout.write('\n');
       }
       printToolUsage(toolNames);
+      printPluginUsage(pluginNames);
     }
 
     if (isInterruptedResult(result)) {
@@ -1477,7 +1536,7 @@ async function processMessage(
         console.log();
       } else {
         printResponse(finalText, {
-          leadingBlank: toolNames.length > 0,
+          leadingBlank: hasUsageFooters,
         });
       }
     }
@@ -1640,7 +1699,7 @@ async function main(): Promise<void> {
   };
   tuiSlashMenu = new TuiSlashMenuController({
     rl,
-    entries: buildTuiSlashMenuEntries(),
+    entries: buildTuiSlashMenuEntries(status.pluginCommands || []),
     palette: slashMenuPalette,
     shouldShow: () =>
       !activeRunAbortController || activeRunAbortController.signal.aborted,

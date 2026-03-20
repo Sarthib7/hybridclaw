@@ -5,15 +5,14 @@ async function settle(): Promise<void> {
   await new Promise((resolve) => setImmediate(resolve));
 }
 
-async function importFreshGatewayMain(options?: {
+function createGatewayMainTestState(options?: {
   discordInitError?: Error;
   whatsappLinked?: boolean;
   msteamsEnabled?: boolean;
   hasMSTeamsCredentials?: boolean;
+  initGatewayServiceImpl?: () => Promise<void>;
 }) {
-  vi.resetModules();
-
-  const state = {
+  return {
     commandHandler: null as null | ((...args: unknown[]) => Promise<void>),
     messageHandler: null as null | ((...args: unknown[]) => Promise<void>),
     teamsCommandHandler: null as null | ((...args: unknown[]) => Promise<void>),
@@ -87,7 +86,9 @@ async function importFreshGatewayMain(options?: {
     initMSTeams: vi.fn(),
     initWhatsApp: vi.fn(),
     initializeWorkflowRuntime: vi.fn(),
-    initGatewayService: vi.fn(),
+    initGatewayService: vi.fn(
+      options?.initGatewayServiceImpl || (async () => {}),
+    ),
     listQueuedProactiveMessages: vi.fn(() => []),
     loggerDebug: vi.fn(),
     loggerError: vi.fn(),
@@ -122,6 +123,21 @@ async function importFreshGatewayMain(options?: {
     startScheduler: vi.fn(),
     whatsappLinked: options?.whatsappLinked === true,
   };
+}
+
+async function importFreshGatewayMain(options?: {
+  discordInitError?: Error;
+  whatsappLinked?: boolean;
+  msteamsEnabled?: boolean;
+  hasMSTeamsCredentials?: boolean;
+  initGatewayServiceImpl?: () => Promise<void>;
+  skipBootstrapHandlerCheck?: boolean;
+  onState?: (state: ReturnType<typeof createGatewayMainTestState>) => void;
+}) {
+  vi.resetModules();
+
+  const state = createGatewayMainTestState(options);
+  options?.onState?.(state);
 
   state.getConfigSnapshot.mockImplementation(() => state.currentConfig);
   state.onConfigChange.mockImplementation(
@@ -314,9 +330,8 @@ async function importFreshGatewayMain(options?: {
   await settle();
 
   if (
-    !state.commandHandler ||
-    !state.messageHandler ||
-    !state.configChangeListener
+    !options?.skipBootstrapHandlerCheck &&
+    (!state.commandHandler || !state.messageHandler || !state.configChangeListener)
   ) {
     throw new Error('Gateway bootstrap did not capture handlers.');
   }
@@ -379,6 +394,43 @@ describe('gateway bootstrap', () => {
     expect(state.startScheduler).toHaveBeenCalledTimes(1);
     expect(state.onConfigChange).toHaveBeenCalledTimes(1);
     expect(state.setInterval).toHaveBeenCalled();
+  });
+
+  test('awaits gateway service initialization before opening startup surfaces', async () => {
+    let releaseInit: (() => void) | null = null;
+    const initGate = new Promise<void>((resolve) => {
+      releaseInit = resolve;
+    });
+    let capturedState: ReturnType<typeof createGatewayMainTestState> | null =
+      null;
+
+    const bootstrapPromise = importFreshGatewayMain({
+      initGatewayServiceImpl: async () => {
+        await initGate;
+      },
+      skipBootstrapHandlerCheck: true,
+      onState: (state) => {
+        capturedState = state;
+      },
+    });
+
+    try {
+      await settle();
+
+      expect(capturedState).not.toBeNull();
+      expect(capturedState?.startHealthServer).not.toHaveBeenCalled();
+      expect(capturedState?.initDiscord).not.toHaveBeenCalled();
+      expect(capturedState?.resumeEnabledFullAutoSessions).not.toHaveBeenCalled();
+    } finally {
+      releaseInit?.();
+    }
+
+    const state = await bootstrapPromise;
+
+    expect(state.initGatewayService).toHaveBeenCalledTimes(1);
+    expect(state.startHealthServer).toHaveBeenCalledTimes(1);
+    expect(state.initDiscord).toHaveBeenCalledTimes(1);
+    expect(state.resumeEnabledFullAutoSessions).toHaveBeenCalledTimes(1);
   });
 
   test('starts WhatsApp integration automatically when linked auth exists', async () => {

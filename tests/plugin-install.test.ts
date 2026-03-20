@@ -269,6 +269,55 @@ describe('plugin install', () => {
     );
   });
 
+  test('reinstalls a local plugin directory without removing config overrides', async () => {
+    const homeDir = makeTempDir('hybridclaw-plugin-home-');
+    const cwd = makeTempDir('hybridclaw-plugin-cwd-');
+    const sourceDir = path.join(cwd, 'demo-plugin');
+    writePluginDir(sourceDir);
+
+    const installedDir = path.join(
+      homeDir,
+      '.hybridclaw',
+      'plugins',
+      'demo-plugin',
+    );
+    writePluginDir(installedDir, { packageName: '@scope/old-demo-plugin' });
+    fs.writeFileSync(
+      path.join(installedDir, 'stale.txt'),
+      'old build artifact\n',
+      'utf-8',
+    );
+
+    let config = {
+      plugins: {
+        list: [{ id: 'demo-plugin', enabled: true, config: { workspaceId: 'a' } }],
+      },
+    } as RuntimeConfig;
+
+    const runCommand = vi.fn();
+    const { reinstallPlugin } = await import('../src/plugins/plugin-install.js');
+    const result = await reinstallPlugin(sourceDir, {
+      homeDir,
+      cwd,
+      runCommand,
+    });
+
+    expect(result).toEqual({
+      pluginId: 'demo-plugin',
+      pluginDir: installedDir,
+      source: sourceDir,
+      alreadyInstalled: false,
+      replacedExistingInstall: true,
+      dependenciesInstalled: true,
+      requiresEnv: ['DEMO_PLUGIN_KEY'],
+      requiredConfigKeys: ['workspaceId'],
+    });
+    expect(fs.existsSync(path.join(installedDir, 'stale.txt'))).toBe(false);
+    expect(config.plugins.list).toEqual([
+      { id: 'demo-plugin', enabled: true, config: { workspaceId: 'a' } },
+    ]);
+  });
+
   test('uninstalls a home plugin and removes matching runtime config overrides', async () => {
     const homeDir = makeTempDir('hybridclaw-plugin-home-');
     const pluginDir = path.join(

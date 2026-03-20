@@ -1,5 +1,10 @@
 import { resolveQmdPluginConfig } from './config.js';
-import { buildQmdPromptContext, buildQmdStatusText } from './qmd-process.js';
+import {
+  buildQmdPromptContextResult,
+  buildQmdStatusText,
+  runQmd,
+  runQmdCommandText,
+} from './qmd-process.js';
 import { writeSessionExport } from './session-export.js';
 
 export default {
@@ -11,12 +16,49 @@ export default {
     api.registerMemoryLayer({
       id: 'qmd-memory-layer',
       priority: 50,
+      async start() {
+        try {
+          const result = await runQmd(['status'], config);
+          if (!result.ok) {
+            throw result.error;
+          }
+          api.logger.debug(
+            {
+              command: config.command,
+              workingDirectory: config.workingDirectory,
+            },
+            'QMD startup health-check passed',
+          );
+        } catch (error) {
+          api.logger.warn(
+            {
+              error,
+              command: config.command,
+              workingDirectory: config.workingDirectory,
+            },
+            'QMD startup health-check failed',
+          );
+        }
+      },
       async getContextForPrompt({ recentMessages }) {
         try {
-          return await buildQmdPromptContext({
+          const result = await buildQmdPromptContextResult({
             config,
             recentMessages,
           });
+          api.logger.debug(
+            {
+              searchMode: config.searchMode,
+              workingDirectory: config.workingDirectory,
+              resultCount: result.resultCount,
+              usedFallbackQuery: result.usedFallbackQuery,
+              topResultPaths: result.topResultPaths,
+            },
+            result.promptContext
+              ? 'QMD prompt context injected'
+              : 'QMD prompt search returned no matches',
+          );
+          return result.promptContext;
         } catch (error) {
           api.logger.warn(
             {
@@ -61,23 +103,27 @@ export default {
 
     api.registerCommand({
       name: 'qmd',
-      description: 'Show QMD plugin and index status',
+      description: 'Run QMD CLI commands (defaults to status)',
       async handler(args) {
-        const subcommand = String(args[0] || 'status')
+        const normalizedArgs = args.map((arg) => String(arg || '').trim()).filter(Boolean);
+        const subcommand = String(normalizedArgs[0] || 'status')
           .trim()
           .toLowerCase();
-        if (subcommand && subcommand !== 'status') {
-          return 'Usage: `qmd status`';
-        }
         try {
-          return await buildQmdStatusText(config);
+          if (subcommand === 'status') {
+            return await buildQmdStatusText(config);
+          }
+          return await runQmdCommandText(normalizedArgs, config);
         } catch (error) {
           const message =
             error instanceof Error ? error.message : String(error || 'unknown');
           return [
-            'QMD is unavailable.',
+            subcommand === 'status' ? 'QMD is unavailable.' : 'QMD command failed.',
             `Command: ${config.command}`,
             `Working directory: ${config.workingDirectory}`,
+            ...(normalizedArgs.length > 0
+              ? [`Arguments: ${normalizedArgs.join(' ')}`]
+              : []),
             '',
             message,
           ].join('\n');

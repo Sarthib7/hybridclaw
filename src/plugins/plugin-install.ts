@@ -47,6 +47,10 @@ export interface InstallPluginResult {
   requiredConfigKeys: string[];
 }
 
+export interface ReinstallPluginResult extends InstallPluginResult {
+  replacedExistingInstall: boolean;
+}
+
 type PluginConfigGetter = () => RuntimeConfig;
 type PluginConfigUpdater = (
   mutator: (draft: RuntimeConfig) => void,
@@ -381,6 +385,61 @@ export async function installPlugin(
       dependenciesInstalled,
       requiresEnv: manifest.requires?.env ?? [],
       requiredConfigKeys: getRequiredConfigKeys(manifest),
+    };
+  } finally {
+    for (const dir of cleanupDirs.reverse()) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+}
+
+export async function reinstallPlugin(
+  source: string,
+  options: InstallPluginOptions = {},
+): Promise<ReinstallPluginResult> {
+  const trimmedSource = String(source || '').trim();
+  if (!trimmedSource) {
+    throw new Error(
+      'Missing plugin source. Use `hybridclaw plugin reinstall <path|npm-spec>`.',
+    );
+  }
+
+  const homeDir = options.homeDir ?? os.homedir();
+  const cwd = options.cwd ?? process.cwd();
+  const runCommand = options.runCommand ?? defaultRunCommand;
+  const sourceRef = resolvePluginSource(trimmedSource, cwd);
+  const cleanupDirs: string[] = [];
+  let sourceDir =
+    sourceRef.kind === 'local-dir' ? sourceRef.path : sourceRef.spec;
+
+  try {
+    if (sourceRef.kind === 'npm-spec') {
+      const fetchRoot = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'hybridclaw-plugin-fetch-'),
+      );
+      cleanupDirs.push(fetchRoot);
+      sourceDir = fetchPluginDirFromNpmSpec(
+        sourceRef.spec,
+        fetchRoot,
+        runCommand,
+      );
+    }
+
+    assertPluginManifestDir(sourceDir);
+    const manifest = loadPluginManifest(
+      path.join(sourceDir, MANIFEST_FILE_NAME),
+    );
+    const pluginDir = path.join(homeDir, '.hybridclaw', 'plugins', manifest.id);
+    const replacedExistingInstall = fs.existsSync(pluginDir);
+    if (replacedExistingInstall) {
+      fs.rmSync(pluginDir, { recursive: true, force: true });
+    }
+
+    const result = await installPlugin(trimmedSource, options);
+    return {
+      ...result,
+      replacedExistingInstall,
+      alreadyInstalled: false,
     };
   } finally {
     for (const dir of cleanupDirs.reverse()) {

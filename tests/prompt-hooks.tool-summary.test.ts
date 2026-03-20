@@ -1,6 +1,9 @@
 import { expect, test } from 'vitest';
 
-import { buildSystemPromptFromHooks } from '../src/agent/prompt-hooks.js';
+import {
+  buildRetrievedContextPrompt,
+  buildSystemPromptFromHooks,
+} from '../src/agent/prompt-hooks.js';
 import { buildToolsSummary } from '../src/agent/tool-summary.js';
 import { EMAIL_CAPABILITIES } from '../src/channels/channel.js';
 import { registerChannel } from '../src/channels/channel-registry.js';
@@ -264,4 +267,28 @@ test('buildSystemPromptFromHooks includes email signature guidance for email con
   expect(prompt).toContain(
     'make a reasonable best-effort assumption, do the useful work first, and mention the assumption after the answer',
   );
+});
+
+test('buildSystemPromptFromHooks keeps retrieved context separate from session memory', () => {
+  const prompt = buildSystemPromptFromHooks({
+    agentId: 'test-agent',
+    sessionSummary: 'Earlier context',
+    retrievedContext: 'External QMD knowledge search results:\nPlugin System',
+    skills: [],
+  });
+
+  expect(prompt).toContain('## Session Summary');
+  expect(prompt).toContain('## Retrieved Context');
+  expect(prompt).toContain(
+    'Fresh external context retrieved for the current user request.',
+  );
+  expect(prompt).toContain('External QMD knowledge search results:');
+  expect(prompt.indexOf('## Session Summary')).toBeLessThan(
+    prompt.indexOf('## Retrieved Context'),
+  );
+});
+
+test('buildRetrievedContextPrompt returns empty text when no retrieval is present', () => {
+  expect(buildRetrievedContextPrompt(null)).toBe('');
+  expect(buildRetrievedContextPrompt('   ')).toBe('');
 });

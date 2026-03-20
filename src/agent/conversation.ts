@@ -30,6 +30,7 @@ export interface ConversationContext {
 export function buildConversationContext(params: {
   agentId: string;
   sessionSummary?: string | null;
+  retrievedContext?: string | null;
   history: HistoryMessage[];
   expandLatestHistoryUser?: boolean;
   promptMode?: PromptMode;
@@ -42,6 +43,7 @@ export function buildConversationContext(params: {
   const {
     agentId,
     sessionSummary,
+    retrievedContext,
     history,
     expandLatestHistoryUser = false,
     promptMode = 'full',
@@ -62,6 +64,7 @@ export function buildConversationContext(params: {
   const systemPrompt = buildSystemPromptFromHooks({
     agentId,
     sessionSummary,
+    retrievedContext,
     skills,
     explicitSkillInvocation,
     purpose: 'conversation',

@@ -26,6 +26,11 @@ export interface PluginConfigUiHint {
   help?: string;
 }
 
+export interface PluginBinaryRequirement {
+  name: string;
+  configKey?: string;
+}
+
 export interface PluginConfigSchema {
   [key: string]: unknown;
   type?: string | string[];
@@ -54,6 +59,7 @@ export interface PluginManifest {
   author?: string;
   entrypoint?: string;
   requires?: {
+    bins?: PluginBinaryRequirement[];
     env?: string[];
     node?: string;
   };
@@ -126,6 +132,11 @@ export interface PluginPromptBuildContext {
   channelId: string;
   recentMessages: StoredMessage[];
   extraContext: string[];
+}
+
+export interface PluginPromptContextResult {
+  sections: string[];
+  pluginIds: string[];
 }
 
 export interface PluginTokenUsage {
@@ -340,9 +351,11 @@ export interface PluginSummary {
   id: string;
   name?: string;
   version?: string;
+  description?: string;
   source: PluginDiscoverySource;
   enabled: boolean;
   error?: string;
+  commands: string[];
   tools: string[];
   hooks: string[];
 }

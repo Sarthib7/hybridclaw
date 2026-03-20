@@ -39,6 +39,7 @@ export interface GatewayChatResult {
   status: 'success' | 'error';
   result: string | null;
   toolsUsed: string[];
+  pluginsUsed?: string[];
   memoryCitations?: MemoryCitation[];
   sessionId?: string;
   sessionKey?: string;
@@ -215,6 +216,11 @@ export interface GatewayProviderHealthEntry {
   detail?: string;
 }
 
+export interface GatewayPluginCommandSummary {
+  name: string;
+  description?: string;
+}
+
 export interface GatewayStatus {
   status: 'ok';
   webAuthConfigured: boolean;
@@ -282,6 +288,7 @@ export interface GatewayStatus {
       }
     >
   >;
+  pluginCommands?: GatewayPluginCommandSummary[];
 }
 
 export interface GatewayAdminSession {

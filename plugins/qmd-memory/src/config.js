@@ -1,25 +1,18 @@
 import path from 'node:path';
 
 const DEFAULT_SEARCH_MODE = 'search';
-const DEFAULT_MAX_RESULTS = 10;
-const DEFAULT_MAX_SNIPPET_CHARS = 600;
-const DEFAULT_MAX_INJECTED_CHARS = 4000;
-const DEFAULT_TIMEOUT_MS = 12_000;
 
 function normalizeString(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function clampInteger(value, fallback, min, max) {
-  const numeric =
-    typeof value === 'number'
-      ? value
-      : typeof value === 'string'
-        ? Number.parseInt(value, 10)
-        : Number.NaN;
-  if (!Number.isFinite(numeric)) return fallback;
-  const truncated = Math.trunc(numeric);
-  return Math.max(min, Math.min(max, truncated));
+// The manifest schema owns defaults and bounds for numeric settings.
+// This helper only normalizes validated numbers to integers.
+function truncateValidatedInteger(value, key) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`qmd-memory plugin config.${key} must be a number.`);
+  }
+  return Math.trunc(value);
 }
 
 function resolveRuntimePath(value, runtime) {
@@ -44,30 +37,16 @@ export function resolveQmdPluginConfig(pluginConfig, runtime) {
       searchMode === 'vsearch' || searchMode === 'query'
         ? searchMode
         : DEFAULT_SEARCH_MODE,
-    maxResults: clampInteger(
-      pluginConfig?.maxResults,
-      DEFAULT_MAX_RESULTS,
-      1,
-      20,
-    ),
-    maxSnippetChars: clampInteger(
+    maxResults: truncateValidatedInteger(pluginConfig?.maxResults, 'maxResults'),
+    maxSnippetChars: truncateValidatedInteger(
       pluginConfig?.maxSnippetChars,
-      DEFAULT_MAX_SNIPPET_CHARS,
-      100,
-      2000,
+      'maxSnippetChars',
     ),
-    maxInjectedChars: clampInteger(
+    maxInjectedChars: truncateValidatedInteger(
       pluginConfig?.maxInjectedChars,
-      DEFAULT_MAX_INJECTED_CHARS,
-      500,
-      16_000,
+      'maxInjectedChars',
     ),
-    timeoutMs: clampInteger(
-      pluginConfig?.timeoutMs,
-      DEFAULT_TIMEOUT_MS,
-      1000,
-      60_000,
-    ),
+    timeoutMs: truncateValidatedInteger(pluginConfig?.timeoutMs, 'timeoutMs'),
     sessionExport: pluginConfig?.sessionExport === true,
     sessionExportDir:
       resolveRuntimePath(pluginConfig?.sessionExportDir, runtime) ||

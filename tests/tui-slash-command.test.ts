@@ -112,6 +112,24 @@ test('maps Discord-style slash commands to gateway command args', () => {
     'list',
   ]);
   expect(
+    mapTuiSlashCommandToGatewayArgs([
+      'plugin',
+      'install',
+      './plugins/qmd-memory',
+    ]),
+  ).toEqual(['plugin', 'install', './plugins/qmd-memory']);
+  expect(
+    mapTuiSlashCommandToGatewayArgs([
+      'plugin',
+      'reinstall',
+      './plugins/qmd-memory',
+    ]),
+  ).toEqual(['plugin', 'reinstall', './plugins/qmd-memory']);
+  expect(mapTuiSlashCommandToGatewayArgs(['plugin', 'reload'])).toEqual([
+    'plugin',
+    'reload',
+  ]);
+  expect(
     mapTuiSlashCommandToGatewayArgs(['plugin', 'uninstall', 'demo-plugin']),
   ).toEqual(['plugin', 'uninstall', 'demo-plugin']);
 });

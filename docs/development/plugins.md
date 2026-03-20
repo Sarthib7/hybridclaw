@@ -11,7 +11,16 @@ Use the CLI to install a plugin from a local directory or npm package:
 hybridclaw plugin list
 hybridclaw plugin install ./plugins/example-plugin
 hybridclaw plugin install @scope/hybridclaw-plugin-example
+hybridclaw plugin reinstall ./plugins/example-plugin
 hybridclaw plugin uninstall example-plugin
+```
+
+From a local TUI/web session you can also run:
+
+```text
+/plugin install ./plugins/example-plugin
+/plugin reinstall ./plugins/example-plugin
+/plugin reload
 ```
 
 The install command:
@@ -21,6 +30,12 @@ The install command:
 - installs npm dependencies when the plugin ships a `package.json` or npm
   install hints
 - disables npm lifecycle scripts during install-time dependency resolution
+
+The reinstall command:
+
+- replaces the existing home install for the plugin id
+- preserves existing `plugins.list[]` overrides
+- reloads cleanly after code changes from the TUI/web flow
 
 `hybridclaw plugin list` shows discovered plugins with source, enabled state,
 registered tools/hooks, and any load error.
@@ -91,7 +106,7 @@ configSchema:
 The manifest supports:
 
 - identity fields such as `id`, `name`, `version`, `description`, `kind`
-- runtime requirements under `requires.env` and `requires.node`
+- runtime requirements under `requires.bins`, `requires.env`, and `requires.node`
 - install hints under `install`
 - plugin config validation with `configSchema`
 - optional UI labels under `configUiHints`
@@ -102,6 +117,13 @@ The manifest supports:
 For `requires.node`, use `>=22` for a minimum supported runtime. A bare numeric
 version pins the components you provide: `22` means Node 22.x, `22.3` means
 Node 22.3.x, and `22.3.1` means exactly 22.3.1.
+Use `requires.bins` for required host executables. Entries can be bare strings
+such as `qmd` or objects with `name` plus an optional `configKey` when the
+binary path is configurable from plugin config.
+If a plugin config allows overriding an executable path, that path is trusted
+operator input and is executed directly by the gateway process. HybridClaw does
+not sandbox those binaries separately, so only point executable overrides at
+programs you trust to run with the gateway's OS-level access.
 Plugins can only read environment variables declared in `requires.env` through
 `api.getCredential(...)`; undeclared process environment values are not exposed.
 

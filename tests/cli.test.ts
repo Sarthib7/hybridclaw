@@ -76,6 +76,17 @@ async function importFreshCli(options?: {
     requiresEnv: string[];
     requiredConfigKeys: string[];
   };
+  pluginReinstallError?: Error | null;
+  pluginReinstallResult?: {
+    pluginId: string;
+    pluginDir: string;
+    source: string;
+    alreadyInstalled: boolean;
+    replacedExistingInstall: boolean;
+    dependenciesInstalled: boolean;
+    requiresEnv: string[];
+    requiredConfigKeys: string[];
+  };
   pluginUninstallError?: Error | null;
   pluginUninstallResult?: {
     pluginId: string;
@@ -87,9 +98,11 @@ async function importFreshCli(options?: {
     id: string;
     name?: string;
     version?: string;
+    description?: string;
     source: 'home' | 'project' | 'config';
     enabled: boolean;
     error?: string;
+    commands: string[];
     tools: string[];
     hooks: string[];
   }>;
@@ -192,6 +205,23 @@ async function importFreshCli(options?: {
         pluginDir: '/tmp/.hybridclaw/plugins/demo-plugin',
         source,
         alreadyInstalled: false,
+        dependenciesInstalled: true,
+        requiresEnv: [],
+        requiredConfigKeys: [],
+      }
+    );
+  });
+  const reinstallPlugin = vi.fn(async (source: string) => {
+    if (options?.pluginReinstallError) {
+      throw options.pluginReinstallError;
+    }
+    return (
+      options?.pluginReinstallResult || {
+        pluginId: 'demo-plugin',
+        pluginDir: '/tmp/.hybridclaw/plugins/demo-plugin',
+        source,
+        alreadyInstalled: false,
+        replacedExistingInstall: true,
         dependenciesInstalled: true,
         requiresEnv: [],
         requiredConfigKeys: [],
@@ -451,10 +481,12 @@ async function importFreshCli(options?: {
   });
   vi.doMock('../src/plugins/plugin-install.ts', () => ({
     installPlugin,
+    reinstallPlugin,
     uninstallPlugin,
   }));
   vi.doMock('../src/plugins/plugin-install.js', () => ({
     installPlugin,
+    reinstallPlugin,
     uninstallPlugin,
   }));
   vi.doMock('../src/plugins/plugin-manager.js', () => ({
@@ -487,6 +519,7 @@ async function importFreshCli(options?: {
     resetWhatsAppAuthState,
     createWhatsAppConnectionManager,
     installPlugin,
+    reinstallPlugin,
     uninstallPlugin,
     listPluginSummary,
     ensurePluginManagerInitialized,
@@ -675,7 +708,7 @@ describe('CLI hybridai commands', () => {
     );
   });
 
-  it('lists discovered plugins with status, tools, hooks, and errors', async () => {
+  it('lists discovered plugins with descriptions, commands, tools, hooks, and errors', async () => {
     const { cli, ensurePluginManagerInitialized, listPluginSummary } =
       await importFreshCli({
         pluginListSummary: [
@@ -683,8 +716,10 @@ describe('CLI hybridai commands', () => {
             id: 'demo-plugin',
             name: 'Demo Plugin',
             version: '1.0.0',
+            description: 'Demo plugin for testing',
             source: 'project',
             enabled: true,
+            commands: ['demo_status'],
             tools: ['demo_echo'],
             hooks: ['demo-hook'],
           },
@@ -693,6 +728,7 @@ describe('CLI hybridai commands', () => {
             source: 'home',
             enabled: true,
             error: 'register exploded',
+            commands: [],
             tools: [],
             hooks: [],
           },
@@ -708,13 +744,16 @@ describe('CLI hybridai commands', () => {
       [
         'demo-plugin v1.0.0 [project]',
         '  name: Demo Plugin',
+        '  description: Demo plugin for testing',
         '  enabled: yes',
+        '  commands: /demo_status',
         '  tools: demo_echo',
         '  hooks: demo-hook',
         '',
         'broken-plugin [home]',
         '  enabled: yes',
         '  error: register exploded',
+        '  commands: (none)',
         '  tools: (none)',
         '  hooks: (none)',
       ].join('\n'),
@@ -776,6 +815,32 @@ describe('CLI hybridai commands', () => {
     );
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('to set required config keys: workspaceId'),
+    );
+  });
+
+  it('reinstalls a plugin and preserves the usual install guidance', async () => {
+    const { cli, reinstallPlugin } = await importFreshCli({
+      pluginReinstallResult: {
+        pluginId: 'example-plugin',
+        pluginDir: '/tmp/.hybridclaw/plugins/example-plugin',
+        source: './plugins/example-plugin',
+        alreadyInstalled: false,
+        replacedExistingInstall: true,
+        dependenciesInstalled: true,
+        requiresEnv: ['EXAMPLE_PLUGIN_TOKEN'],
+        requiredConfigKeys: ['workspaceId'],
+      },
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['plugin', 'reinstall', './plugins/example-plugin']);
+
+    expect(reinstallPlugin).toHaveBeenCalledWith('./plugins/example-plugin');
+    expect(logSpy).toHaveBeenCalledWith(
+      'Reinstalled plugin example-plugin to /tmp/.hybridclaw/plugins/example-plugin.',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Plugin example-plugin will auto-discover from /tmp/.hybridclaw/plugins/example-plugin.',
     );
   });
 

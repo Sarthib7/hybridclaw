@@ -18,6 +18,9 @@ HybridClaw keeps one assistant brain across team chat, inbox, browser, and
 document workflows with shared memory, approvals, scheduling, and bundled
 skills for office docs, GitHub, Notion, Stripe, WordPress, Google Workspace,
 and Apple apps.
+Local plugins can extend the gateway with typed manifests, plugin tools,
+memory layers, prompt hooks, and lifecycle hooks, including the installable
+QMD-backed memory layer shipped in `plugins/qmd-memory`.
 
 Operators can also health-check the runtime with `hybridclaw doctor`, tune
 skill availability globally or per channel, and review adaptive skill health
@@ -95,7 +98,7 @@ hybridclaw tui
 
 # Embedded admin console
 # open http://127.0.0.1:9090/admin
-# Includes Dashboard, Sessions, Channels, Config, Models, Scheduler, MCP, Audit, Skills, and Tools
+# Includes Dashboard, Gateway, Sessions, Bindings, Models, Scheduler, MCP, Audit, Skills, Plugins, Tools, and Config
 # If WEB_API_TOKEN is unset, localhost access opens without a login prompt
 # If WEB_API_TOKEN is set, /chat, /agents, and /admin all prompt for the same token
 ```
@@ -210,6 +213,7 @@ HybridClaw creates `~/.hybridclaw/config.json` on first run and hot-reloads most
 - `sessionReset.*` controls automatic daily and idle session expiry. The default policy resets both daily and after 24 hours idle at `04:00` in the gateway host's local timezone; set `sessionReset.defaultPolicy.mode` to `none` to disable automatic resets.
 - `sessionRouting.*` controls DM continuity scope. The default `per-channel-peer` mode keeps direct messages isolated by transport and peer identity; `per-linked-identity` plus `sessionRouting.identityLinks` can collapse verified aliases onto one shared main session.
 - `skills.disabled` and `skills.channelDisabled.{discord,msteams,whatsapp,email}` control global and per-channel skill availability. Use `hybridclaw skill enable|disable <name> [--channel <kind>]` or the TUI `/skill config` checklist to manage them.
+- `plugins.list[]` controls plugin overrides such as `enabled`, custom `path`, and top-level `config` values. Use `hybridclaw plugin config <plugin-id> [key] [value|--unset]` for focused edits without rewriting the full config file.
 - `adaptiveSkills.*` controls observation, inspection, amendment staging, and rollback for the self-improving skill loop. See [docs/development/adaptive-skills.md](./docs/development/adaptive-skills.md) for the operator workflow.
 - `email.pollIntervalMs` defaults to `30000` (30 seconds) and is clamped to a minimum of `1000`.
 - `ops.webApiToken` (or `WEB_API_TOKEN`) gates the built-in `/chat`, `/agents`, and `/admin` surfaces plus the admin API. When unset, localhost browser access stays open without a login prompt.
@@ -459,6 +463,9 @@ CLI runtime commands:
 - `hybridclaw skill enable <skill-name> [--channel <kind>]`, `disable`, `toggle` — Manage global and per-channel skill availability
 - `hybridclaw skill inspect <skill-name>` / `hybridclaw skill inspect --all`, `runs`, `amend`, `history` — Review adaptive skill health, observations, and amendment history
 - `hybridclaw skill install <skill> [install-id]` — Run a declared skill dependency installer
+- `hybridclaw plugin list` — Show discovered plugins, enabled state, registered tools/hooks, and load errors
+- `hybridclaw plugin config <plugin-id> [key] [value|--unset]` — Inspect or change one top-level `plugins.list[].config` override
+- `hybridclaw plugin install <path|npm-spec>`, `reinstall`, `uninstall` — Manage plugins installed under `~/.hybridclaw/plugins`
 - `hybridclaw update [status|--check] [--yes]` — Check for updates and upgrade global npm installs (source checkouts get git-based update instructions)
 - `hybridclaw audit ...` — Verify and inspect structured audit trail (`recent`, `search`, `approvals`, `verify`, `instructions`)
 - `hybridclaw audit instructions [--sync]` — Compare runtime instruction copies under `~/.hybridclaw/instructions/` against installed sources and restore shipped defaults when needed
@@ -500,7 +507,8 @@ Up/Down on an empty prompt recalls earlier prompts. Use `/agent`, `/agent list`,
 the agent/default model chain, and `/model info` to inspect the active scope.
 `/status` shows both the current session and agent; `/compact` handles session
 compaction; `/reset` runs the confirmed workspace reset flow; `/skill config`
-opens the interactive skill availability checklist; and `/mcp ...` manages
-runtime MCP servers. When a TUI session exits, HybridClaw prints the
+opens the interactive skill availability checklist; `/plugin list`,
+`/plugin config ...`, and `/plugin reload` manage runtime plugins; and
+`/mcp ...` manages runtime MCP servers. When a TUI session exits, HybridClaw prints the
 input/output token split, tool/file totals, and a ready-to-run
 `hybridclaw tui --resume <sessionId>` command for that session.

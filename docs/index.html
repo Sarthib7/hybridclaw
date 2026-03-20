@@ -1076,7 +1076,7 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Plugin Extensibility</h3>
-      <p>HybridClaw now supports local plugins with typed manifests, plugin tools, memory layers, prompt hooks, lifecycle hooks, and exported SDK types. Operators can auto-discover plugins from home or project directories, manage them with <code>hybridclaw plugin list|install|uninstall</code>, and hot-reload them with <code>/plugin reload</code>.</p>
+      <p>HybridClaw supports local plugins with typed manifests, plugin tools, memory layers, prompt hooks, lifecycle hooks, and exported SDK types. Operators can auto-discover plugins from home or project directories, manage them with <code>hybridclaw plugin list|config|install|reinstall|uninstall</code>, hot-reload them with <code>/plugin reload</code>, and install the repo-shipped <code>qmd-memory</code> plugin for external markdown retrieval.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Interfaces &amp; Integrations</h3>
@@ -1092,11 +1092,11 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Admin Console</h3>
-      <p>Embedded browser-based admin at <code>/admin</code> with Dashboard, Gateway, Sessions, Bindings, Models, Scheduler, MCP, Audit, Skills, Tools, and Config pages. Pair with <code>/chat</code> for web conversations and <code>/agents</code> for workspace dashboards.</p>
+      <p>Embedded browser-based admin at <code>/admin</code> with Dashboard, Gateway, Sessions, Bindings, Models, Scheduler, MCP, Audit, Skills, Plugins, Tools, and Config pages. Pair with <code>/chat</code> for web conversations and <code>/agents</code> for workspace dashboards.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Command Surface</h3>
-      <p>Operator-friendly command set across CLI, TUI, Discord, and gateway surfaces, including <code>hybridclaw doctor</code>, <code>hybridclaw plugin list|install|uninstall</code>, <code>/plugin reload</code>, a richer TUI startup banner, slash-command discovery/history recall, <code>/skill config</code>, usage aggregation queries, and JSONL export workflows for session debugging.</p>
+      <p>Operator-friendly command set across CLI, TUI, Discord, and gateway surfaces, including <code>hybridclaw doctor</code>, <code>hybridclaw plugin list|config|install|reinstall|uninstall</code>, <code>/plugin reload</code>, a richer TUI startup banner, slash-command discovery/history recall, <code>/skill config</code>, usage aggregation queries, and JSONL export workflows for session debugging.</p>
     </div>
   </div>
 </section>
@@ -1304,7 +1304,7 @@
     </div>
     <div class="faq-item">
       <div class="faq-q">Can I extend HybridClaw with plugins?</div>
-      <div class="faq-a">Yes. HybridClaw supports local plugins with typed manifests, plugin tools, memory layers, prompt hooks, and lifecycle hooks. Valid plugins auto-discover from <code>~/.hybridclaw/plugins/</code> and project-local <code>.hybridclaw/plugins/</code> directories, and you can manage them with <code>hybridclaw plugin list</code>, <code>install</code>, <code>uninstall</code>, and <code>/plugin reload</code>.</div>
+      <div class="faq-a">Yes. HybridClaw supports local plugins with typed manifests, plugin tools, memory layers, prompt hooks, and lifecycle hooks. Valid plugins auto-discover from <code>~/.hybridclaw/plugins/</code> and project-local <code>.hybridclaw/plugins/</code> directories, and you can manage them with <code>hybridclaw plugin list</code>, <code>config</code>, <code>install</code>, <code>reinstall</code>, <code>uninstall</code>, and <code>/plugin reload</code>.</div>
     </div>
     <div class="faq-item">
       <div class="faq-q">Is the audit trail immutable?</div>
@@ -1360,7 +1360,7 @@
     </div>
     <div class="faq-item">
       <div class="faq-q">Is there a web-based admin interface?</div>
-      <div class="faq-a">Yes. The gateway serves an embedded admin console at <code>/admin</code> with pages for Dashboard, Gateway, Sessions, Bindings, Models, Scheduler, MCP, Audit, Skills, Tools, and Config. There is also a web chat at <code>/chat</code> and an agent/session dashboard at <code>/agents</code>. When <code>WEB_API_TOKEN</code> is unset, localhost access opens without a login prompt.</div>
+      <div class="faq-a">Yes. The gateway serves an embedded admin console at <code>/admin</code> with pages for Dashboard, Gateway, Sessions, Bindings, Models, Scheduler, MCP, Audit, Skills, Plugins, Tools, and Config. There is also a web chat at <code>/chat</code> and an agent/session dashboard at <code>/agents</code>. When <code>WEB_API_TOKEN</code> is unset, localhost access opens without a login prompt.</div>
     </div>
     <div class="faq-item">
       <div class="faq-q">Can I use skills from CLAUDE.md or OpenClaw?</div>

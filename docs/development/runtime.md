@@ -154,7 +154,8 @@ HybridClaw's built-in browser surfaces share one auth model:
 
 - `/chat` is the end-user chat UI
 - `/agents` shows logical agents plus live/persisted session cards
-- `/admin` serves the embedded operator console
+- `/admin` serves the embedded operator console, including the `Plugins` page
+  for discovery and load-status inspection
 
 When `WEB_API_TOKEN` / `ops.webApiToken` is configured, these surfaces prompt
 for the token and reuse it for subsequent API calls. When unset, localhost

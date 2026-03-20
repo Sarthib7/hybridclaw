@@ -2,6 +2,36 @@
 
 ## [Unreleased]
 
+## [0.8.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.8.4)
+
+### Added
+
+- **Local plugin runtime and admin plugin visibility**: Added local plugins
+  with typed manifests, plugin tools, memory layers, prompt hooks, lifecycle
+  hooks, CLI/TUI `plugin` management commands, and a dedicated `Plugins` page
+  in the embedded admin console.
+- **Installable QMD memory plugin**: Added the repo-shipped
+  `plugins/qmd-memory` source plus maintainer docs for markdown-backed
+  retrieval and optional session-transcript export into QMD collections.
+- **In-loop context compaction guard**: Added token-budget-aware context
+  compaction with reusable guard config so long sessions can flush durable
+  memory and trim prompt context before requests exceed model budgets.
+- **Recalled memory citations**: Added citation metadata for recalled memory
+  snippets so injected context can be traced back to its originating memory.
+
+### Fixed
+
+- **Docker runtime packaging and login redirect gating**: Fixed the published
+  container image startup path by shipping `container/shared/` in the runtime
+  stage, and restricted browser login redirects to Docker deployments instead
+  of forcing them on localhost web sessions.
+- **Cloudflare-tolerant web fetch retries**: `web_fetch` can retry with a
+  bot-style user agent when the first attempt lands on a Cloudflare challenge
+  page.
+- **Model catalog sync and LM Studio metadata handling**: Synced HybridAI bot
+  models and display labels more consistently, and restored LM Studio v1
+  context-window metadata detection.
+
 ## [0.8.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.8.3)
 
 ### Added

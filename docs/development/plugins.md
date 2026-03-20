@@ -41,6 +41,8 @@ The reinstall command:
 
 `hybridclaw plugin list` shows discovered plugins with source, enabled state,
 registered tools/hooks, and any load error.
+The embedded admin console also exposes the same discovery snapshot at
+`/admin/plugins` for browser-based inspection.
 
 `hybridclaw plugin uninstall <plugin-id>` removes the home-installed plugin
 directory and deletes matching `plugins.list[]` overrides from runtime config.

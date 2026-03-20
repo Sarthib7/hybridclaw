@@ -52,6 +52,7 @@ COPY --chown=node:node SECURITY.md TRUST_MODEL.md ./
 EXPOSE 9090
 
 ENV HYBRIDCLAW_DATA_DIR=/workspace/.data
+RUN mkdir -p /workspace/.data && chown node:node /workspace /workspace/.data
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:9090/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"

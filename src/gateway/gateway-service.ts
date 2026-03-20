@@ -262,9 +262,9 @@ import {
   type GatewayAdminDeleteSessionResult,
   type GatewayAdminMcpResponse,
   type GatewayAdminModelsResponse,
-  type GatewayAdminPluginsResponse,
   type GatewayAdminModelUsageRow,
   type GatewayAdminOverview,
+  type GatewayAdminPluginsResponse,
   type GatewayAdminSchedulerJob,
   type GatewayAdminSchedulerResponse,
   type GatewayAdminSession,
@@ -2932,7 +2932,10 @@ export async function getGatewayAdminPlugins(): Promise<GatewayAdminPluginsRespo
       enabledPlugins: plugins.filter((plugin) => plugin.enabled).length,
       failedPlugins: plugins.filter((plugin) => plugin.status === 'failed')
         .length,
-      commands: plugins.reduce((sum, plugin) => sum + plugin.commands.length, 0),
+      commands: plugins.reduce(
+        (sum, plugin) => sum + plugin.commands.length,
+        0,
+      ),
       tools: plugins.reduce((sum, plugin) => sum + plugin.tools.length, 0),
       hooks: plugins.reduce((sum, plugin) => sum + plugin.hooks.length, 0),
     },

@@ -166,7 +166,9 @@ export function PluginsPage() {
                       {plugin.id}
                       {plugin.version ? ` · v${plugin.version}` : ''}
                     </small>
-                    <small>{plugin.error || 'Unknown plugin load error.'}</small>
+                    <small>
+                      {plugin.error || 'Unknown plugin load error.'}
+                    </small>
                   </div>
                   <span className="list-status list-status-danger">
                     <span className="status-dot status-dot-danger" />

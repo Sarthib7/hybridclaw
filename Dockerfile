@@ -21,6 +21,7 @@ RUN npm --prefix container run build
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM node:22-slim
 
+# The agent runtime needs root to install packages, manage files, etc.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       git \
     && rm -rf /var/lib/apt/lists/*
@@ -37,26 +38,24 @@ COPY container/package*.json container/
 RUN npm --prefix container ci --omit=dev
 
 # Gateway compiled output + console SPA
-COPY --from=builder --chown=node:node /app/dist ./dist
-COPY --from=builder --chown=node:node /app/console/dist ./console/dist
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/console/dist ./console/dist
 
 # Container agent runtime (host sandbox mode) + shared modules
-COPY --from=builder --chown=node:node /app/container/dist ./container/dist
-COPY --from=builder --chown=node:node /app/container/shared ./container/shared
+COPY --from=builder /app/container/dist ./container/dist
+COPY --from=builder /app/container/shared ./container/shared
 
 # Runtime templates and skills
-COPY --chown=node:node templates/ ./templates/
-COPY --chown=node:node skills/ ./skills/
-COPY --chown=node:node SECURITY.md TRUST_MODEL.md ./
+COPY templates/ ./templates/
+COPY skills/ ./skills/
+COPY SECURITY.md TRUST_MODEL.md ./
 
 EXPOSE 9090
 
 ENV HYBRIDCLAW_DATA_DIR=/workspace/.data
-RUN mkdir -p /workspace/.data && chown node:node /workspace /workspace/.data
+RUN mkdir -p /workspace/.data
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:9090/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-
-USER node
 
 CMD ["node", "dist/cli.js", "gateway"]

@@ -50,6 +50,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.doUnmock('../src/logger.js');
+  vi.doUnmock('../src/plugins/plugin-manager.js');
   vi.doUnmock('../src/providers/model-catalog.js');
   vi.doUnmock('../src/providers/local-discovery.js');
   vi.resetModules();
@@ -158,6 +159,42 @@ test('status command includes the current session agent', async () => {
   expect(result.text).toContain(
     `CWD: ${path.resolve(agentWorkspaceDir('research'))}`,
   );
+});
+
+test('getGatewayStatus includes loaded plugin commands for TUI discovery', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  vi.doMock('../src/plugins/plugin-manager.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/plugins/plugin-manager.js')
+    >('../src/plugins/plugin-manager.js');
+    return {
+      ...actual,
+      listLoadedPluginCommands: vi.fn(() => [
+        {
+          name: 'qmd',
+          description: 'Show QMD plugin and index status',
+        },
+      ]),
+    };
+  });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getGatewayStatus } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const status = getGatewayStatus();
+
+  expect(status.pluginCommands).toEqual([
+    {
+      name: 'qmd',
+      description: 'Show QMD plugin and index status',
+    },
+  ]);
 });
 
 test('status uses OpenRouter context_length metadata for the context window', async () => {

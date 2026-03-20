@@ -1608,7 +1608,7 @@ function startOrRestartMemoryConsolidationScheduler(): void {
 async function main(): Promise<void> {
   logger.info('Starting HybridClaw gateway');
   initDatabase();
-  initGatewayService();
+  await initGatewayService();
   resumeEnabledFullAutoSessions();
   void runManagedMediaCleanup('startup').catch((error) => {
     logger.warn({ error }, 'Managed media cleanup failed during startup');

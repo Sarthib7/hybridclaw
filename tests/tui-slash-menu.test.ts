@@ -18,6 +18,8 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
   expect(labels).toContain('/approve yes [approval_id]');
   expect(labels).toContain('/fullauto on [prompt]');
   expect(labels).toContain('/bot list');
+  expect(labels).toContain('/plugin install <path|npm-spec>');
+  expect(labels).toContain('/plugin reinstall <path|npm-spec>');
   expect(labels).toContain('/skill');
   expect(labels).toContain('/skill config');
   expect(labels).toContain('/skill inspect <name>');
@@ -58,6 +60,22 @@ test('fuzzy ranking can target nested command variants', () => {
   );
 
   expect(ranked[0]?.label).toBe('/approve agent [approval_id]');
+});
+
+test('includes plugin commands in slash menu results', () => {
+  const entries = buildTuiSlashMenuEntries([
+    {
+      name: 'qmd',
+      description: 'Show QMD plugin and index status',
+    },
+  ]);
+
+  expect(entries.map((entry) => entry.label)).toContain('/qmd');
+  expect(
+    rankTuiSlashMenuEntries(entries, 'q').some(
+      (entry) => entry.label === '/qmd',
+    ),
+  ).toBe(true);
 });
 
 function buildControllerHarness() {

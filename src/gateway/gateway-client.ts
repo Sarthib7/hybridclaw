@@ -12,6 +12,7 @@ import {
   type GatewayCommandRequest,
   type GatewayCommandResult,
   type GatewayHistoryResponse,
+  type GatewayPluginCommandSummary,
   type GatewayProactivePullResponse,
   type GatewayStatus,
   renderGatewayCommand,
@@ -24,6 +25,7 @@ export type {
   GatewayChatStreamEvent,
   GatewayCommandResult,
   GatewayHistoryResponse,
+  GatewayPluginCommandSummary,
   GatewayProactivePullResponse,
   GatewayStatus,
 };

@@ -6,6 +6,7 @@ import {
   type CanonicalSlashStringOptionDefinition,
   type CanonicalSlashSubcommandOptionDefinition,
   type CanonicalTuiMenuEntryDefinition,
+  type PluginSlashCommandCatalogEntry,
 } from './command-registry.js';
 import { renderTuiSlashMenuLines } from './tui-slash-menu-render.js';
 import type {
@@ -307,8 +308,10 @@ function scoreSearchTerm(query: string, searchTerm: string): number | null {
   return subsequenceScore(compactQuery, compactSearchTerm);
 }
 
-export function buildTuiSlashMenuEntries(): TuiSlashMenuEntry[] {
-  const definitions = buildTuiSlashCommandDefinitions([]);
+export function buildTuiSlashMenuEntries(
+  pluginCommands: PluginSlashCommandCatalogEntry[] = [],
+): TuiSlashMenuEntry[] {
+  const definitions = buildTuiSlashCommandDefinitions([], pluginCommands);
   const entries: TuiSlashMenuEntry[] = [];
   let sortIndex = 0;
 

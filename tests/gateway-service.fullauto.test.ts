@@ -190,7 +190,7 @@ test('fullauto command enables auto-turns, queues follow-up results, and can be 
     await import('../src/gateway/gateway-service.ts');
 
   initDatabase({ quiet: true });
-  initGatewayService();
+  await initGatewayService();
 
   const sessionId = 'session-fullauto';
   memoryService.getOrCreateSession(sessionId, null, 'tui');
@@ -362,7 +362,7 @@ test('bare fullauto shows status and does not enable background looping', async 
   );
 
   initDatabase({ quiet: true });
-  initGatewayService();
+  await initGatewayService();
 
   const sessionId = 'session-fullauto-status-only';
   memoryService.getOrCreateSession(sessionId, null, 'tui');
@@ -430,7 +430,7 @@ test('stop clears the full-auto running guard and ignores stale auto-turn comple
     await import('../src/gateway/gateway-service.ts');
 
   initDatabase({ quiet: true });
-  initGatewayService();
+  await initGatewayService();
 
   const sessionId = 'session-fullauto-stop';
   memoryService.getOrCreateSession(sessionId, null, 'tui');
@@ -549,7 +549,7 @@ test('manual supervision preempts the active full-auto turn and keeps looping en
     await import('../src/gateway/gateway-service.ts');
 
   initDatabase({ quiet: true });
-  initGatewayService();
+  await initGatewayService();
 
   const sessionId = 'session-fullauto-supervise';
   memoryService.getOrCreateSession(sessionId, null, 'tui');
@@ -654,7 +654,7 @@ test('persisted full-auto sessions resume on startup', async () => {
   const { initGatewayService, resumeEnabledFullAutoSessions } = await import(
     '../src/gateway/gateway-service.ts'
   );
-  initGatewayService();
+  await initGatewayService();
 
   expect(resumeEnabledFullAutoSessions()).toBe(1);
   await vi.advanceTimersByTimeAsync(3_000);
@@ -743,7 +743,7 @@ test('watchdog interrupts stalled full-auto turns and retries after recovery del
   );
 
   initDatabase({ quiet: true });
-  initGatewayService();
+  await initGatewayService();
 
   const sessionId = 'session-fullauto-watchdog';
   memoryService.getOrCreateSession(sessionId, null, 'tui');

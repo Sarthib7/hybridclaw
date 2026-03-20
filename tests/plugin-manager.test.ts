@@ -33,6 +33,7 @@ function writeDemoPlugin(
     [
       'id: demo-plugin',
       'name: Demo Plugin',
+      'description: Demo plugin for testing',
       'kind: tool',
       'configSchema:',
       '  type: object',
@@ -82,6 +83,13 @@ function writeDemoPlugin(
       '      },',
       '      handler(args) {',
       '        return String(cfg.workspaceId) + ":" + String(cfg.autoRecall) + ":" + String(args.text || "");',
+      '      },',
+      '    });',
+      '    api.registerCommand({',
+      "      name: 'demo_status',",
+      "      description: 'Show demo plugin status',",
+      '      handler() {',
+      "        return 'demo ok';",
       '      },',
       '    });',
       '  },',
@@ -244,6 +252,100 @@ function writeLifecycleGetterPlugin(rootDir: string): void {
   );
 }
 
+function writeJavaScriptCommandPlugin(
+  rootDir: string,
+  response: string,
+): string {
+  const pluginDir = path.join(
+    rootDir,
+    '.hybridclaw',
+    'plugins',
+    'js-command-plugin',
+  );
+  fs.mkdirSync(pluginDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(pluginDir, 'hybridclaw.plugin.yaml'),
+    ['id: js-command-plugin', 'name: JS Command Plugin', 'kind: tool', ''].join(
+      '\n',
+    ),
+    'utf-8',
+  );
+  const entrypoint = path.join(pluginDir, 'index.js');
+  fs.writeFileSync(
+    entrypoint,
+    [
+      'export default {',
+      "  id: 'js-command-plugin',",
+      '  register(api) {',
+      '    api.registerCommand({',
+      "      name: 'js_status',",
+      "      description: 'Show JS plugin status',",
+      '      handler() {',
+      `        return ${JSON.stringify(response)};`,
+      '      },',
+      '    });',
+      '  },',
+      '};',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+  return entrypoint;
+}
+
+function writeJavaScriptCommandPluginWithHelper(
+  rootDir: string,
+  exportName: string,
+  response: string,
+): string {
+  const pluginDir = path.join(
+    rootDir,
+    '.hybridclaw',
+    'plugins',
+    'js-command-plugin',
+  );
+  fs.mkdirSync(pluginDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(pluginDir, 'hybridclaw.plugin.yaml'),
+    ['id: js-command-plugin', 'name: JS Command Plugin', 'kind: tool', ''].join(
+      '\n',
+    ),
+    'utf-8',
+  );
+  fs.writeFileSync(
+    path.join(pluginDir, 'qmd-process.js'),
+    [
+      `export function ${exportName}() {`,
+      `  return ${JSON.stringify(response)};`,
+      '}',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+  const entrypoint = path.join(pluginDir, 'index.js');
+  fs.writeFileSync(
+    entrypoint,
+    [
+      `import { ${exportName} } from './qmd-process.js';`,
+      'export default {',
+      "  id: 'js-command-plugin',",
+      '  register(api) {',
+      '    api.registerCommand({',
+      "      name: 'js_status',",
+      "      description: 'Show JS plugin status',",
+      '      handler() {',
+      `        return ${exportName}();`,
+      '      },',
+      '    });',
+      '  },',
+      '};',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+  return entrypoint;
+}
+
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -264,6 +366,10 @@ test('loadPluginManifest trims optional strings and normalizes nested sections',
       'author: " Example Author "',
       'entrypoint: " dist/index.js "',
       'requires:',
+      '  bins:',
+      '    - " qmd "',
+      '    - name: " custom-bin "',
+      '      configKey: " command "',
       '  env: [" API_KEY ", "", 42, " SECOND_KEY "]',
       '  node: " >=22 "',
       'install:',
@@ -295,6 +401,7 @@ test('loadPluginManifest trims optional strings and normalizes nested sections',
     author: 'Example Author',
     entrypoint: 'dist/index.js',
     requires: {
+      bins: [{ name: 'qmd' }, { name: 'custom-bin', configKey: 'command' }],
       env: ['API_KEY', 'SECOND_KEY'],
       node: '>=22',
     },
@@ -447,6 +554,140 @@ test('plugin manager auto-discovers plugins from project directories without con
   ).resolves.toBe('workspace-auto:true:hello');
 });
 
+test('plugin manager reloads JavaScript entrypoints without stale module cache', async () => {
+  const homeDir = makeTempDir('hybridclaw-plugin-home-');
+  const cwd = makeTempDir('hybridclaw-plugin-project-');
+  const entrypoint = writeJavaScriptCommandPlugin(cwd, 'first');
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const firstManager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+
+  await firstManager.ensureInitialized();
+
+  const firstCommand = firstManager.findCommand('js_status');
+  expect(firstCommand).toBeDefined();
+  if (!firstCommand) {
+    throw new Error('Expected js_status command to be registered');
+  }
+  await expect(
+    Promise.resolve(
+      firstCommand.handler([], {
+        sessionId: 'session-1',
+        channelId: 'web',
+      }),
+    ),
+  ).resolves.toBe('first');
+
+  await firstManager.shutdown();
+
+  writeJavaScriptCommandPlugin(cwd, 'second');
+  const nextTimestamp = new Date(fs.statSync(entrypoint).mtimeMs + 2000);
+  fs.utimesSync(entrypoint, nextTimestamp, nextTimestamp);
+
+  const secondManager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+
+  await secondManager.ensureInitialized();
+
+  const secondCommand = secondManager.findCommand('js_status');
+  expect(secondCommand).toBeDefined();
+  if (!secondCommand) {
+    throw new Error('Expected js_status command to be registered');
+  }
+  await expect(
+    Promise.resolve(
+      secondCommand.handler([], {
+        sessionId: 'session-1',
+        channelId: 'web',
+      }),
+    ),
+  ).resolves.toBe('second');
+
+  await secondManager.shutdown();
+});
+
+test('plugin manager reloads JavaScript helper modules with the entrypoint', async () => {
+  const homeDir = makeTempDir('hybridclaw-plugin-home-');
+  const cwd = makeTempDir('hybridclaw-plugin-project-');
+  const entrypoint = writeJavaScriptCommandPluginWithHelper(
+    cwd,
+    'buildQmdPromptContext',
+    'first',
+  );
+  const helperPath = path.join(path.dirname(entrypoint), 'qmd-process.js');
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const firstManager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+
+  await firstManager.ensureInitialized();
+
+  const firstCommand = firstManager.findCommand('js_status');
+  expect(firstCommand).toBeDefined();
+  if (!firstCommand) {
+    throw new Error('Expected js_status command to be registered');
+  }
+  await expect(
+    Promise.resolve(
+      firstCommand.handler([], {
+        sessionId: 'session-1',
+        channelId: 'web',
+      }),
+    ),
+  ).resolves.toBe('first');
+
+  await firstManager.shutdown();
+
+  writeJavaScriptCommandPluginWithHelper(
+    cwd,
+    'buildQmdPromptContextResult',
+    'second',
+  );
+  const nextTimestamp = new Date(fs.statSync(entrypoint).mtimeMs + 2000);
+  fs.utimesSync(entrypoint, nextTimestamp, nextTimestamp);
+  fs.utimesSync(helperPath, nextTimestamp, nextTimestamp);
+
+  const secondManager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+
+  await secondManager.ensureInitialized();
+
+  const secondCommand = secondManager.findCommand('js_status');
+  expect(secondCommand).toBeDefined();
+  if (!secondCommand) {
+    throw new Error('Expected js_status command to be registered');
+  }
+  await expect(
+    Promise.resolve(
+      secondCommand.handler([], {
+        sessionId: 'session-1',
+        channelId: 'web',
+      }),
+    ),
+  ).resolves.toBe('second');
+
+  await secondManager.shutdown();
+});
+
 test('plugin manager loads configured plugins, applies config defaults, and exposes tools', async () => {
   const homeDir = makeTempDir('hybridclaw-plugin-home-');
   const cwd = makeTempDir('hybridclaw-plugin-project-');
@@ -485,6 +726,18 @@ test('plugin manager loads configured plugins, applies config defaults, and expo
     }),
   ).toEqual(['workspace=workspace-123 autoRecall=true', 'hook-context']);
   await expect(
+    manager.collectPromptContextDetails({
+      sessionId: 'session-1',
+      userId: 'user-1',
+      agentId: 'main',
+      channelId: 'web',
+      recentMessages: [],
+    }),
+  ).resolves.toEqual({
+    sections: ['workspace=workspace-123 autoRecall=true', 'hook-context'],
+    pluginIds: ['demo-plugin'],
+  });
+  await expect(
     manager.executeTool({
       toolName: 'demo_echo',
       args: { text: 'hello' },
@@ -497,9 +750,11 @@ test('plugin manager loads configured plugins, applies config defaults, and expo
       id: 'demo-plugin',
       name: 'Demo Plugin',
       version: undefined,
+      description: 'Demo plugin for testing',
       source: 'project',
       enabled: true,
       error: undefined,
+      commands: ['demo_status'],
       tools: ['demo_echo'],
       hooks: ['demo-hook'],
     },
@@ -606,9 +861,11 @@ test('plugin manager disables plugins with missing required env vars before impo
         id: 'env-plugin',
         name: 'Env Plugin',
         version: undefined,
+        description: undefined,
         source: 'project',
         enabled: false,
         error: 'Missing required env vars: HYBRIDCLAW_PLUGIN_MISSING_ENV_TEST.',
+        commands: [],
         tools: [],
         hooks: [],
       },
@@ -620,6 +877,87 @@ test('plugin manager disables plugins with missing required env vars before impo
       process.env.HYBRIDCLAW_PLUGIN_MISSING_ENV_TEST = originalEnv;
     }
   }
+});
+
+test('plugin manager disables plugins with missing required binaries before import', async () => {
+  const homeDir = makeTempDir('hybridclaw-plugin-home-');
+  const cwd = makeTempDir('hybridclaw-plugin-project-');
+  const pluginDir = path.join(cwd, '.hybridclaw', 'plugins', 'bin-plugin');
+  fs.mkdirSync(pluginDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(pluginDir, 'hybridclaw.plugin.yaml'),
+    [
+      'id: bin-plugin',
+      'name: Bin Plugin',
+      'kind: tool',
+      'requires:',
+      '  bins:',
+      '    - name: qmd',
+      '      configKey: command',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+  fs.writeFileSync(
+    path.join(pluginDir, 'index.ts'),
+    [
+      "throw new Error('should not import');",
+      'export default {',
+      "  id: 'bin-plugin',",
+      '  register() {},',
+      '};',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [
+    {
+      id: 'bin-plugin',
+      enabled: true,
+      config: {
+        command: path.join(cwd, 'missing-qmd'),
+      },
+    },
+  ];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+
+  await expect(manager.ensureInitialized()).resolves.toBeUndefined();
+
+  expect(manager.getToolDefinitions()).toEqual([]);
+  expect(manager.getLoadedPlugins()).toEqual([
+    expect.objectContaining({
+      id: 'bin-plugin',
+      enabled: false,
+      status: 'failed',
+      error: expect.stringContaining(
+        `Missing required binaries: qmd (from command=${path.join(cwd, 'missing-qmd')}).`,
+      ),
+      toolsRegistered: [],
+      hooksRegistered: [],
+    }),
+  ]);
+  expect(manager.listPluginSummary()).toEqual([
+    {
+      id: 'bin-plugin',
+      name: 'Bin Plugin',
+      version: undefined,
+      description: undefined,
+      source: 'project',
+      enabled: false,
+      error: `Missing required binaries: qmd (from command=${path.join(cwd, 'missing-qmd')}).`,
+      commands: [],
+      tools: [],
+      hooks: [],
+    },
+  ]);
 });
 
 test('plugin manager rejects invalid plugin config against configSchema', async () => {
@@ -766,17 +1104,21 @@ test('plugin manager isolates module load failures and continues loading healthy
         id: 'demo-plugin',
         name: 'Demo Plugin',
         version: undefined,
+        description: 'Demo plugin for testing',
         source: 'project',
         enabled: true,
         error: undefined,
+        commands: ['demo_status'],
         tools: ['demo_echo'],
         hooks: ['demo-hook'],
       },
       expect.objectContaining({
         id: 'broken-plugin',
         name: 'Broken Plugin',
+        description: undefined,
         source: 'project',
         enabled: true,
+        commands: [],
         tools: [],
         hooks: [],
         error: expect.any(String),

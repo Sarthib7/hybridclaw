@@ -1,3 +1,5 @@
+import { findLoadedPluginCommand } from './plugins/plugin-manager.js';
+
 export interface CanonicalTuiMenuPresentation {
   label?: string;
   insertText?: string;
@@ -47,6 +49,11 @@ export interface CanonicalSlashInteractionInput {
   commandName: string;
   getString: (name: string, required?: boolean) => string | null;
   getSubcommand: () => string | null;
+}
+
+export interface PluginSlashCommandCatalogEntry {
+  name: string;
+  description?: string;
 }
 
 const REGISTERED_TEXT_COMMAND_NAMES = new Set([
@@ -144,11 +151,36 @@ function normalizeSubcommand(
 }
 
 export function isRegisteredTextCommandName(name: string): boolean {
-  return REGISTERED_TEXT_COMMAND_NAMES.has(name.trim().toLowerCase());
+  const normalized = name.trim().toLowerCase();
+  if (!normalized) return false;
+  return (
+    REGISTERED_TEXT_COMMAND_NAMES.has(normalized) ||
+    findLoadedPluginCommand(normalized) !== undefined
+  );
+}
+
+function hasDynamicTextCommandName(
+  name: string,
+  dynamicTextCommands?: Iterable<string>,
+): boolean {
+  if (!dynamicTextCommands) return false;
+  for (const entry of dynamicTextCommands) {
+    if (
+      String(entry || '')
+        .trim()
+        .toLowerCase() === name
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export function mapCanonicalCommandToGatewayArgs(
   parts: string[],
+  options?: {
+    dynamicTextCommands?: Iterable<string>;
+  },
 ): string[] | null {
   const cmd = (parts[0] || '').trim().toLowerCase();
   if (!cmd) return null;
@@ -224,6 +256,26 @@ export function mapCanonicalCommandToGatewayArgs(
     case 'plugin': {
       const sub = (parts[1] || '').trim().toLowerCase();
       if (!sub || sub === 'list') return ['plugin', 'list'];
+      if (sub === 'config') {
+        const pluginId = (parts[2] || '').trim();
+        const key = (parts[3] || '').trim();
+        const value = parts.slice(4).join(' ').trim();
+        if (!pluginId) return ['plugin', 'config'];
+        if (!key) return ['plugin', 'config', pluginId];
+        if (!value) return ['plugin', 'config', pluginId, key];
+        return ['plugin', 'config', pluginId, key, value];
+      }
+      if (sub === 'install') {
+        const source = parts.slice(2).join(' ').trim();
+        return source ? ['plugin', 'install', source] : ['plugin', 'install'];
+      }
+      if (sub === 'reinstall') {
+        const source = parts.slice(2).join(' ').trim();
+        return source
+          ? ['plugin', 'reinstall', source]
+          : ['plugin', 'reinstall'];
+      }
+      if (sub === 'reload') return ['plugin', 'reload'];
       if (sub === 'uninstall') {
         const pluginId = (parts[2] || '').trim();
         return pluginId
@@ -269,7 +321,10 @@ export function mapCanonicalCommandToGatewayArgs(
       return ['help'];
 
     default:
-      return null;
+      return findLoadedPluginCommand(cmd) ||
+        hasDynamicTextCommandName(cmd, options?.dynamicTextCommands)
+        ? [cmd, ...parts.slice(1)]
+        : null;
   }
 }
 
@@ -568,12 +623,81 @@ function buildSlashCommandCatalogDefinitions(
     },
     {
       name: 'plugin',
-      description: 'List or uninstall HybridClaw plugins',
+      description:
+        'List, configure, install, reinstall, reload, or uninstall HybridClaw plugins',
       options: [
         {
           kind: 'subcommand',
           name: 'list',
-          description: 'List discovered plugins, tools, hooks, and load errors',
+          description:
+            'List discovered plugins, descriptions, commands, tools, hooks, and load errors',
+        },
+        {
+          kind: 'subcommand',
+          name: 'config',
+          description: 'Show or set a top-level plugins.list[] config override',
+          tuiMenu: {
+            label: '/plugin config <id> [key] [value|--unset]',
+            insertText: '/plugin config ',
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'id',
+              description: 'Plugin id',
+              required: true,
+            },
+            {
+              kind: 'string',
+              name: 'key',
+              description: 'Top-level plugin config key',
+            },
+            {
+              kind: 'string',
+              name: 'value',
+              description: 'Config value or --unset',
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'install',
+          description: 'Install a plugin from a local TUI/web session',
+          tuiMenu: {
+            label: '/plugin install <path|npm-spec>',
+            insertText: '/plugin install ',
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'source',
+              description: 'Local plugin path or npm package spec',
+              required: true,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'reinstall',
+          description:
+            'Replace an installed plugin from a local TUI/web session',
+          tuiMenu: {
+            label: '/plugin reinstall <path|npm-spec>',
+            insertText: '/plugin reinstall ',
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'source',
+              description: 'Local plugin path or npm package spec',
+              required: true,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'reload',
+          description: 'Reload all plugins without restarting the gateway',
         },
         {
           kind: 'subcommand',
@@ -1092,8 +1216,21 @@ export function buildCanonicalSlashCommandDefinitions(
 
 export function buildTuiSlashCommandDefinitions(
   modelChoices: Array<{ name: string; value: string }>,
+  pluginCommands: PluginSlashCommandCatalogEntry[] = [],
 ): CanonicalSlashCommandDefinition[] {
-  return buildSlashCommandCatalogDefinitions(modelChoices);
+  const definitions = buildSlashCommandCatalogDefinitions(modelChoices);
+  const known = new Set(definitions.map((definition) => definition.name));
+  for (const pluginCommand of pluginCommands) {
+    const name = pluginCommand.name.trim().toLowerCase();
+    if (!name || known.has(name)) continue;
+    definitions.push({
+      name,
+      description:
+        pluginCommand.description?.trim() || 'Run a plugin-provided command',
+    });
+    known.add(name);
+  }
+  return definitions;
 }
 
 export function parseCanonicalSlashCommandArgs(
@@ -1263,6 +1400,24 @@ export function parseCanonicalSlashCommandArgs(
     case 'plugin': {
       const subcommand = normalizeSubcommand(interaction);
       if (subcommand === 'list') return ['plugin', 'list'];
+      if (subcommand === 'config') {
+        const pluginId = normalizeStringOption(interaction, 'id', true);
+        const key = normalizeStringOption(interaction, 'key');
+        const value = normalizeStringOption(interaction, 'value');
+        if (!pluginId) return null;
+        if (!key) return ['plugin', 'config', pluginId];
+        if (!value) return ['plugin', 'config', pluginId, key];
+        return ['plugin', 'config', pluginId, key, value];
+      }
+      if (subcommand === 'install') {
+        const source = normalizeStringOption(interaction, 'source', true);
+        return source ? ['plugin', 'install', source] : null;
+      }
+      if (subcommand === 'reinstall') {
+        const source = normalizeStringOption(interaction, 'source', true);
+        return source ? ['plugin', 'reinstall', source] : null;
+      }
+      if (subcommand === 'reload') return ['plugin', 'reload'];
       if (subcommand === 'uninstall') {
         const pluginId = normalizeStringOption(interaction, 'id', true);
         return pluginId ? ['plugin', 'uninstall', pluginId] : null;

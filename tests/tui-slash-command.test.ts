@@ -112,6 +112,33 @@ test('maps Discord-style slash commands to gateway command args', () => {
     'list',
   ]);
   expect(
+    mapTuiSlashCommandToGatewayArgs([
+      'plugin',
+      'config',
+      'qmd-memory',
+      'searchMode',
+      'query',
+    ]),
+  ).toEqual(['plugin', 'config', 'qmd-memory', 'searchMode', 'query']);
+  expect(
+    mapTuiSlashCommandToGatewayArgs([
+      'plugin',
+      'install',
+      './plugins/qmd-memory',
+    ]),
+  ).toEqual(['plugin', 'install', './plugins/qmd-memory']);
+  expect(
+    mapTuiSlashCommandToGatewayArgs([
+      'plugin',
+      'reinstall',
+      './plugins/qmd-memory',
+    ]),
+  ).toEqual(['plugin', 'reinstall', './plugins/qmd-memory']);
+  expect(mapTuiSlashCommandToGatewayArgs(['plugin', 'reload'])).toEqual([
+    'plugin',
+    'reload',
+  ]);
+  expect(
     mapTuiSlashCommandToGatewayArgs(['plugin', 'uninstall', 'demo-plugin']),
   ).toEqual(['plugin', 'uninstall', 'demo-plugin']);
 });
@@ -121,6 +148,20 @@ test('keeps explicit /skill invocations out of the slash-command path', () => {
   expect(mapTuiSlashCommandToGatewayArgs(['skill', 'demo-skill'])).toBeNull();
   expect(
     mapTuiSlashCommandToGatewayArgs(['skill', 'demo-skill', 'fix', 'tests']),
+  ).toBeNull();
+});
+
+test('maps loaded plugin commands locally and leaves typos unresolved', () => {
+  expect(mapTuiSlashCommandToGatewayArgs(['qmd', 'status'])).toBeNull();
+  expect(
+    mapTuiSlashCommandToGatewayArgs(['qmd', 'status'], {
+      dynamicTextCommands: ['qmd'],
+    }),
+  ).toEqual(['qmd', 'status']);
+  expect(
+    mapTuiSlashCommandToGatewayArgs(['qmx', 'status'], {
+      dynamicTextCommands: ['qmd'],
+    }),
   ).toBeNull();
 });
 

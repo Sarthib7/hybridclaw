@@ -19,6 +19,7 @@ import {
   type GatewayChatApprovalEvent,
   type GatewayChatResult,
   type GatewayCommandResult,
+  type GatewayPluginCommandSummary,
   gatewayChat,
   gatewayChatStream,
   gatewayCommand,
@@ -317,6 +318,7 @@ let tuiSessionMode: 'new' | 'resume' = 'new';
 let tuiSessionStartedAtMs = Date.now();
 let tuiResumeCommand = 'hybridclaw tui --resume';
 let tuiExitInProgress = false;
+let tuiLoadedPluginCommandNames = new Set<string>();
 
 function mapApprovalSelectionToCommand(
   selection: string,
@@ -613,6 +615,14 @@ function printToolUsage(tools: string[]): void {
   );
 }
 
+function printPluginUsage(plugins: string[]): void {
+  if (plugins.length === 0) return;
+  clearTuiSlashMenu();
+  console.log(
+    `  ${MUTED}${JELLYFISH} plugins:${RESET} ${GREEN}${plugins.join(', ')}${RESET}`,
+  );
+}
+
 function terminalColumns(): number {
   return Math.max(24, process.stdout.columns || 120);
 }
@@ -854,6 +864,16 @@ function collectToolNames(result: GatewayChatResult): string[] {
   return Array.from(names);
 }
 
+function collectPluginNames(result: GatewayChatResult): string[] {
+  const names = new Set<string>();
+
+  for (const pluginName of result.pluginsUsed || []) {
+    if (pluginName) names.add(pluginName);
+  }
+
+  return Array.from(names);
+}
+
 function isInterruptedResult(result: GatewayChatResult): boolean {
   const errorText = result.error || '';
   return errorText.includes('aborted') || errorText.includes('Interrupted');
@@ -882,8 +902,28 @@ function clearTuiSlashMenu(): void {
   tuiSlashMenu?.clear();
 }
 
+function setTuiLoadedPluginCommands(
+  pluginCommands: GatewayPluginCommandSummary[] | undefined,
+): void {
+  const names = new Set<string>();
+  for (const command of pluginCommands || []) {
+    const normalized = String(command?.name || '')
+      .trim()
+      .toLowerCase();
+    if (normalized) names.add(normalized);
+  }
+  tuiLoadedPluginCommandNames = names;
+}
+
 function syncTuiSlashMenu(): void {
   tuiSlashMenu?.sync();
+}
+
+function syncTuiSlashMenuEntries(
+  pluginCommands: GatewayPluginCommandSummary[] | undefined,
+): void {
+  setTuiLoadedPluginCommands(pluginCommands);
+  tuiSlashMenu?.setEntries(buildTuiSlashMenuEntries(pluginCommands || []));
 }
 
 function isReadlineClosed(rl: readline.Interface): boolean {
@@ -1021,6 +1061,20 @@ async function runGatewayCommand(
     printGatewayCommandResult(result);
     const normalizedCommand = (args[0] || '').trim().toLowerCase();
     const normalizedSubcommand = (args[1] || '').trim().toLowerCase();
+    if (
+      normalizedCommand === 'plugin' &&
+      (normalizedSubcommand === 'install' ||
+        normalizedSubcommand === 'reinstall' ||
+        normalizedSubcommand === 'reload' ||
+        normalizedSubcommand === 'uninstall')
+    ) {
+      try {
+        const status = await gatewayStatus();
+        syncTuiSlashMenuEntries(status.pluginCommands);
+      } catch {
+        // Keep the existing menu entries when refresh fails.
+      }
+    }
     if (normalizedCommand === 'show') {
       tuiShowMode = isSessionShowMode(normalizedSubcommand)
         ? normalizedSubcommand
@@ -1332,10 +1386,15 @@ async function handleSlashCommand(
       break;
   }
 
-  const gatewayArgs = mapTuiSlashCommandToGatewayArgs(parts);
-  if (!gatewayArgs) return false;
-  await runGatewayCommand(gatewayArgs, rl);
-  return true;
+  const gatewayArgs = mapTuiSlashCommandToGatewayArgs(parts, {
+    dynamicTextCommands: tuiLoadedPluginCommandNames,
+  });
+  if (gatewayArgs) {
+    await runGatewayCommand(gatewayArgs, rl);
+    return true;
+  }
+
+  return false;
 }
 
 async function processMessage(
@@ -1416,6 +1475,8 @@ async function processMessage(
     const toolNames = [
       ...new Set([...streamedToolNames, ...collectToolNames(result)]),
     ];
+    const pluginNames = collectPluginNames(result);
+    const hasUsageFooters = toolNames.length > 0 || pluginNames.length > 0;
     const hasStreamedText = sawVisibleTextDelta;
     const finalText = result.result || 'No response.';
     const pendingApproval = resolvePendingApproval(result, streamedApproval);
@@ -1423,13 +1484,14 @@ async function processMessage(
     s.flushVisibleText();
     s.stop();
     s.clearThinkingPreview();
-    if (toolNames.length > 0) {
+    if (hasUsageFooters) {
       if (!hasStreamedText) {
         s.clearTools();
       } else {
         process.stdout.write('\n');
       }
       printToolUsage(toolNames);
+      printPluginUsage(pluginNames);
     }
 
     if (isInterruptedResult(result)) {
@@ -1477,7 +1539,7 @@ async function processMessage(
         console.log();
       } else {
         printResponse(finalText, {
-          leadingBlank: toolNames.length > 0,
+          leadingBlank: hasUsageFooters,
         });
       }
     }
@@ -1640,11 +1702,12 @@ async function main(): Promise<void> {
   };
   tuiSlashMenu = new TuiSlashMenuController({
     rl,
-    entries: buildTuiSlashMenuEntries(),
+    entries: buildTuiSlashMenuEntries(status.pluginCommands || []),
     palette: slashMenuPalette,
     shouldShow: () =>
       !activeRunAbortController || activeRunAbortController.signal.aborted,
   });
+  setTuiLoadedPluginCommands(status.pluginCommands);
   tuiSlashMenu.install();
   refreshPrompt(rl);
 

@@ -115,7 +115,9 @@ export function parsePluginConfigValue(raw: string): unknown {
   }
 }
 
-export function readPluginConfigEntry(pluginId: string): PluginConfigReadResult {
+export function readPluginConfigEntry(
+  pluginId: string,
+): PluginConfigReadResult {
   const normalizedPluginId = normalizePluginId(pluginId);
   const config = getRuntimeConfig();
   return {

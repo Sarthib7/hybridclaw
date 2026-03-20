@@ -114,13 +114,13 @@ import {
   updateSessionShowMode,
 } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
-import { formatPluginSummaryList } from '../plugins/plugin-formatting.js';
 import {
   readPluginConfigEntry,
   readPluginConfigValue,
   unsetPluginConfigValue,
   writePluginConfigValue,
 } from '../plugins/plugin-config.js';
+import { formatPluginSummaryList } from '../plugins/plugin-formatting.js';
 import {
   installPlugin,
   reinstallPlugin,

@@ -469,9 +469,10 @@ export function validatePluginConfig(
   return normalized;
 }
 
-function createPluginImportSnapshot(
-  pluginDir: string,
-): { rootDir: string; snapshotDir: string } {
+function createPluginImportSnapshot(pluginDir: string): {
+  rootDir: string;
+  snapshotDir: string;
+} {
   const rootDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-plugin-import-'),
   );

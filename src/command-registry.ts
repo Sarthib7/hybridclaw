@@ -635,8 +635,7 @@ function buildSlashCommandCatalogDefinitions(
         {
           kind: 'subcommand',
           name: 'config',
-          description:
-            'Show or set a top-level plugins.list[] config override',
+          description: 'Show or set a top-level plugins.list[] config override',
           tuiMenu: {
             label: '/plugin config <id> [key] [value|--unset]',
             insertText: '/plugin config ',

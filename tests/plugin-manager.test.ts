@@ -624,10 +624,7 @@ test('plugin manager reloads JavaScript helper modules with the entrypoint', asy
     'buildQmdPromptContext',
     'first',
   );
-  const helperPath = path.join(
-    path.dirname(entrypoint),
-    'qmd-process.js',
-  );
+  const helperPath = path.join(path.dirname(entrypoint), 'qmd-process.js');
 
   const config = loadRuntimeConfig();
   config.plugins.list = [];

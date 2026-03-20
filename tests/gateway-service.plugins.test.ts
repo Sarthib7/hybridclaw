@@ -96,15 +96,17 @@ const {
       removedPluginDir: true,
       removedConfigOverrides: 1,
     })),
-    unsetPluginConfigValueMock: vi.fn(async (pluginId: string, key: string) => ({
-      pluginId,
-      key,
-      value: undefined,
-      changed: true,
-      removed: true,
-      configPath: '/tmp/config.json',
-      entry: null,
-    })),
+    unsetPluginConfigValueMock: vi.fn(
+      async (pluginId: string, key: string) => ({
+        pluginId,
+        key,
+        value: undefined,
+        changed: true,
+        removed: true,
+        configPath: '/tmp/config.json',
+        entry: null,
+      }),
+    ),
     writePluginConfigValueMock: vi.fn(
       async (pluginId: string, key: string, rawValue: string) => ({
         pluginId,

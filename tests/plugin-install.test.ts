@@ -332,7 +332,11 @@ describe('plugin install', () => {
       'demo-plugin',
     );
     writePluginDir(installedDir, { packageName: '@scope/old-demo-plugin' });
-    fs.writeFileSync(path.join(installedDir, 'stale.txt'), 'old build artifact\n', 'utf-8');
+    fs.writeFileSync(
+      path.join(installedDir, 'stale.txt'),
+      'old build artifact\n',
+      'utf-8',
+    );
 
     const runCommand = vi.fn(
       ({
@@ -359,7 +363,9 @@ describe('plugin install', () => {
       },
     );
 
-    const { reinstallPlugin } = await import('../src/plugins/plugin-install.js');
+    const { reinstallPlugin } = await import(
+      '../src/plugins/plugin-install.js'
+    );
     const result = await reinstallPlugin('@scope/demo-plugin', {
       homeDir,
       cwd,

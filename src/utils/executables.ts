@@ -24,7 +24,8 @@ function buildExecutableCacheKey(
   }
 
   const currentPath = process.env.PATH || '';
-  const currentPathExt = process.platform === 'win32' ? process.env.PATHEXT || '' : '';
+  const currentPathExt =
+    process.platform === 'win32' ? process.env.PATHEXT || '' : '';
   return {
     key: `cmd:${command}\0${currentPath}\0${currentPathExt}`,
   };

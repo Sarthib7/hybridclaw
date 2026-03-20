@@ -165,7 +165,11 @@ function hasDynamicTextCommandName(
 ): boolean {
   if (!dynamicTextCommands) return false;
   for (const entry of dynamicTextCommands) {
-    if (String(entry || '').trim().toLowerCase() === name) {
+    if (
+      String(entry || '')
+        .trim()
+        .toLowerCase() === name
+    ) {
       return true;
     }
   }
@@ -309,7 +313,7 @@ export function mapCanonicalCommandToGatewayArgs(
 
     default:
       return findLoadedPluginCommand(cmd) ||
-          hasDynamicTextCommandName(cmd, options?.dynamicTextCommands)
+        hasDynamicTextCommandName(cmd, options?.dynamicTextCommands)
         ? [cmd, ...parts.slice(1)]
         : null;
   }

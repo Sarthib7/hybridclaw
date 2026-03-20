@@ -5799,10 +5799,7 @@ export async function handleGatewayCommand(
         if (sub === 'reload') {
           const reloadResult = await reloadPluginRuntime();
           if (!reloadResult.ok) {
-            return badCommand(
-              'Plugin Reload Failed',
-              reloadResult.message,
-            );
+            return badCommand('Plugin Reload Failed', reloadResult.message);
           }
           return infoCommand('Plugins Reloaded', reloadResult.message);
         }

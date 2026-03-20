@@ -907,7 +907,9 @@ function setTuiLoadedPluginCommands(
 ): void {
   const names = new Set<string>();
   for (const command of pluginCommands || []) {
-    const normalized = String(command?.name || '').trim().toLowerCase();
+    const normalized = String(command?.name || '')
+      .trim()
+      .toLowerCase();
     if (normalized) names.add(normalized);
   }
   tuiLoadedPluginCommandNames = names;

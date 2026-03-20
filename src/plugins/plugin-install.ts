@@ -232,7 +232,9 @@ function preparePluginSource(
     };
   }
 
-  const fetchRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-plugin-fetch-'));
+  const fetchRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-plugin-fetch-'),
+  );
   return {
     sourceDir: fetchPluginDirFromNpmSpec(sourceRef.spec, fetchRoot, runCommand),
     cleanupDirs: [fetchRoot],
@@ -446,11 +448,15 @@ export async function reinstallPlugin(
     );
     const pluginDir = path.join(homeDir, '.hybridclaw', 'plugins', manifest.id);
     const replacedExistingInstall = fs.existsSync(pluginDir);
-    const result = installPreparedPlugin(preparedSource.sourceDir, trimmedSource, {
-      homeDir,
-      runCommand,
-      replaceExisting: true,
-    });
+    const result = installPreparedPlugin(
+      preparedSource.sourceDir,
+      trimmedSource,
+      {
+        homeDir,
+        runCommand,
+        replaceExisting: true,
+      },
+    );
     return {
       ...result,
       replacedExistingInstall,

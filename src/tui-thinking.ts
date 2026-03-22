@@ -157,8 +157,11 @@ export function flushTuiStreamDelta(
 
 export function getTuiStreamTrailingBlankLine(
   state: TuiStreamFormatState,
+  columns = 0,
+  indent = DEFAULT_TUI_INDENT,
 ): string {
-  return state.lineNeedsIndent ? '\n' : '\n\n';
+  const flushed = flushTuiStreamDelta(state, columns, indent);
+  return flushed.state.lineNeedsIndent ? '\n' : '\n\n';
 }
 
 function normalizeWrappedWhitespace(whitespace: string): string {

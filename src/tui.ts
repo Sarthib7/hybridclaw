@@ -801,7 +801,7 @@ function spinner(): {
       process.stdout.write(formatted.text);
     },
     trailingBlankLineAfterVisibleText: () =>
-      getTuiStreamTrailingBlankLine(visibleTextState),
+      getTuiStreamTrailingBlankLine(visibleTextState, terminalColumns()),
     setThinkingPreview,
     clearThinkingPreview,
     clearTools,

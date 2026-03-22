@@ -166,6 +166,17 @@ test('computes the trailing blank line needed after streamed output', () => {
       pendingToken: '',
     }),
   ).toBe('\n');
+  expect(
+    getTuiStreamTrailingBlankLine(
+      {
+        lineNeedsIndent: false,
+        currentLineWidth: 5,
+        pendingWhitespace: ' ',
+        pendingToken: 'world',
+      },
+      80,
+    ),
+  ).toBe('\n\n');
 });
 
 test('keeps think blocks in the transient preview and streams visible text separately', () => {

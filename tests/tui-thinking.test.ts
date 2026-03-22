@@ -160,9 +160,7 @@ test('returns two trailing newlines when streamed output ends mid-line', () => {
 });
 
 test('returns one trailing newline when streamed output already ends on a newline', () => {
-  expect(
-    getTuiStreamTrailingNewlines(createTuiStreamFormatState()),
-  ).toBe('\n');
+  expect(getTuiStreamTrailingNewlines(createTuiStreamFormatState())).toBe('\n');
 });
 
 test('derives trailing newlines from the post-flush stream state', () => {

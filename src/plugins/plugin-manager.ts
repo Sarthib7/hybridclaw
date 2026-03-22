@@ -12,7 +12,6 @@ import {
   unregisterChannel,
 } from '../channels/channel-registry.js';
 import {
-  DEFAULT_RUNTIME_HOME_DIR,
   getRuntimeConfig,
   type RuntimeConfig,
 } from '../config/runtime-config.js';
@@ -701,7 +700,7 @@ export class PluginManager {
     const configuredEntries = toPluginConfigEntries(config);
     const discovered = new Map<string, PluginCandidate>();
     for (const candidate of this.scanDirectory(
-      path.join(DEFAULT_RUNTIME_HOME_DIR, 'plugins'),
+      path.join(this.homeDir, '.hybridclaw', 'plugins'),
       'home',
     )) {
       if (!discovered.has(candidate.id))

@@ -136,6 +136,12 @@ export function resolveDiscordMediaCacheHostDir(): string {
   return path.resolve(path.join(DATA_DIR, 'discord-media-cache'));
 }
 
+const CONTAINER_BROWSER_PROFILE_PATH = '/browser-profiles';
+
+export function resolveBrowserProfileHostDir(): string {
+  return path.resolve(path.join(DATA_DIR, 'browser-profiles'));
+}
+
 function emitTextDelta(entry: PoolEntry, line: string): void {
   const callback = entry.onTextDelta;
   if (!callback) return;
@@ -382,6 +388,8 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
   const { ipcPath, workspacePath } = getSessionPaths(sessionId, agentId);
   const mediaCacheHostPath = resolveDiscordMediaCacheHostDir();
   fs.mkdirSync(mediaCacheHostPath, { recursive: true });
+  const browserProfileHostPath = resolveBrowserProfileHostDir();
+  fs.mkdirSync(browserProfileHostPath, { recursive: true });
   const containerName = `hybridclaw-${sessionId.replace(/[^a-zA-Z0-9-]/g, '-')}-${Date.now()}`;
 
   const args = [
@@ -409,6 +417,10 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
     `${ipcPath}:/ipc:rw`,
     '-v',
     `${mediaCacheHostPath}:${CONTAINER_DISCORD_MEDIA_CACHE_ROOT}:ro`,
+    '-v',
+    `${browserProfileHostPath}:${CONTAINER_BROWSER_PROFILE_PATH}:rw`,
+    '-e',
+    `BROWSER_SHARED_PROFILE_DIR=${CONTAINER_BROWSER_PROFILE_PATH}`,
     '-e',
     `HYBRIDAI_BASE_URL=${HYBRIDAI_BASE_URL}`,
     '-e',

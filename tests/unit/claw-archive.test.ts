@@ -61,6 +61,42 @@ function writePluginDir(
   );
 }
 
+function installBundledPluginForTest(
+  sourceDir: string,
+  homeDir: string,
+): {
+  pluginId: string;
+  pluginDir: string;
+  source: string;
+  alreadyInstalled: boolean;
+  dependenciesInstalled: boolean;
+  requiresEnv: string[];
+  requiredConfigKeys: string[];
+} {
+  const manifestPath = path.join(sourceDir, 'hybridclaw.plugin.yaml');
+  const manifestText = fs.readFileSync(manifestPath, 'utf-8');
+  const pluginIdMatch = manifestText.match(/^id:\s*([^\n]+)$/m);
+  const pluginId = pluginIdMatch?.[1]?.trim();
+  if (!pluginId) {
+    throw new Error(`Test plugin manifest at ${manifestPath} is missing id.`);
+  }
+
+  const pluginDir = path.join(homeDir, '.hybridclaw', 'plugins', pluginId);
+  fs.mkdirSync(path.dirname(pluginDir), { recursive: true });
+  fs.rmSync(pluginDir, { recursive: true, force: true });
+  fs.cpSync(sourceDir, pluginDir, { recursive: true });
+
+  return {
+    pluginId,
+    pluginDir,
+    source: sourceDir,
+    alreadyInstalled: false,
+    dependenciesInstalled: false,
+    requiresEnv: [],
+    requiredConfigKeys: [],
+  };
+}
+
 async function writeZipArchive(
   archivePath: string,
   entries: Array<{ name: string; content: string | Buffer; mode?: number }>,
@@ -148,6 +184,17 @@ describe('.claw archive support', () => {
     vi.stubEnv('HOME', homeDir);
     vi.stubEnv('HYBRIDCLAW_DISABLE_CONFIG_WATCHER', '1');
     process.chdir(cwd);
+
+    vi.doMock('../../src/plugins/plugin-install.ts', () => ({
+      installPlugin: vi.fn(async (source: string, options?: { homeDir?: string }) =>
+        installBundledPluginForTest(source, options?.homeDir ?? homeDir),
+      ),
+    }));
+    vi.doMock('../../src/plugins/plugin-install.js', () => ({
+      installPlugin: vi.fn(async (source: string, options?: { homeDir?: string }) =>
+        installBundledPluginForTest(source, options?.homeDir ?? homeDir),
+      ),
+    }));
 
     const { initDatabase } = await import('../../src/memory/db.js');
     const { initAgentRegistry } = await import(

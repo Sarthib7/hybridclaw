@@ -935,7 +935,7 @@ describe('gateway HTTP server', () => {
     expect(res.body).toContain('localStorage.setItem');
     expect(res.body).toContain('hybridclaw_token');
     expect(res.body).toContain('my-web-token');
-    expect(res.body).toContain("window.location.replace('/admin')");
+    expect(res.body).toContain("window.location.replace(\"/admin\")");
     // Session cookie should still be set
     expect(res.headers['Set-Cookie']).toEqual(
       expect.stringContaining('hybridclaw_session='),
@@ -1009,6 +1009,93 @@ describe('gateway HTTP server', () => {
     const state = await importFreshHealth({ authSecret });
     const req = makeRequest({
       url: `/auth/callback?token=${encodeURIComponent(launchToken)}`,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.Location).toBe('/admin');
+  });
+
+  test('/auth/callback respects a valid next query parameter (302 redirect)', async () => {
+    const authSecret = 'health-secret';
+    const launchToken = signAuthPayload(
+      {
+        exp: Math.floor(Date.now() / 1000) + 60,
+        sub: 'user-1',
+      },
+      authSecret,
+    );
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      url: `/auth/callback?token=${encodeURIComponent(launchToken)}&next=/chat`,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.Location).toBe('/chat');
+  });
+
+  test('/auth/callback respects a valid next query parameter (HTML localStorage redirect)', async () => {
+    const authSecret = 'health-secret';
+    const launchToken = signAuthPayload(
+      {
+        exp: Math.floor(Date.now() / 1000) + 60,
+        sub: 'user-1',
+      },
+      authSecret,
+    );
+    const state = await importFreshHealth({
+      authSecret,
+      webApiToken: 'my-web-token',
+    });
+    const req = makeRequest({
+      url: `/auth/callback?token=${encodeURIComponent(launchToken)}&next=/dashboard`,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain('window.location.replace("/dashboard")');
+  });
+
+  test('/auth/callback ignores protocol-relative next param to prevent open redirect', async () => {
+    const authSecret = 'health-secret';
+    const launchToken = signAuthPayload(
+      {
+        exp: Math.floor(Date.now() / 1000) + 60,
+        sub: 'user-1',
+      },
+      authSecret,
+    );
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      url: `/auth/callback?token=${encodeURIComponent(launchToken)}&next=//evil.com`,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.Location).toBe('/admin');
+  });
+
+  test('/auth/callback ignores absolute URL next param to prevent open redirect', async () => {
+    const authSecret = 'health-secret';
+    const launchToken = signAuthPayload(
+      {
+        exp: Math.floor(Date.now() / 1000) + 60,
+        sub: 'user-1',
+      },
+      authSecret,
+    );
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      url: `/auth/callback?token=${encodeURIComponent(launchToken)}&next=https://evil.com/steal`,
     });
     const res = makeResponse();
 

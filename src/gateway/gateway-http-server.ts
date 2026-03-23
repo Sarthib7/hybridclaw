@@ -1438,6 +1438,14 @@ export function startGatewayHttpServer(): void {
         return;
       }
 
+      // Determine post-auth redirect destination.  Only accept relative
+      // paths (starting with `/` but not `//`) to prevent open redirects.
+      const nextParam = url.searchParams.get('next');
+      const redirectTo =
+        nextParam?.startsWith('/') && !nextParam.startsWith('//')
+          ? nextParam
+          : '/admin';
+
       try {
         const payload = verifyLaunchToken(token);
         setSessionCookie(res, payload);
@@ -1451,21 +1459,29 @@ export function startGatewayHttpServer(): void {
           // JS-level escaping, then replace `<` to prevent the HTML parser
           // from closing the <script> block early (e.g. a token containing
           // "</script>").
-          const escaped = JSON.stringify(WEB_API_TOKEN).replace(/</g, '\\u003c');
+          const escaped = JSON.stringify(WEB_API_TOKEN).replace(
+            /</g,
+            '\\u003c',
+          );
+          const escapedRedirect = JSON.stringify(redirectTo).replace(
+            /</g,
+            '\\u003c',
+          );
           res.writeHead(200, {
             'Content-Type': 'text/html; charset=utf-8',
             'Cache-Control': 'no-store',
-            'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'",
+            'Content-Security-Policy':
+              "default-src 'none'; script-src 'unsafe-inline'",
             'X-Content-Type-Options': 'nosniff',
           });
           res.end(
             `<!DOCTYPE html><html><body><script>` +
               `localStorage.setItem('hybridclaw_token',${escaped});` +
-              `window.location.replace('/admin');` +
+              `window.location.replace(${escapedRedirect});` +
               `</script></body></html>`,
           );
         } else {
-          sendRedirect(res, 302, '/admin');
+          sendRedirect(res, 302, redirectTo);
         }
       } catch {
         sendText(res, 401, 'Unauthorized. Invalid or expired auth token.');

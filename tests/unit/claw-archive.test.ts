@@ -119,8 +119,11 @@ afterEach(async () => {
   process.chdir(originalCwd);
   vi.resetModules();
   vi.unstubAllEnvs();
+  vi.doUnmock('../../src/agents/claw-security.ts');
   vi.doUnmock('../../src/agents/claw-security.js');
+  vi.doUnmock('../../src/plugins/plugin-manager.ts');
   vi.doUnmock('../../src/plugins/plugin-manager.js');
+  vi.doUnmock('../../src/plugins/plugin-install.ts');
   vi.doUnmock('../../src/plugins/plugin-install.js');
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop();
@@ -130,8 +133,11 @@ afterEach(async () => {
 
 beforeEach(() => {
   vi.resetModules();
+  vi.doUnmock('../../src/agents/claw-security.ts');
   vi.doUnmock('../../src/agents/claw-security.js');
+  vi.doUnmock('../../src/plugins/plugin-manager.ts');
   vi.doUnmock('../../src/plugins/plugin-manager.js');
+  vi.doUnmock('../../src/plugins/plugin-install.ts');
   vi.doUnmock('../../src/plugins/plugin-install.js');
 });
 

@@ -450,6 +450,7 @@ function printMainUsage(): void {
   tui        Start terminal adapter (starts gateway automatically when needed)
   onboarding Run interactive auth + trust-model onboarding
   channels   Channel setup helpers (Discord, WhatsApp, Email)
+  browser    Manage persistent browser profiles for agent web automation
   plugin     Manage HybridClaw plugins
   skill      List skill dependency installers or run one
   update     Check and apply HybridClaw CLI updates
@@ -675,6 +676,24 @@ Notes:
   - Discord activates automatically when \`DISCORD_TOKEN\` is configured.
   - Email activates automatically when \`email.enabled=true\` and \`EMAIL_PASSWORD\` is configured.
   - WhatsApp activates automatically once linked auth exists.`);
+}
+
+function printBrowserUsage(): void {
+  console.log(`Usage: hybridclaw browser <command>
+
+Commands:
+  hybridclaw browser login [--url <url>]   Open a headed browser for manual login
+  hybridclaw browser status                Show browser profile info
+  hybridclaw browser reset                 Delete the persistent browser profile
+
+Notes:
+  - \`browser login\` opens Chromium with a persistent profile directory.
+  - Log into any sites you want the agent to access (Google, GitHub, etc.).
+  - Close the browser when done — sessions persist automatically.
+  - The agent reuses these sessions for browser automation without needing credentials.
+  - Profile data is stored under the HybridClaw data directory (configurable via DATA_DIR; default: ~/.hybridclaw/data/browser-profiles/).
+  - This directory contains persistent authenticated browser sessions — treat it as sensitive data.
+  - Use \`browser reset\` to clear all saved sessions and start fresh.`);
 }
 
 function printWhatsAppUsage(): void {
@@ -930,6 +949,9 @@ function printHelpTopic(topic: string): boolean {
       return true;
     case 'openrouter':
       printOpenRouterUsage();
+      return true;
+    case 'browser':
+      printBrowserUsage();
       return true;
     case 'whatsapp':
       printWhatsAppUsage();
@@ -3458,6 +3480,93 @@ async function handleChannelsCommand(args: string[]): Promise<void> {
   );
 }
 
+async function handleBrowserCommand(args: string[]): Promise<void> {
+  const normalized = normalizeArgs(args);
+  if (normalized.length === 0 || isHelpRequest(normalized)) {
+    printBrowserUsage();
+    return;
+  }
+
+  const { getBrowserProfileDir, launchBrowserLogin } = await import(
+    './browser/browser-login.js'
+  );
+  const { DATA_DIR } = await import('./config/config.js');
+  const profileDir = getBrowserProfileDir(DATA_DIR);
+
+  const sub = normalized[0].toLowerCase();
+
+  if (sub === 'login') {
+    let url = 'https://accounts.google.com';
+    for (let i = 1; i < normalized.length; i++) {
+      if (normalized[i] === '--url' && normalized[i + 1]) {
+        url = normalized[++i];
+      }
+    }
+
+    console.log(`Opening browser with persistent profile...`);
+    console.log(`Profile directory: ${profileDir}`);
+    console.log(`Starting URL: ${url}`);
+    console.log('');
+    console.log(
+      'Log into any sites you want the agent to access, then close the browser.',
+    );
+    console.log('Your sessions will be saved automatically.');
+    console.log('');
+
+    const child = await launchBrowserLogin(profileDir, { url });
+    await new Promise<void>((resolve) => {
+      child.on('close', () => {
+        console.log('');
+        console.log('Browser closed. Sessions saved.');
+        console.log(
+          'The agent will reuse these sessions for browser automation.',
+        );
+        resolve();
+      });
+      child.on('error', (err) => {
+        console.error(`Browser failed to launch: ${err.message}`);
+        resolve();
+      });
+    });
+    return;
+  }
+
+  if (sub === 'status') {
+    if (fs.existsSync(profileDir)) {
+      const entries = fs.readdirSync(profileDir);
+      const hasProfile = entries.length > 0;
+      console.log(`Profile directory: ${profileDir}`);
+      console.log(`Profile exists: ${hasProfile ? 'yes' : 'no (empty)'}`);
+      if (hasProfile) {
+        const cookiesPath = path.join(profileDir, 'Default', 'Cookies');
+        const hasCookies = fs.existsSync(cookiesPath);
+        console.log(`Has cookies: ${hasCookies ? 'yes' : 'no'}`);
+      }
+    } else {
+      console.log(`Profile directory: ${profileDir}`);
+      console.log(
+        'No browser profile found. Run `hybridclaw browser login` to create one.',
+      );
+    }
+    return;
+  }
+
+  if (sub === 'reset') {
+    if (fs.existsSync(profileDir)) {
+      fs.rmSync(profileDir, { recursive: true });
+      console.log(`Deleted browser profile at ${profileDir}.`);
+      console.log('Run `hybridclaw browser login` to create a fresh profile.');
+    } else {
+      console.log('No browser profile to reset.');
+    }
+    return;
+  }
+
+  throw new Error(
+    `Unknown browser subcommand: ${sub}. Use \`login\`, \`status\`, or \`reset\`.`,
+  );
+}
+
 async function handleHybridAICommand(args: string[]): Promise<void> {
   const normalized = normalizeArgs(args);
   if (normalized.length === 0 || isHelpRequest(normalized)) {
@@ -4206,6 +4315,9 @@ export async function main(
       break;
     case 'channels':
       await handleChannelsCommand(subargs);
+      break;
+    case 'browser':
+      await handleBrowserCommand(subargs);
       break;
     case 'plugin':
       await handlePluginCommand(subargs);

@@ -159,6 +159,8 @@ Current behavior:
 - unpack also adds that workspace `skills/` directory to `skills.extraDirs`
   so imported bundled skills are discoverable
 - bundled plugins are installed through the normal plugin installer
+- bundled plugin config overrides are only imported for bundled plugins and are
+  validated against the bundled plugin manifest `configSchema`
 - external refs are shown after unpack; they are not auto-installed
 
 ## Important External URL Limitation
@@ -205,8 +207,8 @@ Not currently normalized automatically:
 - discovers workspace-local skills from `workspace/skills/`
 - discovers enabled home plugins from `~/.hybridclaw/plugins/`
 - stores current global `skills.disabled`
-- stores matching `plugins.list[]` overrides for bundled or externally
-  referenced plugins
+- stores matching `plugins.list[]` overrides only for bundled plugins, and only
+  when they have a manifest `configSchema` or a non-default enabled flag
 
 When running in an interactive TTY, `pack` prompts whether each discovered
 workspace skill or installed plugin should be bundled or written as an external
@@ -225,7 +227,8 @@ reference.
 6. copies `workspace/` into the agent workspace path
 7. restores bundled skills into `workspace/skills/`
 8. installs bundled plugins with the normal plugin installer
-9. merges packaged skill/plugin config into runtime config
+9. merges packaged skill config and validated bundled-plugin overrides into
+   runtime config
 10. calls `ensureBootstrapFiles()` to fill any missing templates
 
 Use `--force` to replace an existing agent workspace or reinstall bundled

@@ -14,7 +14,11 @@ import {
   type PluginInstallCommandRunner,
   reinstallPlugin,
 } from '../plugins/plugin-install.js';
-import { loadPluginManifest } from '../plugins/plugin-manager.js';
+import {
+  loadPluginManifest,
+  validatePluginConfig,
+} from '../plugins/plugin-manager.js';
+import type { PluginManifest } from '../plugins/plugin-types.js';
 import { ensureBootstrapFiles } from '../workspace.js';
 import {
   getAgentById,
@@ -50,6 +54,7 @@ interface PackPluginCandidate {
   pluginId: string;
   sourceDir: string;
   packageName: string | null;
+  manifest: PluginManifest;
 }
 
 export type ClawPackSelection =
@@ -126,6 +131,10 @@ export interface UnpackAgentResult {
 
 function normalizeString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value != null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function sanitizeArchiveFileStem(value: string): string {
@@ -255,6 +264,7 @@ function discoverEnabledHomePlugins(
       pluginId: manifest.id,
       sourceDir,
       packageName: readPackageName(sourceDir),
+      manifest,
     });
   }
 
@@ -263,21 +273,128 @@ function discoverEnabledHomePlugins(
 
 function buildPluginConfigList(
   runtimeConfig: RuntimeConfig,
-  includedPluginIds: Set<string>,
+  bundledPlugins: PackPluginCandidate[],
 ): NonNullable<NonNullable<ClawManifest['config']>['plugins']>['list'] {
+  const bundledById = new Map(
+    bundledPlugins.map((plugin) => [plugin.pluginId, plugin]),
+  );
   const out = runtimeConfig.plugins.list
-    .filter((entry) => includedPluginIds.has(normalizeString(entry.id)))
-    .map((entry) => ({
-      id: normalizeString(entry.id),
-      enabled: entry.enabled !== false,
-      ...(entry.config &&
-      typeof entry.config === 'object' &&
-      !Array.isArray(entry.config)
-        ? { config: { ...entry.config } }
-        : {}),
-    }))
-    .filter((entry) => entry.id);
+    .map((entry) => {
+      const pluginId = normalizeString(entry.id);
+      if (!pluginId) return null;
+
+      const bundled = bundledById.get(pluginId);
+      if (!bundled) return null;
+
+      const rawConfig = isRecord(entry.config) ? { ...entry.config } : {};
+      const sanitizedConfig =
+        Object.keys(rawConfig).length > 0 && bundled.manifest.configSchema
+          ? validatePluginConfig(bundled.manifest.configSchema, rawConfig)
+          : {};
+
+      if (entry.enabled !== false || Object.keys(sanitizedConfig).length > 0) {
+        return {
+          id: pluginId,
+          enabled: entry.enabled !== false,
+          ...(Object.keys(sanitizedConfig).length > 0
+            ? { config: sanitizedConfig }
+            : {}),
+        };
+      }
+
+      return null;
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => entry != null);
   return out.length > 0 ? out : undefined;
+}
+
+const ARCHIVE_PLUGIN_CONFIG_MAX_DEPTH = 8;
+const ARCHIVE_PLUGIN_CONFIG_MAX_BYTES = 32 * 1024;
+
+function assertArchivePluginConfigSafe(
+  value: unknown,
+  pluginId: string,
+  depth = 0,
+): void {
+  if (depth > ARCHIVE_PLUGIN_CONFIG_MAX_DEPTH) {
+    throw new Error(
+      `Archive plugin config for "${pluginId}" exceeds the maximum nesting depth.`,
+    );
+  }
+  if (
+    value == null ||
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+  ) {
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      assertArchivePluginConfigSafe(entry, pluginId, depth + 1);
+    }
+    return;
+  }
+  if (!isRecord(value)) {
+    throw new Error(
+      `Archive plugin config for "${pluginId}" must be JSON-safe.`,
+    );
+  }
+  for (const nestedValue of Object.values(value)) {
+    assertArchivePluginConfigSafe(nestedValue, pluginId, depth + 1);
+  }
+}
+
+function sanitizeArchivePluginOverrideEntries(
+  entries:
+    | NonNullable<NonNullable<ClawManifest['config']>['plugins']>['list']
+    | undefined,
+  bundledManifests: Map<string, PluginManifest>,
+): Array<{
+  id: string;
+  enabled: boolean;
+  config?: Record<string, unknown>;
+}> {
+  const sanitized: Array<{
+    id: string;
+    enabled: boolean;
+    config?: Record<string, unknown>;
+  }> = [];
+
+  for (const entry of entries ?? []) {
+    const manifest = bundledManifests.get(entry.id);
+    if (!manifest) continue;
+
+    const rawConfig = isRecord(entry.config) ? { ...entry.config } : {};
+    if (Object.keys(rawConfig).length > 0) {
+      const encoded = JSON.stringify(rawConfig);
+      if (
+        encoded &&
+        Buffer.byteLength(encoded, 'utf-8') > ARCHIVE_PLUGIN_CONFIG_MAX_BYTES
+      ) {
+        throw new Error(
+          `Archive plugin config for "${entry.id}" exceeds the size limit.`,
+        );
+      }
+      assertArchivePluginConfigSafe(rawConfig, entry.id);
+    }
+
+    const validatedConfig = manifest.configSchema
+      ? validatePluginConfig(manifest.configSchema, rawConfig)
+      : {};
+
+    if (entry.enabled !== false || Object.keys(validatedConfig).length > 0) {
+      sanitized.push({
+        id: entry.id,
+        enabled: entry.enabled !== false,
+        ...(Object.keys(validatedConfig).length > 0
+          ? { config: validatedConfig }
+          : {}),
+      });
+    }
+  }
+
+  return sanitized;
 }
 
 function createDefaultArchivePath(
@@ -578,15 +695,12 @@ export async function packAgent(
     );
   }
 
-  const includedPluginIds = new Set<string>([
-    ...bundledPluginFiles.keys(),
-    ...externalPlugins
-      .map((entry) => normalizeString(entry.id))
-      .filter(Boolean),
-  ]);
+  const bundledPluginCandidates = pluginCandidates.filter((candidate) =>
+    bundledPluginFiles.has(candidate.pluginId),
+  );
   const pluginConfigList = buildPluginConfigList(
     runtimeConfig,
-    includedPluginIds,
+    bundledPluginCandidates,
   );
 
   const manifest = validateClawManifest({
@@ -732,6 +846,7 @@ export async function unpackAgent(
     }
 
     const pluginHomeDir = options.homeDir ?? os.homedir();
+    const bundledPluginManifests = new Map<string, PluginManifest>();
     for (const pluginId of manifest.plugins?.bundled ?? []) {
       const sourceDir = path.join(extractedArchiveDir, 'plugins', pluginId);
       if (!fs.existsSync(sourceDir)) {
@@ -739,6 +854,15 @@ export async function unpackAgent(
           `Archive is missing bundled plugin directory ${pluginId}.`,
         );
       }
+      const bundledManifest = loadPluginManifest(
+        path.join(sourceDir, PLUGIN_MANIFEST_FILE),
+      );
+      if (bundledManifest.id !== pluginId) {
+        throw new Error(
+          `Bundled plugin directory "${pluginId}" did not match manifest id "${bundledManifest.id}".`,
+        );
+      }
+      bundledPluginManifests.set(pluginId, bundledManifest);
       const installResult = options.force
         ? await reinstallPlugin(sourceDir, {
             homeDir: pluginHomeDir,
@@ -758,7 +882,10 @@ export async function unpackAgent(
       getRuntimeConfig().skills.disabled,
       manifest.config?.skills?.disabled ?? [],
     );
-    const incomingPluginConfig = manifest.config?.plugins?.list ?? [];
+    const incomingPluginConfig = sanitizeArchivePluginOverrideEntries(
+      manifest.config?.plugins?.list ?? [],
+      bundledPluginManifests,
+    );
 
     if (
       bundledSkills.length > 0 ||

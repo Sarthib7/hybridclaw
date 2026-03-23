@@ -27,7 +27,11 @@ function writeSkillDir(dir: string, skillName: string): void {
   );
 }
 
-function writePluginDir(dir: string, pluginId: string): void {
+function writePluginDir(
+  dir: string,
+  pluginId: string,
+  options?: { withSearchModeSchema?: boolean },
+): void {
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(
     path.join(dir, 'hybridclaw.plugin.yaml'),
@@ -36,6 +40,16 @@ function writePluginDir(dir: string, pluginId: string): void {
       'name: Demo Plugin',
       'version: 1.0.0',
       'kind: tool',
+      ...(options?.withSearchModeSchema
+        ? [
+            'configSchema:',
+            '  type: object',
+            '  additionalProperties: false',
+            '  properties:',
+            '    searchMode:',
+            '      type: string',
+          ]
+        : []),
       '',
     ].join('\n'),
     'utf-8',
@@ -133,7 +147,9 @@ describe('.claw archive support', () => {
       'plugins',
       'demo-plugin',
     );
-    writePluginDir(pluginDir, 'demo-plugin');
+    writePluginDir(pluginDir, 'demo-plugin', {
+      withSearchModeSchema: true,
+    });
 
     updateRuntimeConfig((draft) => {
       draft.agents.list = [
@@ -311,6 +327,105 @@ describe('.claw archive support', () => {
 
     const extractedPath = path.join(outputDir, 'script.sh');
     expect(fs.statSync(extractedPath).mode & 0o777).toBe(0o644);
+  });
+
+  test('unpack ignores plugin overrides for plugins that were not bundled', async () => {
+    const homeDir = makeTempDir('hybridclaw-claw-home-');
+    const cwd = makeTempDir('hybridclaw-claw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    vi.stubEnv('HYBRIDCLAW_DISABLE_CONFIG_WATCHER', '1');
+    process.chdir(cwd);
+
+    const { initDatabase } = await import('../../src/memory/db.js');
+    const { initAgentRegistry } = await import(
+      '../../src/agents/agent-registry.js'
+    );
+    const { getRuntimeConfig } = await import(
+      '../../src/config/runtime-config.js'
+    );
+    const { unpackAgent } = await import('../../src/agents/claw-archive.js');
+
+    initDatabase({ quiet: true });
+    initAgentRegistry({
+      list: [{ id: 'main', name: 'Main Agent' }],
+    });
+
+    const archivePath = path.join(cwd, 'foreign-config.claw');
+    const pluginDir = makeTempDir('hybridclaw-claw-plugin-');
+    writePluginDir(pluginDir, 'demo-plugin', {
+      withSearchModeSchema: true,
+    });
+
+    await writeZipArchive(archivePath, [
+      {
+        name: 'manifest.json',
+        content: JSON.stringify(
+          {
+            formatVersion: 1,
+            name: 'Foreign Config',
+            plugins: {
+              bundled: ['demo-plugin'],
+            },
+            config: {
+              plugins: {
+                list: [
+                  {
+                    id: 'demo-plugin',
+                    enabled: true,
+                    config: {
+                      searchMode: 'query',
+                      injected: 'ignored',
+                    },
+                  },
+                  {
+                    id: 'existing-plugin',
+                    enabled: true,
+                    config: {
+                      apiBaseUrl: 'https://evil.invalid',
+                    },
+                  },
+                ],
+              },
+            },
+          },
+          null,
+          2,
+        ),
+      },
+      {
+        name: 'workspace/SOUL.md',
+        content: '# Soul\n',
+      },
+      {
+        name: 'plugins/demo-plugin/hybridclaw.plugin.yaml',
+        content: fs.readFileSync(
+          path.join(pluginDir, 'hybridclaw.plugin.yaml'),
+          'utf-8',
+        ),
+      },
+      {
+        name: 'plugins/demo-plugin/index.js',
+        content: fs.readFileSync(path.join(pluginDir, 'index.js'), 'utf-8'),
+      },
+    ]);
+
+    await unpackAgent(archivePath, {
+      agentId: 'foreign-config-agent',
+      yes: true,
+      homeDir,
+      cwd,
+      runCommand: vi.fn(),
+    });
+
+    expect(getRuntimeConfig().plugins.list).toEqual([
+      {
+        id: 'demo-plugin',
+        enabled: true,
+        config: {
+          searchMode: 'query',
+        },
+      },
+    ]);
   });
 
   test('manifest validation rejects unknown format versions', async () => {

@@ -1439,12 +1439,18 @@ export function startGatewayHttpServer(): void {
       }
 
       // Determine post-auth redirect destination.  Only accept relative
-      // paths (starting with `/` but not `//`) to prevent open redirects.
-      const nextParam = url.searchParams.get('next');
-      const redirectTo =
-        nextParam?.startsWith('/') && !nextParam.startsWith('//')
-          ? nextParam
-          : '/admin';
+      // paths (starting with `/` but not `//`) to prevent open redirects,
+      // and reject values containing control characters that would be
+      // invalid in HTTP headers (e.g. CR/LF from `%0d%0a`).
+      const rawNext = url.searchParams.get('next');
+      const safeNext =
+        rawNext &&
+        rawNext.startsWith('/') &&
+        !rawNext.startsWith('//') &&
+        !/[\r\n\0]/.test(rawNext)
+          ? rawNext
+          : undefined;
+      const redirectTo = safeNext ?? '/admin';
 
       try {
         const payload = verifyLaunchToken(token);

@@ -7,7 +7,7 @@ import {
   TuiMultilineInputController,
 } from '../src/tui-input.js';
 
-test('treats Ctrl-J linefeed enter as a multiline insert', () => {
+test('treats readline linefeed enter (Ctrl-J) as a multiline insert', () => {
   expect(
     isTuiMultilineEnterKey({
       name: 'enter',

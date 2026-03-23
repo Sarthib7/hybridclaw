@@ -25,11 +25,27 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.check.outputs.tag }}
+      ref: ${{ steps.check.outputs.ref }}
       publish_dockerhub: ${{ steps.check.outputs.publish_dockerhub }}
       labels: ${{ steps.check.outputs.labels }}
     steps:
+      - name: Resolve target ref
+        id: resolve
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && -n "${INPUT_VERSION}" ]]; then
+            echo "ref=refs/tags/${INPUT_VERSION}" >> "${GITHUB_OUTPUT}"
+          else
+            echo "ref=${GITHUB_REF}" >> "${GITHUB_OUTPUT}"
+          fi
+
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ steps.resolve.outputs.ref }}
 
       - name: Validate tag and resolve shared metadata
         id: check
@@ -41,12 +57,12 @@ jobs:
         run: |
           set -euo pipefail
 
+          EXPECTED_TAG="v$(jq -r .version package.json)"
+
           if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            EXPECTED_TAG="v$(jq -r .version package.json)"
             TAG="${INPUT_VERSION:-${EXPECTED_TAG}}"
           else
             TAG="${GITHUB_REF_NAME}"
-            EXPECTED_TAG="v$(jq -r .version package.json)"
           fi
 
           if [[ "${TAG}" != v* ]]; then
@@ -66,6 +82,7 @@ jobs:
 
           {
             echo "tag=${TAG}"
+            echo "ref=${{ steps.resolve.outputs.ref }}"
             echo "publish_dockerhub=${PUBLISH_DOCKERHUB}"
             echo "labels<<EOF"
             echo "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}"
@@ -81,6 +98,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.validate.outputs.ref }}
 
       - name: Resolve agent image tags
         id: meta
@@ -144,6 +163,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.validate.outputs.ref }}
 
       - name: Resolve gateway image tags
         id: meta

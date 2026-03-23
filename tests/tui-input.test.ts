@@ -7,6 +7,18 @@ import {
   TuiMultilineInputController,
 } from '../src/tui-input.js';
 
+function buildUnknownReadlineKey(sequence: string): readline.Key {
+  // Node 22 readline uses the literal string 'undefined' for unsupported
+  // escape sequences instead of leaving `name` unset.
+  return {
+    name: 'undefined',
+    sequence,
+    ctrl: false,
+    meta: false,
+    shift: false,
+  };
+}
+
 test('treats readline linefeed enter (Ctrl-J) as a multiline insert', () => {
   expect(
     isTuiMultilineEnterKey({
@@ -27,20 +39,12 @@ test('treats shifted return sequences as multiline inserts', () => {
       shift: true,
     }),
   ).toBe(true);
-  expect(
-    isTuiMultilineEnterKey({
-      name: 'undefined',
-      sequence: '\x1b[13;2u',
-      shift: false,
-    }),
-  ).toBe(true);
-  expect(
-    isTuiMultilineEnterKey({
-      name: 'undefined',
-      sequence: '\x1b[13;2~',
-      shift: false,
-    }),
-  ).toBe(true);
+  expect(isTuiMultilineEnterKey(buildUnknownReadlineKey('\x1b[13;2u'))).toBe(
+    true,
+  );
+  expect(isTuiMultilineEnterKey(buildUnknownReadlineKey('\x1b[13;2~'))).toBe(
+    true,
+  );
 });
 
 test('keeps plain return mapped to submit', () => {
@@ -144,11 +148,7 @@ test('consumes split shift-return sequences and inserts a newline', () => {
   )._ttyWrite;
 
   ttyWrite('', {
-    name: 'undefined',
-    sequence: '\x1b[27;2;',
-    ctrl: false,
-    meta: false,
-    shift: false,
+    ...buildUnknownReadlineKey('\x1b[27;2;'),
     code: '[27;2;',
   });
   ttyWrite('1', {

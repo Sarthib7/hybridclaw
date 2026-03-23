@@ -53,7 +53,8 @@ COPY SECURITY.md TRUST_MODEL.md ./
 EXPOSE 9090
 
 ENV HYBRIDCLAW_DATA_DIR=/workspace/.data
-ENV HYBRIDCLAW_ACCEPT_TRUST=true
+# Operators must set HYBRIDCLAW_ACCEPT_TRUST=true at runtime to accept the
+# security trust model in headless mode (e.g. docker run -e HYBRIDCLAW_ACCEPT_TRUST=true).
 RUN mkdir -p /workspace/.data
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

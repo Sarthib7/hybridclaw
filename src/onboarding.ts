@@ -859,7 +859,9 @@ export async function ensureRuntimeCredentials(
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     if (!securityAccepted) {
       if (process.env.HYBRIDCLAW_ACCEPT_TRUST === 'true') {
-        acceptSecurityTrustModel();
+        acceptSecurityTrustModel({
+          acceptedBy: 'env:HYBRIDCLAW_ACCEPT_TRUST',
+        });
         securityAccepted = true;
       } else {
         throw new Error(

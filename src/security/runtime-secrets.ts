@@ -153,6 +153,9 @@ export function saveRuntimeSecrets(
     return filePath;
   }
 
-  fs.writeFileSync(filePath, `${JSON.stringify(next, null, 2)}\n`, 'utf-8');
+  fs.writeFileSync(filePath, `${JSON.stringify(next, null, 2)}\n`, {
+    encoding: 'utf-8',
+    mode: 0o600,
+  });
   return filePath;
 }

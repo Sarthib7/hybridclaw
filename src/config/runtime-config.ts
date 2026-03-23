@@ -34,14 +34,9 @@ export const CONFIG_FILE_NAME = 'config.json';
 export const CONFIG_VERSION = 17;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
-export const DEFAULT_RUNTIME_HOME_DIR = (() => {
-  const explicit = (
-    process.env.HYBRIDCLAW_HOME ||
-    process.env.HYBRIDCLAW_DATA_DIR ||
-    ''
-  ).trim();
-  return explicit || path.join(os.homedir(), '.hybridclaw');
-})();
+export const DEFAULT_RUNTIME_HOME_DIR =
+  (process.env.HYBRIDCLAW_DATA_DIR || '').trim() ||
+  path.join(os.homedir(), '.hybridclaw');
 const DEFAULT_DB_PATH = path.join(
   DEFAULT_RUNTIME_HOME_DIR,
   'data',

@@ -639,14 +639,12 @@ describe('.claw archive support', () => {
     fs.writeFileSync(path.join(outsideRoot, 'notes.md'), 'do not delete\n');
 
     vi.doMock('../../src/infra/ipc.js', async () => {
-      const actual = await vi.importActual<typeof import('../../src/infra/ipc.js')>(
-        '../../src/infra/ipc.js',
-      );
+      const actual = await vi.importActual<
+        typeof import('../../src/infra/ipc.js')
+      >('../../src/infra/ipc.js');
       return {
         ...actual,
-        agentWorkspaceDir: vi.fn(() =>
-          path.join(outsideRoot, 'workspace'),
-        ),
+        agentWorkspaceDir: vi.fn(() => path.join(outsideRoot, 'workspace')),
       };
     });
 

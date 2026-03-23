@@ -1319,7 +1319,9 @@ export function uninstallAgent(
       : options.existingAgent;
   const agentRootExists = fs.existsSync(agentRootPath);
   if (agentRootExists) {
-    const resolvedAgentsRootPath = fs.realpathSync.native(expectedAgentsRootPath);
+    const resolvedAgentsRootPath = fs.realpathSync.native(
+      expectedAgentsRootPath,
+    );
     const resolvedAgentRootPath = fs.realpathSync.native(agentRootPath);
     if (
       resolvedAgentRootPath === resolvedAgentsRootPath ||

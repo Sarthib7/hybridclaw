@@ -1030,7 +1030,10 @@ describe('gateway HTTP server', () => {
 
   test('ignores symlinked category metadata files outside the docs tree', async () => {
     const installRoot = makeTempDocsDir();
-    const externalCategoryPath = path.join(installRoot, 'outside-category.json');
+    const externalCategoryPath = path.join(
+      installRoot,
+      'outside-category.json',
+    );
     fs.writeFileSync(
       externalCategoryPath,
       JSON.stringify({ label: 'Compromised' }),
@@ -1120,9 +1123,7 @@ describe('gateway HTTP server', () => {
     expect(res.body).toContain('href="#repeated-section"');
     expect(res.body).toContain('href="#repeated-section-2"');
     expect(res.body).toContain('<h2 id="repeated-section">Repeated Section');
-    expect(res.body).toContain(
-      '<h2 id="repeated-section-2">Repeated Section',
-    );
+    expect(res.body).toContain('<h2 id="repeated-section-2">Repeated Section');
   });
 
   test('renders individual development docs pages by slug', async () => {
@@ -1305,7 +1306,7 @@ describe('gateway HTTP server', () => {
     expect(res.body).toContain('localStorage.setItem');
     expect(res.body).toContain('hybridclaw_token');
     expect(res.body).toContain('my-web-token');
-    expect(res.body).toContain("window.location.replace(\"/admin\")");
+    expect(res.body).toContain('window.location.replace("/admin")');
     // Session cookie should still be set
     expect(res.headers['Set-Cookie']).toEqual(
       expect.stringContaining('hybridclaw_session='),

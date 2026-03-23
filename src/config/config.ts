@@ -569,7 +569,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   MEMORY_CONSOLIDATION_INTERVAL_HOURS =
     config.memory.consolidationIntervalHours;
 
-  HEALTH_HOST = config.ops.healthHost;
+  HEALTH_HOST = process.env.HEALTH_HOST || config.ops.healthHost;
   HEALTH_PORT = config.ops.healthPort;
   WEB_API_TOKEN = process.env.WEB_API_TOKEN || config.ops.webApiToken;
   GATEWAY_BASE_URL = config.ops.gatewayBaseUrl;

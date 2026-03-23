@@ -26,7 +26,7 @@ export interface ScanClawArchiveResult {
   textEntries: Record<string, string>;
 }
 
-export interface SafeExtractZipResult {
+interface ArchiveValidationState {
   entryCount: number;
   totalCompressedBytes: number;
   totalUncompressedBytes: number;
@@ -98,6 +98,42 @@ function closeZipFile(zipFile: yauzl.ZipFile): void {
 
 function isEncryptedEntry(entry: yauzl.Entry): boolean {
   return (entry.generalPurposeBitFlag & 0x1) !== 0;
+}
+
+function validateArchiveZipEntry(entry: yauzl.Entry): string {
+  const name = validateArchiveEntryName(entry.fileName);
+  if (isEncryptedEntry(entry)) {
+    throw new Error(`ZIP entry "${name}" is encrypted and unsupported.`);
+  }
+  if (isZipEntrySymlink(entry)) {
+    throw new Error(`ZIP entry "${name}" is a symlink and is not allowed.`);
+  }
+  return name;
+}
+
+function accumulateArchiveEntryValidation(
+  state: ArchiveValidationState,
+  entry: yauzl.Entry,
+): void {
+  state.entryCount += 1;
+  state.totalCompressedBytes += entry.compressedSize;
+  state.totalUncompressedBytes += entry.uncompressedSize;
+
+  if (state.entryCount > CLAW_ARCHIVE_MAX_ENTRIES) {
+    throw new Error(
+      `ZIP archive exceeds the ${CLAW_ARCHIVE_MAX_ENTRIES} entry limit.`,
+    );
+  }
+  if (state.totalCompressedBytes > CLAW_ARCHIVE_MAX_COMPRESSED_BYTES) {
+    throw new Error(
+      `ZIP archive exceeds the ${CLAW_ARCHIVE_MAX_COMPRESSED_BYTES} byte compressed limit.`,
+    );
+  }
+  if (state.totalUncompressedBytes > CLAW_ARCHIVE_MAX_UNCOMPRESSED_BYTES) {
+    throw new Error(
+      `ZIP archive exceeds the ${CLAW_ARCHIVE_MAX_UNCOMPRESSED_BYTES} byte uncompressed limit.`,
+    );
+  }
 }
 
 function validateArchiveEntryName(entryName: string): string {
@@ -199,8 +235,11 @@ export async function scanClawArchive(
   return await new Promise<ScanClawArchiveResult>((resolve, reject) => {
     const entries: ScannedClawArchiveEntry[] = [];
     const textEntries: Record<string, string> = {};
-    let totalCompressedBytes = 0;
-    let totalUncompressedBytes = 0;
+    const validationState: ArchiveValidationState = {
+      entryCount: 0,
+      totalCompressedBytes: 0,
+      totalUncompressedBytes: 0,
+    };
     let settled = false;
 
     const finish = () => {
@@ -210,8 +249,8 @@ export async function scanClawArchive(
       resolve({
         entries,
         entryNames: entries.map((entry) => entry.name),
-        totalCompressedBytes,
-        totalUncompressedBytes,
+        totalCompressedBytes: validationState.totalCompressedBytes,
+        totalUncompressedBytes: validationState.totalUncompressedBytes,
         textEntries,
       });
     };
@@ -227,33 +266,8 @@ export async function scanClawArchive(
     zipFile.on('end', finish);
     zipFile.on('entry', (entry) => {
       try {
-        const name = validateArchiveEntryName(entry.fileName);
-        if (isEncryptedEntry(entry)) {
-          throw new Error(`ZIP entry "${name}" is encrypted and unsupported.`);
-        }
-        if (isZipEntrySymlink(entry)) {
-          throw new Error(
-            `ZIP entry "${name}" is a symlink and is not allowed.`,
-          );
-        }
-
-        totalCompressedBytes += entry.compressedSize;
-        totalUncompressedBytes += entry.uncompressedSize;
-        if (entries.length + 1 > CLAW_ARCHIVE_MAX_ENTRIES) {
-          throw new Error(
-            `ZIP archive exceeds the ${CLAW_ARCHIVE_MAX_ENTRIES} entry limit.`,
-          );
-        }
-        if (totalCompressedBytes > CLAW_ARCHIVE_MAX_COMPRESSED_BYTES) {
-          throw new Error(
-            `ZIP archive exceeds the ${CLAW_ARCHIVE_MAX_COMPRESSED_BYTES} byte compressed limit.`,
-          );
-        }
-        if (totalUncompressedBytes > CLAW_ARCHIVE_MAX_UNCOMPRESSED_BYTES) {
-          throw new Error(
-            `ZIP archive exceeds the ${CLAW_ARCHIVE_MAX_UNCOMPRESSED_BYTES} byte uncompressed limit.`,
-          );
-        }
+        const name = validateArchiveZipEntry(entry);
+        accumulateArchiveEntryValidation(validationState, entry);
 
         entries.push({
           name,
@@ -306,6 +320,8 @@ async function extractZipEntry(
   readStream.on('data', (chunk: Buffer | string) => {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     bytesRead += buffer.length;
+    // Equality is allowed here. The final exact-size check below separately
+    // rejects truncated streams; this guard is only for streamed overflows.
     if (bytesRead > entry.uncompressedSize) {
       readStream.destroy(
         new Error(
@@ -317,6 +333,8 @@ async function extractZipEntry(
 
   try {
     await pipeline(readStream, fs.createWriteStream(tempPath, { mode: 0o644 }));
+    // Catch short reads after the stream ends; the overflow guard above already
+    // rejected any entry that produced more data than declared.
     if (bytesRead !== entry.uncompressedSize) {
       throw new Error(
         `ZIP entry "${entry.fileName}" size mismatch (${bytesRead} != ${entry.uncompressedSize}).`,
@@ -333,13 +351,33 @@ async function extractZipEntry(
 export async function safeExtractZip(
   archivePath: string,
   outputDir: string,
-): Promise<SafeExtractZipResult> {
-  const scan = await scanClawArchive(archivePath);
-  fs.mkdirSync(outputDir, { recursive: true });
+): Promise<void> {
+  const resolvedOutputDir = path.resolve(outputDir);
+  const outputParentDir = path.dirname(resolvedOutputDir);
+  const outputDirExists = fs.existsSync(resolvedOutputDir);
+
+  if (outputDirExists && fs.readdirSync(resolvedOutputDir).length > 0) {
+    throw new Error(
+      `ZIP extraction target "${resolvedOutputDir}" must be empty or missing.`,
+    );
+  }
+
+  fs.mkdirSync(outputParentDir, { recursive: true });
+  const tempOutputDir = fs.mkdtempSync(
+    path.join(
+      outputParentDir,
+      `${path.basename(resolvedOutputDir) || 'claw-extract'}.tmp-`,
+    ),
+  );
 
   const zipFile = await openZipFile(archivePath);
   try {
     await new Promise<void>((resolve, reject) => {
+      const validationState: ArchiveValidationState = {
+        entryCount: 0,
+        totalCompressedBytes: 0,
+        totalUncompressedBytes: 0,
+      };
       let settled = false;
 
       const finish = () => {
@@ -358,18 +396,9 @@ export async function safeExtractZip(
       zipFile.on('end', finish);
       zipFile.on('entry', (entry) => {
         try {
-          validateArchiveEntryName(entry.fileName);
-          if (isEncryptedEntry(entry)) {
-            throw new Error(
-              `ZIP entry "${entry.fileName}" is encrypted and unsupported.`,
-            );
-          }
-          if (isZipEntrySymlink(entry)) {
-            throw new Error(
-              `ZIP entry "${entry.fileName}" is a symlink and is not allowed.`,
-            );
-          }
-          void extractZipEntry(zipFile, entry, outputDir)
+          validateArchiveZipEntry(entry);
+          accumulateArchiveEntryValidation(validationState, entry);
+          void extractZipEntry(zipFile, entry, tempOutputDir)
             .then(() => {
               zipFile.readEntry();
             })
@@ -382,15 +411,14 @@ export async function safeExtractZip(
       zipFile.readEntry();
     });
   } catch (error) {
-    fs.rmSync(outputDir, { recursive: true, force: true });
+    fs.rmSync(tempOutputDir, { recursive: true, force: true });
     closeZipFile(zipFile);
     throw error;
   }
 
   closeZipFile(zipFile);
-  return {
-    entryCount: scan.entries.length,
-    totalCompressedBytes: scan.totalCompressedBytes,
-    totalUncompressedBytes: scan.totalUncompressedBytes,
-  };
+  if (outputDirExists) {
+    fs.rmdirSync(resolvedOutputDir);
+  }
+  fs.renameSync(tempOutputDir, resolvedOutputDir);
 }

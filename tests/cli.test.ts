@@ -117,6 +117,7 @@ async function importFreshCli(options?: {
     bundledPlugins: string[];
     externalSkills: Array<{ kind: string; ref: string }>;
     externalPlugins: Array<{ kind: string; ref: string }>;
+    archiveEntries: string[];
   };
   agentInspectError?: Error | null;
   agentInspectResult?: {
@@ -125,7 +126,6 @@ async function importFreshCli(options?: {
       name: string;
       id?: string;
     };
-    entryCount: number;
     totalCompressedBytes: number;
     totalUncompressedBytes: number;
     entryNames: string[];
@@ -144,6 +144,11 @@ async function importFreshCli(options?: {
     externalActions: string[];
     runtimeConfigChanged: boolean;
   };
+  agentListResult?: Array<{
+    id: string;
+    name: string;
+    model?: string | { primary: string };
+  }>;
   promptResponses?: string[];
 }) {
   vi.resetModules();
@@ -338,6 +343,12 @@ async function importFreshCli(options?: {
   const initDatabase = vi.fn();
   const isDatabaseInitialized = vi.fn(() => false);
   const initAgentRegistry = vi.fn();
+  const listAgents = vi.fn(
+    () =>
+      options?.agentListResult || [
+        { id: 'main', name: 'Main Agent', model: 'gpt-5-mini' },
+      ],
+  );
   const packAgent = vi.fn(async () => {
     if (options?.agentPackError) throw options.agentPackError;
     return (
@@ -351,6 +362,7 @@ async function importFreshCli(options?: {
         bundledPlugins: ['demo-plugin'],
         externalSkills: [],
         externalPlugins: [],
+        archiveEntries: ['manifest.json', 'workspace/SOUL.md'],
       }
     );
   });
@@ -363,7 +375,6 @@ async function importFreshCli(options?: {
           name: 'Main Agent',
           id: 'main',
         },
-        entryCount: 12,
         totalCompressedBytes: 1024,
         totalUncompressedBytes: 2048,
         entryNames: ['manifest.json'],
@@ -634,6 +645,7 @@ async function importFreshCli(options?: {
   }));
   vi.doMock('../src/agents/agent-registry.js', () => ({
     initAgentRegistry,
+    listAgents,
   }));
   vi.doMock('../src/agents/claw-archive.js', () => ({
     formatClawArchiveSummary,
@@ -716,6 +728,7 @@ async function importFreshCli(options?: {
     initDatabase,
     isDatabaseInitialized,
     initAgentRegistry,
+    listAgents,
     packAgent,
     inspectClawArchive,
     formatClawArchiveSummary,
@@ -2054,6 +2067,22 @@ describe('CLI hybridai commands', () => {
     );
   });
 
+  it('runs agent list and prints tab-separated rows', async () => {
+    const { cli, listAgents } = await importFreshCli({
+      agentListResult: [
+        { id: 'main', name: 'Main Agent', model: 'gpt-5-mini' },
+        { id: 'writer', name: 'Writer Agent', model: { primary: 'gpt-5' } },
+      ],
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['agent', 'list']);
+
+    expect(listAgents).toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith('main\tMain Agent\tgpt-5-mini');
+    expect(logSpy).toHaveBeenCalledWith('writer\tWriter Agent\tgpt-5');
+  });
+
   it('runs agent inspect and prints the archive summary', async () => {
     const { cli, inspectClawArchive, formatClawArchiveSummary } =
       await importFreshCli();
@@ -2090,6 +2119,244 @@ describe('CLI hybridai commands', () => {
     );
     expect(logSpy).toHaveBeenCalledWith('Bundled skills: 1');
     expect(logSpy).toHaveBeenCalledWith('Bundled plugins: 1');
+  });
+
+  it('passes pack metadata and dry-run flags through to packAgent', async () => {
+    const { cli, packAgent } = await importFreshCli({
+      agentPackResult: {
+        archivePath: '/tmp/preview.claw',
+        manifest: {
+          name: 'Main Agent',
+        },
+        workspacePath: '/tmp/.hybridclaw/data/agents/main/workspace',
+        bundledSkills: [],
+        bundledPlugins: [],
+        externalSkills: [],
+        externalPlugins: [],
+        archiveEntries: ['manifest.json', 'workspace/SOUL.md'],
+      },
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main([
+      'agent',
+      'pack',
+      'main',
+      '--description',
+      'Portable starter',
+      '--author',
+      'Tester',
+      '--version',
+      '1.2.3',
+      '--dry-run',
+    ]);
+
+    expect(packAgent).toHaveBeenCalledWith(
+      'main',
+      expect.objectContaining({
+        dryRun: true,
+        manifestMetadata: {
+          description: 'Portable starter',
+          author: 'Tester',
+          version: '1.2.3',
+        },
+      }),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'Dry run: agent Main Agent to /tmp/preview.claw.',
+      ),
+    );
+    expect(logSpy).toHaveBeenCalledWith('Archive entries:');
+    expect(logSpy).toHaveBeenCalledWith('  manifest.json');
+  });
+
+  it('passes --skills active through to packAgent', async () => {
+    const { cli, packAgent } = await importFreshCli();
+
+    await cli.main(['agent', 'pack', 'main', '--skills', 'active']);
+
+    expect(packAgent).toHaveBeenCalledWith(
+      'main',
+      expect.objectContaining({
+        skillSelection: {
+          mode: 'active',
+        },
+      }),
+    );
+  });
+
+  it('passes explicit skill selections through to packAgent', async () => {
+    const { cli, packAgent } = await importFreshCli();
+
+    await cli.main([
+      'agent',
+      'pack',
+      'main',
+      '--skills',
+      'some',
+      '--skill',
+      '1password',
+      '--skill',
+      'apple-calendar',
+    ]);
+
+    expect(packAgent).toHaveBeenCalledWith(
+      'main',
+      expect.objectContaining({
+        skillSelection: {
+          mode: 'some',
+          names: ['1password', 'apple-calendar'],
+        },
+      }),
+    );
+  });
+
+  it('rejects --skill without --skills some', async () => {
+    const { cli, packAgent } = await importFreshCli();
+
+    await expect(
+      cli.main(['agent', 'pack', 'main', '--skill', '1password']),
+    ).rejects.toThrow('`--skill <name>` requires `--skills some`.');
+    expect(packAgent).not.toHaveBeenCalled();
+  });
+
+  it('passes --plugins active through to packAgent', async () => {
+    const { cli, packAgent } = await importFreshCli();
+
+    await cli.main(['agent', 'pack', 'main', '--plugins', 'active']);
+
+    expect(packAgent).toHaveBeenCalledWith(
+      'main',
+      expect.objectContaining({
+        pluginSelection: {
+          mode: 'active',
+        },
+      }),
+    );
+  });
+
+  it('passes explicit plugin selections through to packAgent', async () => {
+    const { cli, packAgent } = await importFreshCli();
+
+    await cli.main([
+      'agent',
+      'pack',
+      'main',
+      '--plugins',
+      'some',
+      '--plugin',
+      'demo-plugin',
+      '--plugin',
+      'qmd-memory',
+    ]);
+
+    expect(packAgent).toHaveBeenCalledWith(
+      'main',
+      expect.objectContaining({
+        pluginSelection: {
+          mode: 'some',
+          names: ['demo-plugin', 'qmd-memory'],
+        },
+      }),
+    );
+  });
+
+  it('rejects --plugin without --plugins some', async () => {
+    const { cli, packAgent } = await importFreshCli();
+
+    await expect(
+      cli.main(['agent', 'pack', 'main', '--plugin', 'demo-plugin']),
+    ).rejects.toThrow('`--plugin <id>` requires `--plugins some`.');
+    expect(packAgent).not.toHaveBeenCalled();
+  });
+
+  it('reuses one readline interface across pack prompts', async () => {
+    const { cli, packAgent, readlineCreateInterface, readlineClose } =
+      await importFreshCli({
+        promptResponses: [
+          'e',
+          'https://github.com/example/custom-skill.git',
+          'custom-skill',
+          'e',
+          'npm',
+          '@example/demo-plugin',
+          'demo-plugin',
+        ],
+      });
+
+    packAgent.mockImplementationOnce(async (_agentId, options) => {
+      await options.promptSelection?.({
+        kind: 'skill',
+        directoryName: 'custom-skill',
+        sourceDir: '/tmp/skill',
+      });
+      await options.promptSelection?.({
+        kind: 'plugin',
+        pluginId: 'demo-plugin',
+        sourceDir: '/tmp/plugin',
+        packageName: '@example/demo-plugin',
+      });
+      return {
+        archivePath: '/tmp/main.claw',
+        manifest: {
+          name: 'Main Agent',
+        },
+        workspacePath: '/tmp/.hybridclaw/data/agents/main/workspace',
+        bundledSkills: [],
+        bundledPlugins: [],
+        externalSkills: [],
+        externalPlugins: [],
+        archiveEntries: ['manifest.json'],
+      };
+    });
+
+    await cli.main(['agent', 'pack', 'main']);
+
+    expect(readlineCreateInterface).toHaveBeenCalledTimes(1);
+    expect(readlineClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats n as skip during interactive pack prompts', async () => {
+    const { cli, packAgent, readlineQuestion } = await importFreshCli({
+      promptResponses: ['n', 'n'],
+    });
+
+    const selections: unknown[] = [];
+    packAgent.mockImplementationOnce(async (_agentId, options) => {
+      selections.push(
+        await options.promptSelection?.({
+          kind: 'skill',
+          directoryName: 'custom-skill',
+          sourceDir: '/tmp/skill',
+        }),
+      );
+      selections.push(
+        await options.promptSelection?.({
+          kind: 'plugin',
+          pluginId: 'demo-plugin',
+          sourceDir: '/tmp/plugin',
+          packageName: '@example/demo-plugin',
+        }),
+      );
+      return {
+        archivePath: '/tmp/main.claw',
+        manifest: {
+          name: 'Main Agent',
+        },
+        workspacePath: '/tmp/.hybridclaw/data/agents/main/workspace',
+        bundledSkills: [],
+        bundledPlugins: [],
+        externalSkills: [],
+        externalPlugins: [],
+        archiveEntries: ['manifest.json'],
+      };
+    });
+
+    await cli.main(['agent', 'pack', 'main']);
+
+    expect(selections).toEqual([{ mode: 'skip' }, { mode: 'skip' }]);
+    expect(readlineQuestion).toHaveBeenCalledTimes(2);
   });
 
   it('runs agent unpack with --yes and prints runtime config updates', async () => {

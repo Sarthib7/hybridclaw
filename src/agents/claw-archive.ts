@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -12,15 +13,16 @@ import {
   type InstallPluginResult,
   installPlugin,
   type PluginInstallCommandRunner,
-  reinstallPlugin,
 } from '../plugins/plugin-install.js';
 import {
   loadPluginManifest,
   validatePluginConfig,
 } from '../plugins/plugin-manager.js';
 import type { PluginManifest } from '../plugins/plugin-types.js';
+import { normalizeTrimmedString as normalizeString } from '../utils/normalized-strings.js';
 import { ensureBootstrapFiles } from '../workspace.js';
 import {
+  deleteRegisteredAgent,
   getAgentById,
   resolveAgentConfig,
   upsertRegisteredAgent,
@@ -57,8 +59,16 @@ interface PackPluginCandidate {
   manifest: PluginManifest;
 }
 
+export type PackSelectionMode = 'ask' | 'active' | 'all' | 'some';
+
+interface PluginInstallRollbackState {
+  pluginDir: string;
+  backupDir: string | null;
+}
+
 export type ClawPackSelection =
   | { mode: 'bundle' }
+  | { mode: 'skip' }
   | {
       mode: 'external';
       reference: ClawSkillExternalRef | ClawPluginExternalRef;
@@ -82,6 +92,20 @@ export interface PackAgentOptions {
   cwd?: string;
   homeDir?: string;
   createdAt?: string;
+  dryRun?: boolean;
+  skillSelection?: {
+    mode: PackSelectionMode;
+    names?: string[];
+  };
+  pluginSelection?: {
+    mode: PackSelectionMode;
+    names?: string[];
+  };
+  manifestMetadata?: {
+    description?: string;
+    author?: string;
+    version?: string;
+  };
   promptSelection?: (
     input: ClawPackPromptInput,
   ) => Promise<ClawPackSelection> | ClawPackSelection;
@@ -95,12 +119,12 @@ export interface PackAgentResult {
   bundledPlugins: string[];
   externalSkills: ClawSkillExternalRef[];
   externalPlugins: ClawPluginExternalRef[];
+  archiveEntries: string[];
 }
 
 export interface ClawArchiveInspection {
   archivePath: string;
   manifest: ClawManifest;
-  entryCount: number;
   totalCompressedBytes: number;
   totalUncompressedBytes: number;
   entryNames: string[];
@@ -129,10 +153,6 @@ export interface UnpackAgentResult {
   runtimeConfigChanged: boolean;
 }
 
-function normalizeString(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value != null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -147,11 +167,59 @@ function sanitizeArchiveFileStem(value: string): string {
   );
 }
 
+const ARCHIVE_EXCLUDED_DIRECTORY_NAMES = new Set([
+  '.git',
+  '.hybridclaw-runtime',
+  '.session-transcripts',
+  'node_modules',
+]);
+const ARCHIVE_EXCLUDED_BASENAMES = new Set(['.DS_Store', 'Thumbs.db']);
+
+function isPortableArchiveEnvFile(name: string): boolean {
+  return name === '.env' || name.startsWith('.env.');
+}
+
+function shouldExcludePortableArchivePath(relativePath: string): boolean {
+  const segments = relativePath
+    .split(path.sep)
+    .join('/')
+    .split('/')
+    .filter(Boolean);
+  if (segments.length === 0) return false;
+  if (
+    segments.some((segment) => ARCHIVE_EXCLUDED_DIRECTORY_NAMES.has(segment))
+  ) {
+    return true;
+  }
+  const basename = segments[segments.length - 1];
+  return (
+    ARCHIVE_EXCLUDED_BASENAMES.has(basename) ||
+    isPortableArchiveEnvFile(basename)
+  );
+}
+
+function shouldExcludeWorkspaceArchivePath(relativePath: string): boolean {
+  if (shouldExcludePortableArchivePath(relativePath)) {
+    return true;
+  }
+  const segments = relativePath
+    .split(path.sep)
+    .join('/')
+    .split('/')
+    .filter(Boolean);
+  if (segments.length === 0) return false;
+  return (
+    segments[0] === '.hybridclaw' &&
+    segments[segments.length - 1] === 'workspace-state.json'
+  );
+}
+
 function collectFilesRecursively(
   rootDir: string,
   options: {
     excludeTopLevelNames?: Set<string>;
     excludeDirectoryNames?: Set<string>;
+    excludeRelativePath?: (relativePath: string) => boolean;
   } = {},
 ): ArchivedFile[] {
   if (!fs.existsSync(rootDir)) return [];
@@ -175,6 +243,9 @@ function collectFilesRecursively(
       const relativePath = relativeDir
         ? path.posix.join(relativeDir.split(path.sep).join('/'), entry.name)
         : entry.name;
+      if (options.excludeRelativePath?.(relativePath)) {
+        continue;
+      }
       const stats = fs.lstatSync(absolutePath);
       if (stats.isSymbolicLink()) {
         throw new Error(`Refusing to package symlinked path ${absolutePath}.`);
@@ -218,6 +289,17 @@ function discoverWorkspaceSkills(workspaceDir: string): PackSkillCandidate[] {
     );
 }
 
+function isSkillDisabled(
+  directoryName: string,
+  runtimeConfig: RuntimeConfig,
+): boolean {
+  const normalizedDirectoryName = normalizeString(directoryName);
+  if (!normalizedDirectoryName) return false;
+  return runtimeConfig.skills.disabled.some(
+    (entry) => normalizeString(entry) === normalizedDirectoryName,
+  );
+}
+
 function isPluginDisabled(
   pluginId: string,
   runtimeConfig: RuntimeConfig,
@@ -242,10 +324,7 @@ function readPackageName(sourceDir: string): string | null {
   }
 }
 
-function discoverEnabledHomePlugins(
-  homeDir: string,
-  runtimeConfig: RuntimeConfig,
-): PackPluginCandidate[] {
+function discoverHomePlugins(homeDir: string): PackPluginCandidate[] {
   const pluginsRoot = path.join(homeDir, '.hybridclaw', 'plugins');
   if (!fs.existsSync(pluginsRoot)) return [];
 
@@ -259,7 +338,6 @@ function discoverEnabledHomePlugins(
     if (!fs.existsSync(manifestPath)) continue;
 
     const manifest = loadPluginManifest(manifestPath);
-    if (isPluginDisabled(manifest.id, runtimeConfig)) continue;
     plugins.push({
       pluginId: manifest.id,
       sourceDir,
@@ -405,6 +483,13 @@ function createDefaultArchivePath(
   return path.join(cwd, `${stem}.claw`);
 }
 
+function createSiblingTempPath(targetPath: string, label: string): string {
+  return path.join(
+    path.dirname(targetPath),
+    `.${path.basename(targetPath)}.${label}-${randomUUID().slice(0, 8)}`,
+  );
+}
+
 function addFilesToZip(
   zipFile: yazl.ZipFile,
   archiveRoot: string,
@@ -416,6 +501,36 @@ function addFilesToZip(
       path.posix.join(archiveRoot, file.relativePath),
     );
   }
+}
+
+function buildArchiveEntryNames(params: {
+  workspaceFiles: ArchivedFile[];
+  bundledSkillFiles: Map<string, ArchivedFile[]>;
+  bundledPluginFiles: Map<string, ArchivedFile[]>;
+}): string[] {
+  const entries = [MANIFEST_FILE_NAME];
+
+  entries.push(
+    ...params.workspaceFiles.map((file) =>
+      path.posix.join('workspace', file.relativePath),
+    ),
+  );
+  for (const [directoryName, files] of params.bundledSkillFiles) {
+    entries.push(
+      ...files.map((file) =>
+        path.posix.join('skills', directoryName, file.relativePath),
+      ),
+    );
+  }
+  for (const [pluginId, files] of params.bundledPluginFiles) {
+    entries.push(
+      ...files.map((file) =>
+        path.posix.join('plugins', pluginId, file.relativePath),
+      ),
+    );
+  }
+
+  return entries.sort((left, right) => left.localeCompare(right));
 }
 
 function writeZipArchive(
@@ -461,13 +576,26 @@ function copyDirectoryContents(
   sourceDir: string,
   destinationDir: string,
 ): void {
+  const assertNoSymlinks = (currentPath: string): void => {
+    const stats = fs.lstatSync(currentPath);
+    if (stats.isSymbolicLink()) {
+      throw new Error(`Refusing to copy symlinked path ${currentPath}.`);
+    }
+    if (!stats.isDirectory()) {
+      return;
+    }
+    for (const entry of fs.readdirSync(currentPath, { withFileTypes: true })) {
+      assertNoSymlinks(path.join(currentPath, entry.name));
+    }
+  };
+
   fs.mkdirSync(destinationDir, { recursive: true });
   for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
     const sourcePath = path.join(sourceDir, entry.name);
     const destinationPath = path.join(destinationDir, entry.name);
+    assertNoSymlinks(sourcePath);
     fs.cpSync(sourcePath, destinationPath, {
       recursive: true,
-      dereference: true,
       force: true,
     });
   }
@@ -495,18 +623,12 @@ function buildExternalActionLines(
   const lines: string[] = [];
 
   for (const skill of manifest.skills?.external ?? []) {
-    if (skill.kind === 'git') {
-      const targetDir = path.join(
-        workspacePath,
-        'skills',
-        sanitizeArchiveFileStem(skill.name || path.basename(skill.ref, '.git')),
-      );
-      lines.push(`git clone ${skill.ref} ${targetDir}`);
-      continue;
-    }
-    lines.push(
-      `Resolve external skill manually: ${skill.kind} ${skill.name ? `${skill.name} ` : ''}${skill.ref}`,
+    const targetDir = path.join(
+      workspacePath,
+      'skills',
+      sanitizeArchiveFileStem(skill.name || path.basename(skill.ref, '.git')),
     );
+    lines.push(`git clone ${skill.ref} ${targetDir}`);
   }
 
   for (const plugin of manifest.plugins?.external ?? []) {
@@ -529,6 +651,10 @@ function formatHumanSize(bytes: number): string {
 export function formatClawArchiveSummary(
   inspection: ClawArchiveInspection,
 ): string[] {
+  const bundledSkills = inspection.manifest.skills?.bundled ?? [];
+  const bundledPlugins = inspection.manifest.plugins?.bundled ?? [];
+  const externalSkills = inspection.manifest.skills?.external ?? [];
+  const externalPlugins = inspection.manifest.plugins?.external ?? [];
   const lines = [
     `Name: ${inspection.manifest.name}`,
     ...(inspection.manifest.description
@@ -555,37 +681,30 @@ export function formatClawArchiveSummary(
     ...(typeof inspection.manifest.agent?.enableRag === 'boolean'
       ? [`RAG: ${inspection.manifest.agent.enableRag ? 'enabled' : 'disabled'}`]
       : []),
-    `Bundled skills: ${(inspection.manifest.skills?.bundled ?? []).length}`,
-    `Bundled plugins: ${(inspection.manifest.plugins?.bundled ?? []).length}`,
-    `External refs: ${
-      (inspection.manifest.skills?.external ?? []).length +
-      (inspection.manifest.plugins?.external ?? []).length
-    }`,
-    `Archive: ${inspection.entryCount} entries, ${formatHumanSize(
+    `Bundled skills: ${bundledSkills.length}`,
+    `Bundled plugins: ${bundledPlugins.length}`,
+    `External refs: ${externalSkills.length + externalPlugins.length}`,
+    `Archive: ${inspection.entryNames.length} entries, ${formatHumanSize(
       inspection.totalCompressedBytes,
     )} compressed, ${formatHumanSize(inspection.totalUncompressedBytes)} extracted`,
   ];
 
-  if ((inspection.manifest.skills?.bundled ?? []).length > 0) {
-    lines.push(
-      `Skill dirs: ${(inspection.manifest.skills?.bundled ?? []).join(', ')}`,
-    );
+  if (bundledSkills.length > 0) {
+    lines.push(`Skill dirs: ${bundledSkills.join(', ')}`);
   }
-  if ((inspection.manifest.plugins?.bundled ?? []).length > 0) {
-    lines.push(
-      `Plugin dirs: ${(inspection.manifest.plugins?.bundled ?? []).join(', ')}`,
-    );
+  if (bundledPlugins.length > 0) {
+    lines.push(`Plugin dirs: ${bundledPlugins.join(', ')}`);
   }
-  if ((inspection.manifest.skills?.external ?? []).length > 0) {
+  if (externalSkills.length > 0) {
     lines.push(
-      `External skills: ${(inspection.manifest.skills?.external ?? [])
+      `External skills: ${externalSkills
         .map((entry) => `${entry.kind}:${entry.ref}`)
         .join(', ')}`,
     );
   }
-  if ((inspection.manifest.plugins?.external ?? []).length > 0) {
+  if (externalPlugins.length > 0) {
     lines.push(
-      `External plugins: ${(inspection.manifest.plugins?.external ?? [])
+      `External plugins: ${externalPlugins
         .map((entry) => `${entry.kind}:${entry.ref}`)
         .join(', ')}`,
     );
@@ -622,7 +741,6 @@ export async function inspectClawArchive(
   return {
     archivePath,
     manifest,
-    entryCount: scan.entries.length,
     totalCompressedBytes: scan.totalCompressedBytes,
     totalUncompressedBytes: scan.totalUncompressedBytes,
     entryNames: scan.entryNames,
@@ -645,54 +763,168 @@ export async function packAgent(
 
   const workspaceFiles = collectFilesRecursively(workspacePath, {
     excludeTopLevelNames: new Set(['skills']),
+    excludeRelativePath: shouldExcludeWorkspaceArchivePath,
   });
   const skillCandidates = discoverWorkspaceSkills(workspacePath);
-  const pluginCandidates = discoverEnabledHomePlugins(homeDir, runtimeConfig);
+  const pluginCandidates = discoverHomePlugins(homeDir);
 
   const bundledSkillFiles = new Map<string, ArchivedFile[]>();
   const bundledPluginFiles = new Map<string, ArchivedFile[]>();
   const externalSkills: ClawSkillExternalRef[] = [];
   const externalPlugins: ClawPluginExternalRef[] = [];
+  const promptSelection = options.promptSelection;
+  const requestedSkillNames = new Set(
+    (options.skillSelection?.names ?? [])
+      .map((entry) => normalizeString(entry))
+      .filter(Boolean),
+  );
+  const skillSelectionMode =
+    options.skillSelection?.mode ?? (options.promptSelection ? 'ask' : 'all');
+  const requestedPluginIds = new Set(
+    (options.pluginSelection?.names ?? [])
+      .map((entry) => normalizeString(entry))
+      .filter(Boolean),
+  );
+  const pluginSelectionMode =
+    options.pluginSelection?.mode ??
+    (options.promptSelection ? 'ask' : 'active');
+
+  if (skillSelectionMode === 'ask' && !promptSelection) {
+    throw new Error(
+      'Interactive skill selection requires an available prompt.',
+    );
+  }
+  if (skillSelectionMode === 'some' && requestedSkillNames.size === 0) {
+    throw new Error(
+      'Explicit skill selection requires at least one workspace skill name.',
+    );
+  }
+  if (pluginSelectionMode === 'ask' && !promptSelection) {
+    throw new Error(
+      'Interactive plugin selection requires an available prompt.',
+    );
+  }
+  if (pluginSelectionMode === 'some' && requestedPluginIds.size === 0) {
+    throw new Error(
+      'Explicit plugin selection requires at least one installed plugin id.',
+    );
+  }
 
   for (const candidate of skillCandidates) {
-    const selection = options.promptSelection
-      ? await options.promptSelection({
-          kind: 'skill',
-          directoryName: candidate.directoryName,
-          sourceDir: candidate.sourceDir,
-        })
-      : { mode: 'bundle' as const };
+    let selection: ClawPackSelection = { mode: 'bundle' };
+    if (skillSelectionMode === 'ask') {
+      if (!promptSelection) {
+        throw new Error(
+          'Interactive skill selection requires an available prompt.',
+        );
+      }
+      selection = await promptSelection({
+        kind: 'skill',
+        directoryName: candidate.directoryName,
+        sourceDir: candidate.sourceDir,
+      });
+    } else if (skillSelectionMode === 'active') {
+      if (isSkillDisabled(candidate.directoryName, runtimeConfig)) {
+        continue;
+      }
+    } else if (skillSelectionMode === 'some') {
+      const normalizedDirectoryName = normalizeString(candidate.directoryName);
+      if (
+        !normalizedDirectoryName ||
+        !requestedSkillNames.has(normalizedDirectoryName)
+      ) {
+        continue;
+      }
+    }
+
     if (selection.mode === 'external') {
       externalSkills.push(selection.reference as ClawSkillExternalRef);
+      continue;
+    }
+    if (selection.mode === 'skip') {
       continue;
     }
     bundledSkillFiles.set(
       candidate.directoryName,
       collectFilesRecursively(candidate.sourceDir, {
         excludeDirectoryNames: new Set(['.git']),
+        excludeRelativePath: shouldExcludePortableArchivePath,
       }),
     );
   }
 
+  if (skillSelectionMode === 'some') {
+    const discoveredSkillNames = new Set(
+      skillCandidates
+        .map((candidate) => normalizeString(candidate.directoryName))
+        .filter(Boolean),
+    );
+    const missing = [...requestedSkillNames]
+      .filter((name) => !discoveredSkillNames.has(name))
+      .sort((left, right) => left.localeCompare(right));
+    if (missing.length > 0) {
+      throw new Error(
+        `Requested workspace skills not found: ${missing.join(', ')}.`,
+      );
+    }
+  }
+
   for (const candidate of pluginCandidates) {
-    const selection = options.promptSelection
-      ? await options.promptSelection({
-          kind: 'plugin',
-          pluginId: candidate.pluginId,
-          sourceDir: candidate.sourceDir,
-          packageName: candidate.packageName,
-        })
-      : { mode: 'bundle' as const };
+    let selection: ClawPackSelection = { mode: 'bundle' };
+    if (pluginSelectionMode === 'ask') {
+      if (isPluginDisabled(candidate.pluginId, runtimeConfig)) {
+        continue;
+      }
+      if (!promptSelection) {
+        throw new Error(
+          'Interactive plugin selection requires an available prompt.',
+        );
+      }
+      selection = await promptSelection({
+        kind: 'plugin',
+        pluginId: candidate.pluginId,
+        sourceDir: candidate.sourceDir,
+        packageName: candidate.packageName,
+      });
+    } else if (pluginSelectionMode === 'active') {
+      if (isPluginDisabled(candidate.pluginId, runtimeConfig)) {
+        continue;
+      }
+    } else if (pluginSelectionMode === 'some') {
+      const normalizedPluginId = normalizeString(candidate.pluginId);
+      if (!normalizedPluginId || !requestedPluginIds.has(normalizedPluginId)) {
+        continue;
+      }
+    }
+
     if (selection.mode === 'external') {
       externalPlugins.push(selection.reference as ClawPluginExternalRef);
+      continue;
+    }
+    if (selection.mode === 'skip') {
       continue;
     }
     bundledPluginFiles.set(
       candidate.pluginId,
       collectFilesRecursively(candidate.sourceDir, {
         excludeDirectoryNames: new Set(['.git', 'node_modules']),
+        excludeRelativePath: shouldExcludePortableArchivePath,
       }),
     );
+  }
+
+  if (pluginSelectionMode === 'some') {
+    const discoveredPluginIds = new Set(
+      pluginCandidates
+        .map((candidate) => normalizeString(candidate.pluginId))
+        .filter(Boolean),
+    );
+    const missing = [...requestedPluginIds]
+      .filter((id) => !discoveredPluginIds.has(id))
+      .sort((left, right) => left.localeCompare(right));
+    if (missing.length > 0) {
+      throw new Error(`Requested plugins not found: ${missing.join(', ')}.`);
+    }
   }
 
   const bundledPluginCandidates = pluginCandidates.filter((candidate) =>
@@ -707,6 +939,15 @@ export async function packAgent(
     formatVersion: CLAW_FORMAT_VERSION,
     name: normalizeString(resolved.name) || resolved.id,
     id: sanitizeClawAgentId(resolved.id),
+    ...(normalizeString(options.manifestMetadata?.description)
+      ? { description: normalizeString(options.manifestMetadata?.description) }
+      : {}),
+    ...(normalizeString(options.manifestMetadata?.author)
+      ? { author: normalizeString(options.manifestMetadata?.author) }
+      : {}),
+    ...(normalizeString(options.manifestMetadata?.version)
+      ? { version: normalizeString(options.manifestMetadata?.version) }
+      : {}),
     createdAt: options.createdAt ?? new Date().toISOString(),
     agent: {
       ...(resolved.model ? { model: resolved.model } : {}),
@@ -736,13 +977,20 @@ export async function packAgent(
 
   const archivePath =
     options.outputPath || createDefaultArchivePath(cwd, manifest);
-  await writeZipArchive(
-    archivePath,
-    manifest,
+  const archiveEntries = buildArchiveEntryNames({
     workspaceFiles,
     bundledSkillFiles,
     bundledPluginFiles,
-  );
+  });
+  if (!options.dryRun) {
+    await writeZipArchive(
+      archivePath,
+      manifest,
+      workspaceFiles,
+      bundledSkillFiles,
+      bundledPluginFiles,
+    );
+  }
 
   return {
     archivePath,
@@ -752,6 +1000,7 @@ export async function packAgent(
     bundledPlugins: [...bundledPluginFiles.keys()],
     externalSkills,
     externalPlugins,
+    archiveEntries,
   };
 }
 
@@ -789,8 +1038,17 @@ export async function unpackAgent(
     path.join(tempRoot, 'hybridclaw-claw-unpack-'),
   );
   const extractedArchiveDir = path.join(extractionRoot, 'archive');
+  const workspacePath = agentWorkspaceDir(resolvedAgentId);
+  const workspaceExists = fs.existsSync(workspacePath);
+  const previousRuntimeConfig = structuredClone(getRuntimeConfig());
+  const previousAgentConfig = existing ? structuredClone(existing) : null;
   const installedPlugins: InstallPluginResult[] = [];
   let runtimeConfigChanged = false;
+  const rollbackPluginInstalls: PluginInstallRollbackState[] = [];
+  let stagedWorkspacePath = '';
+  let workspaceBackupPath = '';
+  let workspaceCommitted = false;
+  let agentRegistered = false;
 
   try {
     await safeExtractZip(archivePath, extractedArchiveDir);
@@ -805,32 +1063,22 @@ export async function unpackAgent(
     const rawManifest = JSON.parse(
       fs.readFileSync(manifestPath, 'utf-8'),
     ) as unknown;
-    const manifest = validateClawManifest(rawManifest);
+    const manifest = validateClawManifest(rawManifest, {
+      archiveEntries: inspection.entryNames,
+    });
 
     const workspaceSourceDir = path.join(extractedArchiveDir, 'workspace');
     if (!fs.existsSync(workspaceSourceDir)) {
       throw new Error('Archive does not contain a workspace/ directory.');
     }
 
-    const workspacePath = agentWorkspaceDir(resolvedAgentId);
-    if (options.force) {
-      fs.rmSync(workspacePath, { recursive: true, force: true });
-    } else if (fs.existsSync(workspacePath)) {
+    if (!options.force && workspaceExists) {
       throw new Error(
         `Workspace for agent "${resolvedAgentId}" already exists at ${workspacePath}.`,
       );
     }
-
-    upsertRegisteredAgent({
-      id: resolvedAgentId,
-      name: manifest.name,
-      ...(manifest.agent?.model ? { model: manifest.agent.model } : {}),
-      ...(typeof manifest.agent?.enableRag === 'boolean'
-        ? { enableRag: manifest.agent.enableRag }
-        : {}),
-    });
-
-    copyDirectoryContents(workspaceSourceDir, workspacePath);
+    stagedWorkspacePath = createSiblingTempPath(workspacePath, 'claw-import');
+    copyDirectoryContents(workspaceSourceDir, stagedWorkspacePath);
 
     const bundledSkills = manifest.skills?.bundled ?? [];
     for (const directoryName of bundledSkills) {
@@ -840,12 +1088,22 @@ export async function unpackAgent(
           `Archive is missing bundled skill directory ${directoryName}.`,
         );
       }
-      const destinationDir = path.join(workspacePath, 'skills', directoryName);
+      const destinationDir = path.join(
+        stagedWorkspacePath,
+        'skills',
+        directoryName,
+      );
       fs.rmSync(destinationDir, { recursive: true, force: true });
       copyDirectoryContents(sourceDir, destinationDir);
     }
 
     const pluginHomeDir = options.homeDir ?? os.homedir();
+    const pluginInstallRoot = path.join(
+      pluginHomeDir,
+      '.hybridclaw',
+      'plugins',
+    );
+    fs.mkdirSync(pluginInstallRoot, { recursive: true });
     const bundledPluginManifests = new Map<string, PluginManifest>();
     for (const pluginId of manifest.plugins?.bundled ?? []) {
       const sourceDir = path.join(extractedArchiveDir, 'plugins', pluginId);
@@ -863,23 +1121,48 @@ export async function unpackAgent(
         );
       }
       bundledPluginManifests.set(pluginId, bundledManifest);
-      const installResult = options.force
-        ? await reinstallPlugin(sourceDir, {
-            homeDir: pluginHomeDir,
-            cwd: options.cwd ?? process.cwd(),
-            runCommand: options.runCommand,
-          })
-        : await installPlugin(sourceDir, {
-            homeDir: pluginHomeDir,
-            cwd: options.cwd ?? process.cwd(),
-            runCommand: options.runCommand,
-          });
+      const pluginDir = path.join(pluginInstallRoot, pluginId);
+      let backupDir: string | null = null;
+      if (options.force && fs.existsSync(pluginDir)) {
+        backupDir = createSiblingTempPath(pluginDir, 'claw-rollback');
+        fs.renameSync(pluginDir, backupDir);
+      }
+      rollbackPluginInstalls.push({
+        pluginDir,
+        backupDir,
+      });
+      const installResult = await installPlugin(sourceDir, {
+        homeDir: pluginHomeDir,
+        cwd: options.cwd ?? process.cwd(),
+        runCommand: options.runCommand,
+      });
       installedPlugins.push(installResult);
     }
 
+    if (workspaceExists && options.force) {
+      workspaceBackupPath = createSiblingTempPath(
+        workspacePath,
+        'claw-rollback',
+      );
+      fs.renameSync(workspacePath, workspaceBackupPath);
+    }
+    fs.renameSync(stagedWorkspacePath, workspacePath);
+    stagedWorkspacePath = '';
+    workspaceCommitted = true;
+
+    upsertRegisteredAgent({
+      id: resolvedAgentId,
+      name: manifest.name,
+      ...(manifest.agent?.model ? { model: manifest.agent.model } : {}),
+      ...(typeof manifest.agent?.enableRag === 'boolean'
+        ? { enableRag: manifest.agent.enableRag }
+        : {}),
+    });
+    agentRegistered = true;
+
     const workspaceSkillsDir = path.join(workspacePath, 'skills');
     const nextDisabledSkills = mergeUniqueSorted(
-      getRuntimeConfig().skills.disabled,
+      previousRuntimeConfig.skills.disabled,
       manifest.config?.skills?.disabled ?? [],
     );
     const incomingPluginConfig = sanitizeArchivePluginOverrideEntries(
@@ -889,7 +1172,8 @@ export async function unpackAgent(
 
     if (
       bundledSkills.length > 0 ||
-      nextDisabledSkills.length !== getRuntimeConfig().skills.disabled.length ||
+      nextDisabledSkills.length !==
+        previousRuntimeConfig.skills.disabled.length ||
       incomingPluginConfig.length > 0
     ) {
       updateRuntimeConfig((draft) => {
@@ -927,6 +1211,16 @@ export async function unpackAgent(
 
     ensureBootstrapFiles(resolvedAgentId);
 
+    if (workspaceBackupPath) {
+      fs.rmSync(workspaceBackupPath, { recursive: true, force: true });
+      workspaceBackupPath = '';
+    }
+    for (const rollbackState of rollbackPluginInstalls) {
+      if (rollbackState.backupDir) {
+        fs.rmSync(rollbackState.backupDir, { recursive: true, force: true });
+      }
+    }
+
     return {
       archivePath,
       manifest,
@@ -939,6 +1233,39 @@ export async function unpackAgent(
         : buildExternalActionLines(manifest, workspacePath),
       runtimeConfigChanged,
     };
+  } catch (error) {
+    if (runtimeConfigChanged) {
+      updateRuntimeConfig((draft) => {
+        Object.assign(draft, structuredClone(previousRuntimeConfig));
+      });
+    }
+    if (agentRegistered) {
+      if (previousAgentConfig) {
+        upsertRegisteredAgent(previousAgentConfig);
+      } else {
+        deleteRegisteredAgent(resolvedAgentId);
+      }
+    }
+    if (workspaceCommitted && fs.existsSync(workspacePath)) {
+      fs.rmSync(workspacePath, { recursive: true, force: true });
+    }
+    if (workspaceBackupPath && fs.existsSync(workspaceBackupPath)) {
+      fs.renameSync(workspaceBackupPath, workspacePath);
+      workspaceBackupPath = '';
+    }
+    if (stagedWorkspacePath && fs.existsSync(stagedWorkspacePath)) {
+      fs.rmSync(stagedWorkspacePath, { recursive: true, force: true });
+      stagedWorkspacePath = '';
+    }
+    for (const rollbackState of rollbackPluginInstalls.reverse()) {
+      if (fs.existsSync(rollbackState.pluginDir)) {
+        fs.rmSync(rollbackState.pluginDir, { recursive: true, force: true });
+      }
+      if (rollbackState.backupDir && fs.existsSync(rollbackState.backupDir)) {
+        fs.renameSync(rollbackState.backupDir, rollbackState.pluginDir);
+      }
+    }
+    throw error;
   } finally {
     fs.rmSync(extractionRoot, { recursive: true, force: true });
   }

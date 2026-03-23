@@ -1,9 +1,10 @@
+import { normalizeTrimmedString as normalizeString } from '../utils/normalized-strings.js';
 import type { AgentModelConfig } from './agent-types.js';
 
 export const CLAW_FORMAT_VERSION = 1 as const;
 
 export interface ClawSkillExternalRef {
-  kind: 'clawhub' | 'npm' | 'git' | 'url';
+  kind: 'git';
   ref: string;
   name?: string;
 }
@@ -36,7 +37,6 @@ export interface ClawManifest {
   };
   config?: {
     skills?: {
-      extraDirs?: string[];
       disabled?: string[];
     };
     plugins?: {
@@ -53,9 +53,11 @@ export interface ValidateClawManifestOptions {
   archiveEntries?: string[];
 }
 
-function normalizeString(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
+type ClawPluginConfigList = Array<{
+  id: string;
+  enabled: boolean;
+  config?: Record<string, unknown>;
+}>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value != null && typeof value === 'object' && !Array.isArray(value);
@@ -134,12 +136,7 @@ function normalizeSkillExternalRefs(
       throw new Error('manifest.skills.external entries must be objects.');
     }
     const kind = normalizeString(entry.kind);
-    if (
-      kind !== 'clawhub' &&
-      kind !== 'npm' &&
-      kind !== 'git' &&
-      kind !== 'url'
-    ) {
+    if (kind !== 'git') {
       throw new Error(`Unsupported skill external kind "${kind}".`);
     }
     const ref = normalizeString(entry.ref);
@@ -189,22 +186,14 @@ function normalizePluginExternalRefs(
 
 function normalizePluginConfigList(
   value: unknown,
-): ClawManifest['config'] extends { plugins?: infer T }
-  ? T extends { list?: infer L }
-    ? L
-    : never
-  : never {
-  if (value === undefined) return undefined as never;
+): ClawPluginConfigList | undefined {
+  if (value === undefined) return undefined;
   if (!Array.isArray(value)) {
     throw new Error('manifest.config.plugins.list must be an array.');
   }
 
   const seen = new Set<string>();
-  const out: Array<{
-    id: string;
-    enabled: boolean;
-    config?: Record<string, unknown>;
-  }> = [];
+  const out: ClawPluginConfigList = [];
   for (const entry of value) {
     if (!isRecord(entry)) {
       throw new Error('manifest.config.plugins.list entries must be objects.');
@@ -221,7 +210,7 @@ function normalizePluginConfigList(
       ...(isRecord(entry.config) ? { config: { ...entry.config } } : {}),
     });
   }
-  return out as never;
+  return out;
 }
 
 function listBundledArchiveDirectories(
@@ -302,94 +291,67 @@ export function validateClawManifest(
     throw new Error('manifest.json `createdAt` must be a valid ISO timestamp.');
   }
 
-  const agent = isRecord(input.agent)
-    ? {
-        ...(normalizeModelConfig(input.agent.model)
-          ? { model: normalizeModelConfig(input.agent.model) }
-          : {}),
-        ...(typeof input.agent.enableRag === 'boolean'
-          ? { enableRag: input.agent.enableRag }
-          : {}),
-      }
-    : undefined;
+  let agent: ClawManifest['agent'] | undefined;
+  if (isRecord(input.agent)) {
+    const model = normalizeModelConfig(input.agent.model);
+    agent = {
+      ...(model ? { model } : {}),
+      ...(typeof input.agent.enableRag === 'boolean'
+        ? { enableRag: input.agent.enableRag }
+        : {}),
+    };
+  }
 
-  const skills = isRecord(input.skills)
-    ? {
-        ...(normalizeBundledDirectoryNames(
-          input.skills.bundled,
-          'manifest.skills.bundled',
-        )
-          ? {
-              bundled: normalizeBundledDirectoryNames(
-                input.skills.bundled,
-                'manifest.skills.bundled',
-              ),
-            }
-          : {}),
-        ...(normalizeSkillExternalRefs(input.skills.external)
-          ? { external: normalizeSkillExternalRefs(input.skills.external) }
-          : {}),
-      }
-    : undefined;
+  let skills: ClawManifest['skills'] | undefined;
+  if (isRecord(input.skills)) {
+    const bundled = normalizeBundledDirectoryNames(
+      input.skills.bundled,
+      'manifest.skills.bundled',
+    );
+    const external = normalizeSkillExternalRefs(input.skills.external);
+    skills = {
+      ...(bundled ? { bundled } : {}),
+      ...(external ? { external } : {}),
+    };
+  }
 
-  const plugins = isRecord(input.plugins)
-    ? {
-        ...(normalizeBundledDirectoryNames(
-          input.plugins.bundled,
-          'manifest.plugins.bundled',
-        )
-          ? {
-              bundled: normalizeBundledDirectoryNames(
-                input.plugins.bundled,
-                'manifest.plugins.bundled',
-              ),
-            }
-          : {}),
-        ...(normalizePluginExternalRefs(input.plugins.external)
-          ? { external: normalizePluginExternalRefs(input.plugins.external) }
-          : {}),
-      }
-    : undefined;
+  let plugins: ClawManifest['plugins'] | undefined;
+  if (isRecord(input.plugins)) {
+    const bundled = normalizeBundledDirectoryNames(
+      input.plugins.bundled,
+      'manifest.plugins.bundled',
+    );
+    const external = normalizePluginExternalRefs(input.plugins.external);
+    plugins = {
+      ...(bundled ? { bundled } : {}),
+      ...(external ? { external } : {}),
+    };
+  }
 
-  const config = isRecord(input.config)
-    ? {
-        ...(isRecord(input.config.skills)
-          ? {
-              skills: {
-                ...(normalizeStringArray(input.config.skills.extraDirs).length >
-                0
-                  ? {
-                      extraDirs: normalizeStringArray(
-                        input.config.skills.extraDirs,
-                      ),
-                    }
-                  : {}),
-                ...(normalizeStringArray(input.config.skills.disabled).length >
-                0
-                  ? {
-                      disabled: normalizeStringArray(
-                        input.config.skills.disabled,
-                      ),
-                    }
-                  : {}),
-              },
-            }
-          : {}),
-        ...(isRecord(input.config.plugins)
-          ? {
-              plugins: {
-                ...(normalizePluginConfigList(input.config.plugins.list)
-                  ? {
-                      list: normalizePluginConfigList(
-                        input.config.plugins.list,
-                      ),
-                    }
-                  : {}),
-              },
-            }
-          : {}),
-      }
-    : undefined;
+  let config: ClawManifest['config'] | undefined;
+  if (isRecord(input.config)) {
+    const skillConfig = isRecord(input.config.skills)
+      ? (() => {
+          const disabled = normalizeStringArray(input.config.skills.disabled);
+          return {
+            ...(disabled.length > 0 ? { disabled } : {}),
+          };
+        })()
+      : undefined;
+    const pluginConfig = isRecord(input.config.plugins)
+      ? (() => {
+          const list = normalizePluginConfigList(input.config.plugins.list);
+          return {
+            ...(list ? { list } : {}),
+          };
+        })()
+      : undefined;
+
+    config = {
+      ...(skillConfig ? { skills: skillConfig } : {}),
+      ...(pluginConfig ? { plugins: pluginConfig } : {}),
+    };
+  }
 
   validateBundledArchiveDirectories(
     options.archiveEntries,

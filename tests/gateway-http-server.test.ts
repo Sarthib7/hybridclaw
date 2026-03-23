@@ -1937,6 +1937,68 @@ describe('gateway HTTP server', () => {
     ]);
   });
 
+  test('threads updated session ids through expanded web slash commands', async () => {
+    const state = await importFreshHealth();
+    const seenSessionIds: string[] = [];
+    state.handleGatewayCommand.mockImplementation(
+      async (request: { args: string[]; sessionId: string }) => {
+        seenSessionIds.push(request.sessionId);
+        if (request.args[0] === 'bot') {
+          return {
+            kind: 'info' as const,
+            title: 'Bot',
+            text: 'bot details',
+            sessionId: 'session-web-info-new',
+          };
+        }
+        if (request.args[0] === 'model') {
+          return {
+            kind: 'info' as const,
+            title: 'Model',
+            text: 'model details',
+            sessionId: request.sessionId,
+          };
+        }
+        return {
+          kind: 'info' as const,
+          title: 'Runtime Status',
+          text: 'status details',
+          sessionId: request.sessionId,
+        };
+      },
+    );
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        sessionId: 'session-web-info',
+        channelId: 'web',
+        userId: 'user-web',
+        username: 'web',
+        content: '/info',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(seenSessionIds).toEqual([
+      'session-web-info',
+      'session-web-info-new',
+      'session-web-info-new',
+    ]);
+    expect(JSON.parse(res.body)).toMatchObject({
+      status: 'success',
+      sessionId: 'session-web-info-new',
+      result: [
+        '**Bot**\nbot details',
+        '**Model**\nmodel details',
+        '**Runtime Status**\nstatus details',
+      ].join('\n\n'),
+    });
+  });
+
   test('handles /approve view from the web chat path', async () => {
     const state = await importFreshHealth();
     const pendingApprovals = await import(

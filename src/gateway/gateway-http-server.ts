@@ -176,7 +176,7 @@ async function resolveApiChatSlashCommandResult(
   for (const args of slashCommands) {
     if ((args[0] || '').trim().toLowerCase() === 'approve') {
       const handled = await handleTextChannelApprovalCommand({
-        sessionId: chatRequest.sessionId,
+        sessionId,
         guildId: chatRequest.guildId,
         channelId: chatRequest.channelId,
         userId: chatRequest.userId,
@@ -198,7 +198,7 @@ async function resolveApiChatSlashCommandResult(
     }
 
     const commandResult = await handleGatewayCommand({
-      sessionId: chatRequest.sessionId,
+      sessionId,
       sessionMode: chatRequest.sessionMode,
       guildId: chatRequest.guildId,
       channelId: chatRequest.channelId,

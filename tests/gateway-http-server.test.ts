@@ -1847,6 +1847,135 @@ describe('gateway HTTP server', () => {
     expect(res.body).toContain('event: status');
   });
 
+  test('routes web slash commands from /api/chat through handleGatewayCommand', async () => {
+    const state = await importFreshHealth();
+    state.handleGatewayCommand.mockResolvedValueOnce({
+      kind: 'info',
+      title: 'Runtime Status',
+      text: 'All systems nominal.',
+      sessionId: 'session-web-slash',
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        sessionId: 'session-web-slash',
+        channelId: 'web',
+        userId: 'user-web',
+        username: 'web',
+        content: '/status',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.handleGatewayCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'session-web-slash',
+        channelId: 'web',
+        args: ['status'],
+        userId: 'user-web',
+      }),
+    );
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+    expect(JSON.parse(res.body)).toMatchObject({
+      status: 'success',
+      result: '**Runtime Status**\nAll systems nominal.',
+      sessionId: 'session-web-slash',
+    });
+  });
+
+  test('routes web slash commands through the streaming /api/chat path', async () => {
+    const state = await importFreshHealth();
+    state.handleGatewayCommand.mockResolvedValueOnce({
+      kind: 'info',
+      title: 'Runtime Status',
+      text: 'All systems nominal.',
+      sessionId: 'session-web-slash-stream',
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        sessionId: 'session-web-slash-stream',
+        channelId: 'web',
+        userId: 'user-web',
+        username: 'web',
+        content: '/status',
+        stream: true,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.handleGatewayCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'session-web-slash-stream',
+        channelId: 'web',
+        args: ['status'],
+      }),
+    );
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+    expect(
+      res.body
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line)),
+    ).toEqual([
+      {
+        type: 'result',
+        result: expect.objectContaining({
+          status: 'success',
+          result: '**Runtime Status**\nAll systems nominal.',
+          sessionId: 'session-web-slash-stream',
+        }),
+      },
+    ]);
+  });
+
+  test('handles /approve view from the web chat path', async () => {
+    const state = await importFreshHealth();
+    const pendingApprovals = await import(
+      '../src/gateway/pending-approvals.js'
+    );
+    await pendingApprovals.setPendingApproval('session-web-approve', {
+      approvalId: 'approve-123',
+      prompt: 'I need approval before continuing.',
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+      userId: 'user-web',
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        sessionId: 'session-web-approve',
+        channelId: 'web',
+        userId: 'user-web',
+        username: 'web',
+        content: '/approve view',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.handleGatewayCommand).not.toHaveBeenCalled();
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+    expect(JSON.parse(res.body)).toMatchObject({
+      status: 'success',
+      result: '**Pending Approval**\nI need approval before continuing.',
+      sessionId: 'session-web-approve',
+    });
+
+    await pendingApprovals.clearPendingApproval('session-web-approve');
+  });
+
   test('normalizes silent message-send chat responses', async () => {
     const state = await importFreshHealth();
     state.handleGatewayMessage.mockImplementation(

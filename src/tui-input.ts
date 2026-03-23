@@ -1,0 +1,77 @@
+import type readline from 'node:readline';
+
+type InternalReadline = readline.Interface & {
+  _insertString?: (value: string) => void;
+  _ttyWrite?: (chunk: string, key: readline.Key) => void;
+};
+
+const SHIFT_RETURN_SEQUENCES = new Set(['\x1b[13;2u', '\x1b[13;2~']);
+
+export function isTuiMultilineEnterKey(key: readline.Key | undefined): boolean {
+  if (!key) return false;
+
+  if (SHIFT_RETURN_SEQUENCES.has(String(key.sequence || ''))) {
+    return true;
+  }
+
+  if ((key.name === 'return' || key.name === 'enter') && key.shift === true) {
+    return true;
+  }
+
+  return (
+    key.name === 'enter' &&
+    key.sequence === '\n' &&
+    key.ctrl !== true &&
+    key.meta !== true &&
+    key.shift !== true
+  );
+}
+
+export class TuiMultilineInputController {
+  private readonly rl: InternalReadline;
+  private readonly originalTtyWrite: InternalReadline['_ttyWrite'] | undefined;
+  private readonly closeHandler: () => void;
+  private installedTtyWrite: InternalReadline['_ttyWrite'] | undefined;
+
+  constructor(params: { rl: readline.Interface }) {
+    this.rl = params.rl as InternalReadline;
+    this.originalTtyWrite = this.rl._ttyWrite?.bind(this.rl);
+    this.closeHandler = () => {
+      this.dispose();
+    };
+  }
+
+  install(): void {
+    if (
+      !this.originalTtyWrite ||
+      this.installedTtyWrite ||
+      typeof this.rl._insertString !== 'function'
+    ) {
+      return;
+    }
+
+    this.installedTtyWrite = (chunk: string, key: readline.Key) => {
+      if (!isTuiMultilineEnterKey(key)) {
+        this.originalTtyWrite?.(chunk, key);
+        return;
+      }
+
+      this.rl._insertString?.('\n');
+    };
+
+    this.rl._ttyWrite = this.installedTtyWrite;
+    this.rl.on('close', this.closeHandler);
+  }
+
+  dispose(): void {
+    if (
+      this.installedTtyWrite &&
+      this.rl._ttyWrite === this.installedTtyWrite &&
+      this.originalTtyWrite
+    ) {
+      this.rl._ttyWrite = this.originalTtyWrite;
+    }
+    this.installedTtyWrite = undefined;
+    this.rl.off('close', this.closeHandler);
+  }
+}

@@ -215,10 +215,22 @@ async function resolveApiChatSlashCommandResult(
     }
   }
 
+  const renderedText = textParts.join('\n\n').trim();
+  if (!renderedText && !handledApprovalCommand) {
+    logger.debug(
+      {
+        sessionId,
+        channelId: chatRequest.channelId,
+        slashCommands,
+      },
+      'Expanded web slash commands produced no visible output',
+    );
+  }
+
   return {
     status: 'success',
     result:
-      textParts.join('\n\n').trim() ||
+      renderedText ||
       (handledApprovalCommand ? 'Approval submitted.' : 'Done.'),
     toolsUsed: [],
     sessionId,

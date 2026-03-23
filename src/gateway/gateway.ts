@@ -76,6 +76,7 @@ import {
   stopScheduler,
 } from '../scheduler/scheduler.js';
 import type { ArtifactMetadata } from '../types.js';
+import { buildApprovalConfirmationComponents } from './approval-confirmation.js';
 import { extractGatewayChatApprovalEvent } from './chat-approval.js';
 import {
   normalizePendingApprovalReply,
@@ -258,35 +259,6 @@ function resolveImplicitNumericApprovalArgs(params: {
   return null;
 }
 
-async function handleApprovalCommand(params: {
-  sessionId: string;
-  guildId: string | null;
-  channelId: string;
-  userId: string;
-  username: string;
-  args: string[];
-  reply: ReplyFn;
-}): Promise<boolean> {
-  const handled = await handleTextChannelApprovalCommand({
-    sessionId: params.sessionId,
-    guildId: params.guildId,
-    channelId: params.channelId,
-    userId: params.userId,
-    username: params.username,
-    args: params.args,
-  });
-  if (!handled) return false;
-  if (!handled.text) return true;
-
-  if (handled.components !== undefined) {
-    await params.reply(handled.text, undefined, handled.components);
-    return true;
-  }
-
-  await params.reply(handled.text, buildArtifactAttachments(handled.artifacts));
-  return true;
-}
-
 async function handleTextChannelCommand(params: {
   sessionId: string;
   guildId: string | null;
@@ -298,17 +270,30 @@ async function handleTextChannelCommand(params: {
 }): Promise<void> {
   const { sessionId, guildId, channelId, userId, username, args, reply } =
     params;
-  if (
-    await handleApprovalCommand({
-      sessionId,
-      guildId,
-      channelId,
-      userId,
-      username,
-      args,
-      reply,
-    })
-  ) {
+  const handledApproval = await handleTextChannelApprovalCommand({
+    sessionId,
+    guildId,
+    channelId,
+    userId,
+    username,
+    args,
+  });
+  if (handledApproval) {
+    if (!handledApproval.text) return;
+
+    const components =
+      handledApproval.approvalId && isDiscordChannelId(channelId)
+        ? buildApprovalConfirmationComponents(handledApproval.approvalId)
+        : undefined;
+    if (components) {
+      await reply(handledApproval.text, undefined, components);
+      return;
+    }
+
+    await reply(
+      handledApproval.text,
+      buildArtifactAttachments(handledApproval.artifacts),
+    );
     return;
   }
   const result = await handleGatewayCommand({

@@ -331,6 +331,10 @@ async function importFreshHealth(options?: {
   });
 
   const getGatewayStatus = vi.fn(() => ({ status: 'ok', sessions: 2 }));
+  const loggerDebug = vi.fn();
+  const loggerError = vi.fn();
+  const loggerInfo = vi.fn();
+  const loggerWarn = vi.fn();
   const getGatewayHistory = vi.fn(() => [
     { role: 'user', content: 'hello' },
     { role: 'assistant', content: 'world' },
@@ -373,6 +377,10 @@ async function importFreshHealth(options?: {
     kind: 'plain' as const,
     text: 'ok',
   }));
+  const renderGatewayCommand = vi.fn(
+    (result: { title?: string; text: string }) =>
+      result.title ? `${result.title}\n${result.text}` : result.text,
+  );
   const runGatewayPluginTool = vi.fn(async () => 'plugin-tool-result');
   const getGatewayAdminOverview = vi.fn(() => ({
     status: { status: 'ok', sessions: 2, version: '0.7.1', uptime: 60 },
@@ -745,10 +753,10 @@ async function importFreshHealth(options?: {
   }));
   vi.doMock('../src/logger.js', () => ({
     logger: {
-      debug: vi.fn(),
-      error: vi.fn(),
-      info: vi.fn(),
-      warn: vi.fn(),
+      debug: loggerDebug,
+      error: loggerError,
+      info: loggerInfo,
+      warn: loggerWarn,
     },
   }));
   vi.doMock('../src/channels/msteams/runtime.js', () => ({
@@ -782,6 +790,7 @@ async function importFreshHealth(options?: {
     getGatewayStatus,
     handleGatewayCommand,
     handleGatewayMessage,
+    renderGatewayCommand,
     runGatewayPluginTool,
     removeGatewayAdminChannel,
     removeGatewayAdminMcpServer,
@@ -839,7 +848,9 @@ async function importFreshHealth(options?: {
     setGatewayAdminSkillEnabled,
     handleGatewayMessage,
     handleGatewayCommand,
+    renderGatewayCommand,
     getSessionById,
+    loggerDebug,
     runMessageToolAction,
     normalizeDiscordToolAction,
     claimQueuedProactiveMessages,
@@ -1997,6 +2008,44 @@ describe('gateway HTTP server', () => {
         '**Runtime Status**\nstatus details',
       ].join('\n\n'),
     });
+  });
+
+  test('logs debug details when expanded web slash commands produce no visible output', async () => {
+    const state = await importFreshHealth();
+    state.handleGatewayCommand.mockResolvedValue({
+      kind: 'plain',
+      text: '',
+      sessionId: 'session-web-empty',
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        sessionId: 'session-web-empty',
+        channelId: 'web',
+        userId: 'user-web',
+        username: 'web',
+        content: '/info',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(JSON.parse(res.body)).toMatchObject({
+      status: 'success',
+      result: 'Done.',
+      sessionId: 'session-web-empty',
+    });
+    expect(state.loggerDebug).toHaveBeenCalledWith(
+      {
+        sessionId: 'session-web-empty',
+        channelId: 'web',
+        slashCommands: [['bot', 'info'], ['model', 'info'], ['status']],
+      },
+      'Expanded web slash commands produced no visible output',
+    );
   });
 
   test('handles /approve view from the web chat path', async () => {

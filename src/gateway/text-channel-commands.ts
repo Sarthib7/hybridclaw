@@ -9,7 +9,6 @@ import {
   parseTuiSlashCommand,
 } from '../tui-slash-command.js';
 import type { ArtifactMetadata } from '../types.js';
-import { buildApprovalConfirmationComponents } from './approval-confirmation.js';
 import { extractGatewayChatApprovalEvent } from './chat-approval.js';
 import {
   normalizePendingApprovalReply,
@@ -27,7 +26,6 @@ import {
   type PendingApprovalPrompt,
   setPendingApproval,
 } from './pending-approvals.js';
-import { isDiscordChannelId } from './proactive-delivery.js';
 
 const APPROVAL_PROMPT_DEFAULT_TTL_MS = 120_000;
 
@@ -36,9 +34,9 @@ export interface HandledTextChannelApprovalResult {
   sessionId: string;
   sessionKey?: string;
   mainSessionKey?: string;
+  approvalId?: string;
   text: string | null;
   artifacts: ArtifactMetadata[];
-  components?: GatewayCommandResult['components'];
 }
 
 export function resolveTextChannelSlashCommands(
@@ -73,7 +71,7 @@ export function renderTextChannelCommandResult(
   return renderGatewayCommand(result);
 }
 
-export function buildApprovalUserMessage(params: {
+function buildApprovalUserMessage(params: {
   action: string;
   approvalId: string;
 }): string | null {
@@ -151,10 +149,6 @@ export async function handleTextChannelApprovalCommand(params: {
   const providedApprovalId = (args[2] || '').trim();
   const currentApprovalId = pending?.approvalId || '';
   const approvalId = providedApprovalId || currentApprovalId;
-  const pendingComponents =
-    pending && isDiscordChannelId(channelId)
-      ? buildApprovalConfirmationComponents(pending.approvalId)
-      : undefined;
 
   if (action === 'view' || action === 'status' || action === 'show') {
     if (!pending || pending.userId !== userId) {
@@ -168,9 +162,9 @@ export async function handleTextChannelApprovalCommand(params: {
     return {
       handled: true,
       sessionId,
+      approvalId: pending.approvalId,
       text: formatInfo('Pending Approval', pending.prompt),
       artifacts: [],
-      components: pendingComponents,
     };
   }
 
@@ -252,9 +246,6 @@ export async function handleTextChannelApprovalCommand(params: {
   );
   const pendingApproval = extractGatewayChatApprovalEvent(approvalResult);
   if (pendingApproval) {
-    const components = isDiscordChannelId(channelId)
-      ? buildApprovalConfirmationComponents(pendingApproval.approvalId)
-      : undefined;
     await rememberPendingApproval({
       sessionId: approvalSessionId,
       approvalId: pendingApproval.approvalId,
@@ -267,9 +258,9 @@ export async function handleTextChannelApprovalCommand(params: {
       sessionId: approvalSessionId,
       sessionKey: approvalResult.sessionKey,
       mainSessionKey: approvalResult.mainSessionKey,
+      approvalId: pendingApproval.approvalId,
       text: formatInfo('Pending Approval', resultText),
       artifacts: approvalResult.artifacts || [],
-      components,
     };
   }
 

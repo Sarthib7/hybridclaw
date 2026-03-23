@@ -914,7 +914,9 @@ describe('gateway HTTP server', () => {
       expect(res.statusCode).toBe(200);
       expect(res.headers['Content-Type']).toBe('text/html; charset=utf-8');
       expect(res.body).toContain(`<title>${title} | HybridClaw Docs</title>`);
-      expect(res.body).toContain(`<h1 id="${heading.toLowerCase()}">${heading}`);
+      expect(res.body).toContain(
+        `<h1 id="${heading.toLowerCase()}">${heading}`,
+      );
       expect(res.body).toContain(`href="${anchor}"`);
     }
   });

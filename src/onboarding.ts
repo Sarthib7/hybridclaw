@@ -7,6 +7,7 @@ import {
 import { refreshRuntimeSecretsFromEnv } from './config/config.js';
 import {
   acceptSecurityTrustModel,
+  DEFAULT_RUNTIME_HOME_DIR,
   ensureRuntimeConfigFile,
   getRuntimeConfig,
   isSecurityTrustAccepted,
@@ -859,9 +860,17 @@ export async function ensureRuntimeCredentials(
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     if (!securityAccepted) {
       if (process.env.HYBRIDCLAW_ACCEPT_TRUST === 'true') {
-        acceptSecurityTrustModel({
-          acceptedBy: 'env:HYBRIDCLAW_ACCEPT_TRUST',
-        });
+        try {
+          acceptSecurityTrustModel({
+            acceptedBy: 'env:HYBRIDCLAW_ACCEPT_TRUST',
+          });
+        } catch (err) {
+          throw new Error(
+            `Failed to persist trust acceptance (HYBRIDCLAW_ACCEPT_TRUST=true). ` +
+              `Check that ${DEFAULT_RUNTIME_HOME_DIR} is writable. ` +
+              `Cause: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
         securityAccepted = true;
       } else {
         throw new Error(

@@ -12,8 +12,10 @@ import {
   type AgentsConfig,
   DEFAULT_AGENT_ID,
 } from '../agents/agent-types.js';
+
 // Inlined to avoid circular dependency with codex-auth.ts (which imports from this module).
 const CODEX_DEFAULT_BASE_URL = 'https://chatgpt.com/backend-api/codex';
+
 import type { SkillConfigChannelKind } from '../channels/channel.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import type { LocalProviderConfig } from '../providers/local-types.js';
@@ -34,9 +36,15 @@ export const CONFIG_FILE_NAME = 'config.json';
 export const CONFIG_VERSION = 17;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
-export const DEFAULT_RUNTIME_HOME_DIR =
-  (process.env.HYBRIDCLAW_DATA_DIR || '').trim() ||
-  path.join(os.homedir(), '.hybridclaw');
+export const DEFAULT_RUNTIME_HOME_DIR = (() => {
+  const envDir = (process.env.HYBRIDCLAW_DATA_DIR || '').trim();
+  if (envDir && !path.isAbsolute(envDir)) {
+    throw new Error(
+      `HYBRIDCLAW_DATA_DIR must be an absolute path, got: ${envDir}`,
+    );
+  }
+  return envDir || path.join(os.homedir(), '.hybridclaw');
+})();
 const DEFAULT_DB_PATH = path.join(
   DEFAULT_RUNTIME_HOME_DIR,
   'data',

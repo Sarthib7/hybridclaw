@@ -98,9 +98,7 @@ export function runtimeSecretsPath(): string {
   return path.join(DEFAULT_RUNTIME_HOME_DIR, RUNTIME_SECRETS_FILE);
 }
 
-export function loadRuntimeSecrets(
-  cwd: string = process.cwd(),
-): void {
+export function loadRuntimeSecrets(cwd: string = process.cwd()): void {
   const secrets = readRuntimeSecrets();
   const legacySecrets = readLegacyEnvSecrets(cwd);
   const migratedSecrets: RuntimeSecrets = {};
@@ -157,5 +155,6 @@ export function saveRuntimeSecrets(
     encoding: 'utf-8',
     mode: 0o600,
   });
+  fs.chmodSync(filePath, 0o600);
   return filePath;
 }

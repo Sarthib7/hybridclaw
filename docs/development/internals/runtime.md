@@ -29,6 +29,9 @@ Maintainer overrides:
 
 Build context hygiene is enforced by `container/.dockerignore` to avoid shipping
 local secrets or artifacts into published images.
+Published images also include the built `/chat` and `/agents` browser assets so
+the embedded web surfaces work from release images instead of source checkouts
+only.
 
 ## Sandbox Modes
 
@@ -60,7 +63,11 @@ Core details:
 
 - Runtime hot-reloads most settings such as model defaults, heartbeat, prompt
   hooks, and limits.
-- Runtime config, credentials, and data live under `~/.hybridclaw/*`.
+- Runtime config, credentials, and data live under `~/.hybridclaw/*` by
+  default.
+- `HYBRIDCLAW_DATA_DIR` can relocate that full runtime home to an absolute
+  path, including `config.json`, `credentials.json`, the SQLite database,
+  browser profiles, and agent workspaces.
 - Startup no longer probes or migrates `./config.json` or `./data` from the
   current working directory, and only reads `./.env` to import supported
   secrets into `~/.hybridclaw/credentials.json`.
@@ -71,9 +78,12 @@ Core details:
   `~/.hybridclaw/data/agents/<workspace>/workspace/`.
 - `hybridai.maxTokens` sets the default completion budget per model call.
 - Trust-model acceptance is persisted under `security.*` and enforced before
-  runtime start.
+  runtime start. In non-interactive shells, `HYBRIDCLAW_ACCEPT_TRUST=true` can
+  persist acceptance automatically before credential validation runs.
 - `ops.webApiToken` (and the `WEB_API_TOKEN` env var) gate the built-in
   `/chat`, `/agents`, `/admin`, and admin API surfaces when set.
+- `HEALTH_HOST` can override the health server bind address without rewriting
+  runtime config, which is useful in containerized or proxied deployments.
 - `mcpServers.*.env` and `mcpServers.*.headers` are persisted in
   `~/.hybridclaw/config.json` exactly as configured today. Treat them as
   plaintext secrets and lock the runtime directory down with
@@ -166,6 +176,9 @@ HybridClaw's built-in browser surfaces share one auth model:
 When `WEB_API_TOKEN` / `ops.webApiToken` is configured, these surfaces prompt
 for the token and reuse it for subsequent API calls. When unset, localhost
 access stays open without a browser login prompt.
+The `/auth/callback` flow can also persist `WEB_API_TOKEN` into browser
+`localStorage` before redirecting so the token never has to remain in the URL
+after login.
 
 Session behavior matches the routing rules above:
 
@@ -176,6 +189,31 @@ Session behavior matches the routing rules above:
 - `/api/command` and `/api/history` require an explicit `sessionId`
 - malformed canonical session ids are rejected instead of being treated as
   opaque legacy ids
+- `/auth/callback?next=/path` only accepts relative redirect targets that start
+  with `/` but not `//`; invalid or unsafe values fall back to `/admin`
+
+## Persistent Browser Profiles
+
+HybridClaw can reuse a real logged-in browser session for later automation:
+
+```bash
+hybridclaw browser login [--url <url>]
+hybridclaw browser status
+hybridclaw browser reset
+```
+
+Runtime details:
+
+- The shared profile directory lives under
+  `<runtime-home>/data/browser-profiles/`.
+- In `container` sandbox mode, that directory is mounted into agent containers
+  and exposed to browser automation. In `host` mode, the same profile is reused
+  directly by the local runtime.
+- `browser login` opens a headed Chromium instance with that shared profile so
+  the operator can complete MFA, SSO, captchas, or any other login steps
+  outside the chat loop.
+- Treat the profile directory as sensitive operator data because it may contain
+  cookies, local storage, and other authenticated browser state.
 
 ## MCP Runtime Notes
 

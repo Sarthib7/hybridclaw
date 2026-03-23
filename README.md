@@ -18,6 +18,9 @@ HybridClaw keeps one assistant brain across team chat, inbox, browser, and
 document workflows with shared memory, approvals, scheduling, and bundled
 skills for office docs, GitHub, Notion, Stripe, WordPress, Google Workspace,
 and Apple apps.
+Portable `.claw` packages can snapshot an agent workspace plus bundled skills
+and plugins for transfer or backup, and persistent browser profiles let the
+agent reuse authenticated web sessions for later browser automation.
 Local plugins can extend the gateway with typed manifests, plugin tools,
 memory layers, prompt hooks, and lifecycle hooks, including the installable
 QMD-backed memory layer shipped in `plugins/qmd-memory`.
@@ -179,6 +182,7 @@ Examples:
 - `hybridai.defaultModel` in `~/.hybridclaw/config.json` can point at a HybridAI model, an `openai-codex/...` model, an `openrouter/...` model, or a local backend model such as `ollama/...`.
 - `codex.models` in runtime config controls the allowed Codex model list shown in selectors and status output.
 - `openrouter.models` in runtime config controls the allowed OpenRouter model list shown in selectors and status output.
+- HybridAI model lists are refreshed from the configured HybridAI base URL (`/models`, then `/v1/models` as a compatibility fallback), and discovered `context_length` values feed status and model-info output when the API exposes them.
 - When the selected model starts with `openai-codex/`, HybridClaw resolves OAuth credentials through the Codex provider instead of `HYBRIDAI_API_KEY`.
 - When the selected model starts with `openrouter/`, HybridClaw resolves credentials through `OPENROUTER_API_KEY`.
 - `/model set <name>` is a session-only override.
@@ -206,7 +210,7 @@ Runtime model:
 HybridClaw creates `~/.hybridclaw/config.json` on first run and hot-reloads most runtime settings.
 
 - Start from `config.example.json` (reference).
-- Runtime state lives under `~/.hybridclaw/` (`config.json`, `credentials.json`, `data/hybridclaw.db`, audit/session files).
+- Runtime state lives under `~/.hybridclaw/` (`config.json`, `credentials.json`, `data/hybridclaw.db`, audit/session files). Set `HYBRIDCLAW_DATA_DIR` to an absolute path to relocate the full runtime home, including browser profiles and agent workspaces.
 - HybridClaw does not keep runtime state in the current working directory. If `./.env` exists, supported secrets are migrated once into `~/.hybridclaw/credentials.json`.
 - `container.*` controls execution isolation, including `sandboxMode`, `memory`, `memorySwap`, `cpus`, `network`, `binds`, and additional mounts.
 - Use `container.binds` for explicit host-to-container mounts in `host:container[:ro|rw]` format. Mounted paths appear inside the sandbox under `/workspace/extra/<container>`.
@@ -223,7 +227,7 @@ HybridClaw creates `~/.hybridclaw/config.json` on first run and hot-reloads most
 - `whisper-cli` auto-detect also needs a whisper.cpp model file. If the binary exists but HybridClaw still skips local transcription, set `WHISPER_CPP_MODEL` to a local `ggml-*.bin` model path.
 - If no transcript backend is available, the container tries native model audio input before tool-use fallback for supported local providers. Today that fallback is enabled for `vllm` sessions and uses the original current-turn audio attachment.
 - Keep runtime secrets in `~/.hybridclaw/credentials.json` (`HYBRIDAI_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `DEEPGRAM_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `DISCORD_TOKEN`, `EMAIL_PASSWORD`, `MSTEAMS_APP_PASSWORD`). Codex OAuth sessions are stored separately in `~/.hybridclaw/codex-auth.json`.
-- Trust-model acceptance is stored in `~/.hybridclaw/config.json` under `security.*` and is required before runtime starts.
+- Trust-model acceptance is stored in `~/.hybridclaw/config.json` under `security.*` and is required before runtime starts. In headless environments, set `HYBRIDCLAW_ACCEPT_TRUST=true` to persist acceptance automatically before credential checks run.
 - See [TRUST_MODEL.md](./TRUST_MODEL.md) for onboarding acceptance policy and [SECURITY.md](./SECURITY.md) for technical security guidelines.
 - For contributor workflow, see [CONTRIBUTING.md](./CONTRIBUTING.md). For deeper runtime, skills, release, voice/TTS, and maintainer reference docs, see [docs/development/README.md](./docs/development/README.md).
 
@@ -244,6 +248,46 @@ disk state in parallel.
   `hybridclaw gateway restart --log-requests` persists best-effort redacted
   prompts, responses, and tool payloads to SQLite `request_log` for
   turn-level debugging. Treat that table as sensitive operator data.
+
+## Authenticated Browser Sessions
+
+Use the browser profile commands when the agent needs to work inside a site
+that requires a real login:
+
+```bash
+hybridclaw browser login --url https://accounts.google.com
+hybridclaw browser status
+hybridclaw browser reset
+```
+
+- `browser login` opens a headed Chromium profile stored under the HybridClaw
+  runtime data directory and waits for you to close the browser when setup is
+  finished.
+- Browser sessions persist across turns and are made available to browser
+  automation automatically, so follow-up browser tasks can reuse cookies and
+  local storage without exposing credentials in chat.
+- Treat the browser profile directory as sensitive operator data.
+
+## Agent Packages
+
+HybridClaw can package an agent into a portable `.claw` archive for backup,
+distribution, or bootstrap flows:
+
+```bash
+hybridclaw agent list
+hybridclaw agent pack main -o /tmp/main.claw
+hybridclaw agent inspect /tmp/main.claw
+hybridclaw agent unpack /tmp/main.claw --id demo-agent --yes
+```
+
+- `agent pack` exports the workspace plus optional bundled workspace skills and
+  home plugins.
+- `agent inspect` validates the manifest and prints archive metadata without
+  extracting it.
+- `agent unpack` restores the agent, fills missing bootstrap files, and
+  re-registers bundled content with the runtime.
+- See [docs/development/agent-packages.md](./docs/development/agent-packages.md)
+  for the archive layout, manifest fields, and security rules.
 
 ## Local Provider Quickstart (LM Studio Example)
 
@@ -457,6 +501,10 @@ CLI runtime commands:
 - `hybridclaw channels discord setup [--token <token>] [--allow-user-id <snowflake>]... [--prefix <prefix>]` — Prepare restricted command-only Discord config and print bot/token next steps
 - `hybridclaw channels email setup [--address <email>] [--password <password>] [--imap-host <host>] [--imap-port <port>] [--imap-secure|--no-imap-secure] [--smtp-host <host>] [--smtp-port <port>] [--smtp-secure|--no-smtp-secure] [--folder <name>]... [--allow-from <email|*@domain|*>]... [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>]` — Configure IMAP/SMTP email delivery, optionally prompt for missing credentials, default to a 30-second IMAP poll interval, and save `EMAIL_PASSWORD`
 - `hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...` — Prepare private-by-default WhatsApp config, enable the default `👀` ack reaction, optionally wipe stale auth, open a temporary pairing session, and print the QR code
+- `hybridclaw browser login [--url <url>]`, `status`, `reset` — Manage the persistent browser profile used for authenticated web automation
+- `hybridclaw agent list` — List registered agents in a script-friendly format
+- `hybridclaw agent pack [agent-id] [-o <path>] [--skills ...] [--plugins ...]` — Export a portable `.claw` archive with optional bundled skills and plugins
+- `hybridclaw agent inspect <file.claw>` / `unpack <file.claw> [--id <id>] [--force] [--skip-externals] [--yes]` — Validate or restore a packaged agent archive
 - `hybridclaw local status` — Show current local backend config and default model
 - `hybridclaw local configure <backend> <model-id> [--base-url <url>] [--api-key <key>] [--no-default]` — Enable and configure a local backend
 - `hybridclaw hybridai ...`, `hybridclaw codex ...`, and `hybridclaw local ...` — Legacy aliases for the older provider-specific command surface
@@ -512,6 +560,7 @@ the agent/default model chain, and `/model info` to inspect the active scope.
 compaction; `/reset` runs the confirmed workspace reset flow; `/skill config`
 opens the interactive skill availability checklist; `/plugin list`,
 `/plugin config ...`, and `/plugin reload` manage runtime plugins; and
-`/mcp ...` manages runtime MCP servers. When a TUI session exits, HybridClaw prints the
+`/mcp ...` manages runtime MCP servers. Press `Ctrl-C` or `Ctrl-D` twice within
+five seconds to exit. When a TUI session exits, HybridClaw prints the
 input/output token split, tool/file totals, and a ready-to-run
 `hybridclaw tui --resume <sessionId>` command for that session.

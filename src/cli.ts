@@ -692,7 +692,7 @@ Notes:
   - Log into any sites you want the agent to access (Google, GitHub, etc.).
   - Close the browser when done — sessions persist automatically.
   - The agent reuses these sessions for browser automation without needing credentials.
-  - Profile data is stored under the HybridClaw data directory (configurable via DATA_DIR; default: ~/.hybridclaw/data/browser-profiles/).
+  - Profile data is stored under the HybridClaw data directory (configurable via HYBRIDCLAW_DATA_DIR; default: ~/.hybridclaw/data/browser-profiles/).
   - This directory contains persistent authenticated browser sessions — treat it as sensitive data.
   - Use \`browser reset\` to clear all saved sessions and start fresh.`);
 }

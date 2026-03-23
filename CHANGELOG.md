@@ -2,6 +2,48 @@
 
 ## [Unreleased]
 
+## [0.9.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.9.0)
+
+### Added
+
+- **Portable `.claw` agent packages**: Added `hybridclaw agent pack`,
+  `inspect`, and `unpack` so operators can export an agent workspace, bundle
+  selected workspace skills and home plugins, validate manifests, and restore
+  agents on another machine from one archive.
+- **Persistent browser profiles for authenticated automation**: Added
+  `hybridclaw browser login|status|reset` so operators can sign into sites in a
+  headed Chromium profile that HybridClaw reuses for later browser automation
+  without pasting credentials into chat.
+- **HybridAI discovery and non-interactive bootstrap controls**: Added
+  `hybridclaw auth login hybridai --base-url <url>`, live HybridAI model
+  discovery from `/models` with `/v1/models` fallback, `HYBRIDCLAW_DATA_DIR`
+  for relocating runtime state, and `HYBRIDCLAW_ACCEPT_TRUST=true` for
+  headless trust acceptance during onboarding or CI startup.
+
+### Changed
+
+- **TUI exit and streamed formatting flow**: The TUI now requires a second
+  `Ctrl-C` or `Ctrl-D` within five seconds to exit, and it preserves streamed
+  trailing blank lines more cleanly around usage footers and prompt refreshes.
+- **Container publishing workflow**: Maintainers can republish release images
+  through `publish-container.yml` via `workflow_dispatch`, with explicit
+  tag/package validation before GHCR and optional Docker Hub pushes.
+
+### Fixed
+
+- **Web auth callback token handoff**: `/auth/callback` now accepts a safe
+  relative `next` path, stores `WEB_API_TOKEN` in browser `localStorage` before
+  redirecting, and rejects absolute, protocol-relative, and control-character
+  redirect targets to prevent open-redirect and CRLF injection issues.
+- **Published runtime image completeness**: The published Docker image now
+  includes the built `/chat` and `/agents` SPA assets, and the root npm
+  workspace includes `container` so dependency installs stay aligned with the
+  shipped runtime.
+- **HybridAI and runtime edge-case hardening**: Tightened HybridAI bot/model
+  fetch timeouts and error reporting, added `HEALTH_HOST` override support for
+  sandbox health checks, and improved container/runtime path handling around
+  browser profiles and startup checks.
+
 ## [0.8.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.8.4)
 
 ### Added

@@ -33,10 +33,13 @@ Before creating the release commit or tag:
 
 ## Container Publishing
 
-Container publishing is automated by GitHub Actions on release tags:
+Container publishing is automated by GitHub Actions on release tags and can
+also be re-run manually for an existing release:
 
 - workflow: `.github/workflows/publish-container.yml`
 - trigger: push tag `v*`
+- manual trigger: `workflow_dispatch` with optional `version` input such as
+  `v0.9.0`
 - destinations:
   - GHCR: `ghcr.io/<org>/hybridclaw-agent`
   - Docker Hub mirror: `hybridaione/hybridclaw-agent` when Docker Hub
@@ -45,12 +48,26 @@ Container publishing is automated by GitHub Actions on release tags:
   - always: `vX.Y.Z`
   - stable tags only, meaning no `-rc` or `-beta` suffix: `latest`
 
-The workflow fails if the pushed git tag does not match `package.json` version.
-GHCR publishing is unconditional on release tags. Docker Hub publishing is
-optional and only runs when repository secrets `DOCKERHUB_USERNAME` and
-`DOCKERHUB_TOKEN` are configured.
+The workflow fails if the resolved release tag does not match `package.json`
+version. GHCR publishing is unconditional for a valid release tag. Docker Hub
+publishing is optional and only runs when repository secrets
+`DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` are configured.
+
+## GitHub Actions Manual Re-publish
+
+Use the workflow dispatch path before falling back to a fully manual local
+Docker push:
+
+1. Open the `publish-container` workflow in GitHub Actions.
+2. Run it with `version=vX.Y.Z` for the release you want to republish, or leave
+   the input blank to use the current `package.json` version.
+3. The workflow checks out that tag ref, validates the tag/package match, and
+   then pushes GHCR images plus Docker Hub images when Docker Hub credentials
+   are present.
 
 ## Manual Publish Fallback
+
+If GitHub Actions is unavailable, build and push locally:
 
 ```bash
 VERSION="v$(node -p \"require('./package.json').version\")"

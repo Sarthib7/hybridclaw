@@ -186,13 +186,15 @@ describe('.claw archive support', () => {
     process.chdir(cwd);
 
     vi.doMock('../../src/plugins/plugin-install.ts', () => ({
-      installPlugin: vi.fn(async (source: string, options?: { homeDir?: string }) =>
-        installBundledPluginForTest(source, options?.homeDir ?? homeDir),
+      installPlugin: vi.fn(
+        async (source: string, options?: { homeDir?: string }) =>
+          installBundledPluginForTest(source, options?.homeDir ?? homeDir),
       ),
     }));
     vi.doMock('../../src/plugins/plugin-install.js', () => ({
-      installPlugin: vi.fn(async (source: string, options?: { homeDir?: string }) =>
-        installBundledPluginForTest(source, options?.homeDir ?? homeDir),
+      installPlugin: vi.fn(
+        async (source: string, options?: { homeDir?: string }) =>
+          installBundledPluginForTest(source, options?.homeDir ?? homeDir),
       ),
     }));
 

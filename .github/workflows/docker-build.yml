@@ -17,10 +17,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         include:
           - image: hybridclaw-agent
             context: ./container
+            file: ./container/Dockerfile
             scope: agent-main
           - image: hybridclaw-gateway
             context: .

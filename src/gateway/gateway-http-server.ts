@@ -27,6 +27,12 @@ import type {
 } from '../config/runtime-config.js';
 import { resolveInstallPath } from '../infra/install-root.js';
 import { logger } from '../logger.js';
+import { normalizeMimeType } from '../media/mime-utils.js';
+import {
+  resolveUploadedMediaCacheHostDir,
+  UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,
+  writeUploadedMediaCacheFile,
+} from '../media/uploaded-media-cache.js';
 import { claimQueuedProactiveMessages } from '../memory/db.js';
 import {
   buildSessionKey,
@@ -101,7 +107,9 @@ const AGENT_ARTIFACT_ROOT = path.resolve(path.join(DATA_DIR, 'agents'));
 const DISCORD_MEDIA_CACHE_DIR = path.resolve(
   path.join(DATA_DIR, 'discord-media-cache'),
 );
+const UPLOADED_MEDIA_CACHE_DIR = resolveUploadedMediaCacheHostDir();
 const MAX_REQUEST_BYTES = 1_000_000; // 1MB
+const MAX_MEDIA_UPLOAD_BYTES = 20 * 1024 * 1024;
 const HYBRIDAI_LOGIN_PATH = '/login?context=hybridclaw&next=/admin_api_keys';
 
 const SITE_MIME_TYPES: Record<string, string> = {
@@ -430,10 +438,52 @@ function resolvePathForContainmentCheck(filePath: string): string {
   }
 }
 
+function resolveDisplayPathAlias(
+  rawPath: string,
+  displayRoot: string,
+  hostRoot: string,
+): string | null {
+  const normalized = rawPath.replace(/\\/g, '/').trim();
+  const cleanDisplayRoot = displayRoot.replace(/\/+$/, '');
+  if (
+    normalized !== cleanDisplayRoot &&
+    !normalized.startsWith(`${cleanDisplayRoot}/`)
+  ) {
+    return null;
+  }
+
+  const relative = path.posix
+    .normalize(normalized.slice(cleanDisplayRoot.length).replace(/^\/+/, ''))
+    .replace(/^\/+/, '');
+  if (relative === '..' || relative.startsWith('../')) {
+    return null;
+  }
+  return relative ? path.resolve(hostRoot, relative) : path.resolve(hostRoot);
+}
+
+function resolveArtifactRequestPath(rawPath: string): string | null {
+  const trimmed = rawPath.trim();
+  if (!trimmed) return null;
+  return (
+    resolveDisplayPathAlias(
+      trimmed,
+      '/discord-media-cache',
+      DISCORD_MEDIA_CACHE_DIR,
+    ) ||
+    resolveDisplayPathAlias(
+      trimmed,
+      UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,
+      UPLOADED_MEDIA_CACHE_DIR,
+    ) ||
+    path.resolve(trimmed)
+  );
+}
+
 function resolveArtifactFile(url: URL): string | null {
   const raw = (url.searchParams.get('path') || '').trim();
   if (!raw) return null;
-  const resolved = path.resolve(raw);
+  const resolved = resolveArtifactRequestPath(raw);
+  if (!resolved) return null;
   let realFilePath: string;
   try {
     realFilePath = fs.realpathSync(resolved);
@@ -448,6 +498,10 @@ function resolveArtifactFile(url: URL): string | null {
     !isWithinRoot(
       realFilePath,
       resolvePathForContainmentCheck(DISCORD_MEDIA_CACHE_DIR),
+    ) &&
+    !isWithinRoot(
+      realFilePath,
+      resolvePathForContainmentCheck(UPLOADED_MEDIA_CACHE_DIR),
     )
   ) {
     return null;
@@ -457,25 +511,55 @@ function resolveArtifactFile(url: URL): string | null {
   return realFilePath;
 }
 
-async function readJsonBody(req: IncomingMessage): Promise<unknown> {
+async function readRequestBody(
+  req: IncomingMessage,
+  maxBytes: number,
+): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let total = 0;
   for await (const chunk of req) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     total += buffer.length;
-    if (total > MAX_REQUEST_BYTES) {
+    if (total > maxBytes) {
       throw new HttpRequestError(413, 'Request body too large.');
     }
     chunks.push(buffer);
   }
-  if (chunks.length === 0) return {};
-  const raw = Buffer.concat(chunks).toString('utf-8');
+  return chunks.length > 0 ? Buffer.concat(chunks) : Buffer.alloc(0);
+}
+
+async function readJsonBody(req: IncomingMessage): Promise<unknown> {
+  const rawBuffer = await readRequestBody(req, MAX_REQUEST_BYTES);
+  if (rawBuffer.length === 0) return {};
+  const raw = rawBuffer.toString('utf-8');
   if (!raw.trim()) return {};
   try {
     return JSON.parse(raw) as unknown;
   } catch {
     throw new HttpRequestError(400, 'Invalid JSON body');
   }
+}
+
+function normalizeHeaderValue(
+  value: string | string[] | undefined,
+): string | null {
+  if (Array.isArray(value)) {
+    return normalizeHeaderValue(value[0]);
+  }
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function buildMediaOnlyPromptContent(media: { filename: string }[]): string {
+  if (media.length === 0) return '';
+  if (media.length === 1) {
+    return `Attached file: ${media[0].filename}`;
+  }
+  const preview = media
+    .slice(0, 3)
+    .map((item) => item.filename)
+    .join(', ');
+  const suffix = media.length > 3 ? `, and ${media.length - 3} more` : '';
+  return `Attached files: ${preview}${suffix}`;
 }
 
 function resolveSiteFile(pathname: string): string | null {
@@ -540,10 +624,13 @@ async function handleApiChat(
 ): Promise<void> {
   const body = (await readJsonBody(req)) as Partial<ApiChatRequestBody>;
   const wantsStream = body.stream === true;
+  const media = Array.isArray(body.media) ? body.media : [];
 
-  const content = body.content?.trim();
+  const content = body.content?.trim() || buildMediaOnlyPromptContent(media);
   if (!content) {
-    sendJson(res, 400, { error: 'Missing `content` in request body.' });
+    sendJson(res, 400, {
+      error: 'Missing `content` or `media` in request body.',
+    });
     return;
   }
 
@@ -565,6 +652,7 @@ async function handleApiChat(
     userId: normalizeOptionalString(body.userId) || sessionId,
     username: body.username ?? 'web',
     content,
+    ...(media.length > 0 ? { media } : {}),
     agentId: body.agentId,
     chatbotId: body.chatbotId,
     enableRag: body.enableRag,
@@ -578,6 +666,7 @@ async function handleApiChat(
       model: chatRequest.model || null,
       stream: wantsStream,
       contentLength: chatRequest.content.length,
+      mediaCount: media.length,
     },
     'Received gateway API chat request',
   );
@@ -601,6 +690,58 @@ async function handleApiChat(
     processedResult,
   );
   sendJson(res, result.status === 'success' ? 200 : 500, result);
+}
+
+async function handleApiMediaUpload(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const encodedFilename = normalizeHeaderValue(
+    req.headers['x-hybridclaw-filename'],
+  );
+  if (!encodedFilename) {
+    sendJson(res, 400, {
+      error: 'Missing `X-Hybridclaw-Filename` header.',
+    });
+    return;
+  }
+
+  let decodedFilename = encodedFilename;
+  try {
+    decodedFilename = decodeURIComponent(encodedFilename);
+  } catch {
+    sendJson(res, 400, {
+      error: 'Invalid `X-Hybridclaw-Filename` header.',
+    });
+    return;
+  }
+
+  const buffer = await readRequestBody(req, MAX_MEDIA_UPLOAD_BYTES);
+  if (buffer.length === 0) {
+    sendJson(res, 400, { error: 'Uploaded file is empty.' });
+    return;
+  }
+
+  const mimeType =
+    normalizeMimeType(normalizeHeaderValue(req.headers['content-type'])) ||
+    'application/octet-stream';
+  const stored = await writeUploadedMediaCacheFile({
+    attachmentName: decodedFilename,
+    buffer,
+    mimeType,
+  });
+  const artifactUrl = `/api/artifact?path=${encodeURIComponent(stored.runtimePath)}`;
+
+  sendJson(res, 200, {
+    media: {
+      path: stored.runtimePath,
+      url: artifactUrl,
+      originalUrl: artifactUrl,
+      mimeType,
+      sizeBytes: buffer.length,
+      filename: stored.filename,
+    },
+  });
 }
 
 async function handleApiChatStream(
@@ -1742,6 +1883,10 @@ export function startGatewayHttpServer(): void {
           }
           if (pathname === '/api/chat' && method === 'POST') {
             await handleApiChat(req, res);
+            return;
+          }
+          if (pathname === '/api/media/upload' && method === 'POST') {
+            await handleApiMediaUpload(req, res);
             return;
           }
           if (pathname === '/api/command' && method === 'POST') {

@@ -19,6 +19,7 @@ import {
   type GatewayChatApprovalEvent,
   type GatewayChatResult,
   type GatewayCommandResult,
+  type GatewayMediaItem,
   type GatewayPluginCommandSummary,
   gatewayChat,
   gatewayChatStream,
@@ -26,6 +27,7 @@ import {
   gatewayHistory,
   gatewayPullProactive,
   gatewayStatus,
+  gatewayUploadMedia,
   renderGatewayCommand,
   saveGatewayAdminSkillEnabled,
 } from './gateway/gateway-client.js';
@@ -53,6 +55,10 @@ import {
   type TuiApprovalDetails,
 } from './tui-approval.js';
 import { renderTuiStartupBanner } from './tui-banner.js';
+import {
+  isProbablyWsl,
+  loadTuiClipboardUploadCandidates,
+} from './tui-clipboard.js';
 import { formatTuiExitWarning, TuiExitController } from './tui-exit.js';
 import {
   DEFAULT_TUI_FULLAUTO_STATE,
@@ -318,6 +324,9 @@ let tuiPendingApproval: {
 let tuiShowMode: SessionShowMode = DEFAULT_SESSION_SHOW_MODE;
 let tuiSlashMenu: TuiSlashMenuController | null = null;
 let tuiSessionId = generateTuiSessionId();
+let tuiPendingMedia: GatewayMediaItem[] = [];
+let tuiPendingMediaUploads = 0;
+let tuiClipboardPasteInFlight = false;
 let tuiSessionMode: 'new' | 'resume' = 'new';
 let tuiSessionStartedAtMs = Date.now();
 let tuiResumeCommand = 'hybridclaw tui --resume';
@@ -479,6 +488,10 @@ function printBanner(
 
 function printHelp(): void {
   clearTuiSlashMenu();
+  const pasteShortcutLabel =
+    process.platform === 'linux' && isProbablyWsl()
+      ? 'Ctrl+V / Ctrl+Alt+V'
+      : 'Ctrl+V';
   console.log();
   console.log(`  ${BOLD}${GOLD}Commands${RESET}`);
   console.log(
@@ -533,6 +546,9 @@ function printHelp(): void {
     `  ${TEAL}/schedule add "<cron>" <prompt>${RESET} Add a scheduled task`,
   );
   console.log(
+    `  ${TEAL}/paste${RESET}            Attach a copied file or clipboard image`,
+  );
+  console.log(
     `  ${TEAL}/compact${RESET}          Archive and compact older session history`,
   );
   console.log(`  ${TEAL}/clear${RESET}            Clear session history`);
@@ -543,6 +559,9 @@ function printHelp(): void {
     `  ${TEAL}/stop${RESET}             Interrupt current request and disable full-auto`,
   );
   console.log(`  ${TEAL}/exit${RESET}             Quit`);
+  console.log(
+    `  ${TEAL}${pasteShortcutLabel}${RESET} ${pasteShortcutLabel.length < 18 ? ' '.repeat(18 - pasteShortcutLabel.length) : ''}Queue a copied file or clipboard image`,
+  );
   console.log(`  ${TEAL}ESC${RESET}               Interrupt current request`);
   console.log();
 }
@@ -584,6 +603,58 @@ function printInfo(text: string): void {
     console.log(`${GOLD}${line}${RESET}`);
   }
   console.log();
+}
+
+async function handleTuiClipboardPaste(rl: readline.Interface): Promise<void> {
+  if (tuiClipboardPasteInFlight) {
+    printInfo('Attachment upload is already in progress.');
+    refreshPrompt(rl);
+    return;
+  }
+  if (activeRunAbortController && !activeRunAbortController.signal.aborted) {
+    printInfo('Wait for the current reply to finish before attaching media.');
+    refreshPrompt(rl);
+    return;
+  }
+
+  tuiClipboardPasteInFlight = true;
+  tuiPendingMediaUploads += 1;
+  refreshPrompt(rl);
+
+  try {
+    const candidates = await loadTuiClipboardUploadCandidates();
+    if (candidates.length === 0) {
+      printInfo(
+        'Clipboard does not contain a readable local file or image, or the local clipboard backend is unavailable.',
+      );
+      return;
+    }
+
+    const uploaded: GatewayMediaItem[] = [];
+    for (const candidate of candidates) {
+      const result = await gatewayUploadMedia({
+        filename: candidate.filename,
+        body: candidate.body,
+        mimeType: candidate.mimeType,
+      });
+      uploaded.push(result.media);
+    }
+    if (uploaded.length === 0) {
+      printInfo('Clipboard did not contain any readable files.');
+      return;
+    }
+
+    tuiPendingMedia = [...tuiPendingMedia, ...uploaded];
+    printInfo(`Queued ${summarizeGatewayMediaItems(uploaded)}.`);
+  } catch (err) {
+    printError(err instanceof Error ? err.message : String(err), {
+      leadingBlank: false,
+    });
+  } finally {
+    tuiPendingMediaUploads = Math.max(0, tuiPendingMediaUploads - 1);
+    tuiClipboardPasteInFlight = false;
+    refreshPrompt(rl);
+  }
 }
 
 function isModelCatalogCommandResult(result: GatewayCommandResult): boolean {
@@ -825,7 +896,58 @@ function sessionGatewayContext(): {
   };
 }
 
-function buildGatewayChatRequest(content: string): {
+function cloneGatewayMediaItems(media: GatewayMediaItem[]): GatewayMediaItem[] {
+  return media.map((item) => ({ ...item }));
+}
+
+function summarizeGatewayMediaItems(media: GatewayMediaItem[]): string {
+  if (media.length === 0) return '0 attachments';
+  const preview = media
+    .slice(0, 3)
+    .map((item) => item.filename || 'attachment')
+    .join(', ');
+  const suffix = media.length > 3 ? `, and ${media.length - 3} more` : '';
+  const countLabel =
+    media.length === 1 ? '1 attachment' : `${media.length} attachments`;
+  return `${countLabel}: ${preview}${suffix}`;
+}
+
+function buildPendingMediaPromptLabel(): string | null {
+  if (tuiPendingMediaUploads > 0 && tuiPendingMedia.length > 0) {
+    return `${tuiPendingMedia.length} queued, uploading`;
+  }
+  if (tuiPendingMediaUploads > 0) {
+    return 'uploading attachment';
+  }
+  if (tuiPendingMedia.length > 0) {
+    return tuiPendingMedia.length === 1
+      ? '1 attachment queued'
+      : `${tuiPendingMedia.length} attachments queued`;
+  }
+  return null;
+}
+
+function consumePendingMedia(rl: readline.Interface): GatewayMediaItem[] {
+  if (tuiPendingMedia.length === 0) return [];
+  const media = cloneGatewayMediaItems(tuiPendingMedia);
+  tuiPendingMedia = [];
+  refreshPrompt(rl);
+  return media;
+}
+
+function restorePendingMedia(
+  rl: readline.Interface,
+  media: GatewayMediaItem[],
+): void {
+  if (media.length === 0) return;
+  tuiPendingMedia = [...cloneGatewayMediaItems(media), ...tuiPendingMedia];
+  refreshPrompt(rl);
+}
+
+function buildGatewayChatRequest(
+  content: string,
+  media?: GatewayMediaItem[],
+): {
   sessionId: string;
   sessionMode: 'new' | 'resume';
   guildId: null;
@@ -833,12 +955,16 @@ function buildGatewayChatRequest(content: string): {
   userId: string;
   username: string;
   content: string;
+  media?: GatewayMediaItem[];
 } {
   return {
     ...sessionGatewayContext(),
     userId: TUI_USER_ID,
     username: TUI_USERNAME,
     content,
+    ...(media && media.length > 0
+      ? { media: cloneGatewayMediaItems(media) }
+      : {}),
   };
 }
 
@@ -898,11 +1024,13 @@ function syncTuiSessionIdFromResult(result: { sessionId?: string }): void {
 
 function buildPromptText(): string {
   const fullAutoLabel = formatTuiFullAutoPromptLabel(tuiFullAutoState);
+  const pendingMediaLabel = buildPendingMediaPromptLabel();
   const separator = `${MUTED}${'─'.repeat(terminalColumns() - 2)}${RESET}`;
-  if (fullAutoLabel) {
-    return `${separator}\n  ${GOLD}[${fullAutoLabel}]${RESET} ${TEAL}>${RESET} `;
-  }
-  return `${separator}\n  ${TEAL}>${RESET} `;
+  const labels = [
+    fullAutoLabel ? `${GOLD}[${fullAutoLabel}]${RESET}` : '',
+    pendingMediaLabel ? `${MUTED}[${pendingMediaLabel}]${RESET}` : '',
+  ].filter(Boolean);
+  return `${separator}\n  ${labels.length > 0 ? `${labels.join(' ')} ` : ''}${TEAL}>${RESET} `;
 }
 
 function clearTuiSlashMenu(): void {
@@ -1302,6 +1430,9 @@ async function handleSlashCommand(
     case 'help':
       printHelp();
       return true;
+    case 'paste':
+      await handleTuiClipboardPaste(rl);
+      return true;
     case 'exit':
     case 'quit':
     case 'q':
@@ -1418,9 +1549,11 @@ async function processMessage(
   const s = spinner();
   const abortController = new AbortController();
   activeRunAbortController = abortController;
+  const queuedMedia = consumePendingMedia(rl);
+  let sawResponse = queuedMedia.length === 0;
 
   try {
-    const request = buildGatewayChatRequest(content);
+    const request = buildGatewayChatRequest(content, queuedMedia);
     const streamState = createTuiThinkingStreamState();
     const streamedToolNames = new Set<string>();
     let sawStreamEvent = false;
@@ -1437,6 +1570,7 @@ async function processMessage(
         (event) => {
           if (event.type === 'text') {
             sawStreamEvent = true;
+            sawResponse = true;
             const streamed = streamState.push(event.delta);
             if (streamed.visibleDelta) {
               sawVisibleTextDelta = true;
@@ -1448,6 +1582,7 @@ async function processMessage(
           }
           if (event.type === 'approval') {
             sawStreamEvent = true;
+            sawResponse = true;
             streamedApproval = event;
             return;
           }
@@ -1458,6 +1593,7 @@ async function processMessage(
           )
             return;
           sawStreamEvent = true;
+          sawResponse = true;
           const preview = (event.preview || '').replace(/\s+/g, ' ').trim();
           const previewText =
             preview.length > TOOL_PREVIEW_MAX_CHARS
@@ -1477,6 +1613,7 @@ async function processMessage(
       }
       result = await gatewayChat(request, abortController.signal);
     }
+    sawResponse = true;
     syncTuiSessionIdFromResult(result);
 
     const toolNames = [
@@ -1560,6 +1697,9 @@ async function processMessage(
   } catch (err) {
     s.flushVisibleText();
     s.stop();
+    if (!sawResponse) {
+      restorePendingMedia(rl, queuedMedia);
+    }
     if (abortController.signal.aborted) return;
     s.clearThinkingPreview();
     process.stdout.write('\n');
@@ -1589,6 +1729,8 @@ async function processFullAutoSteeringMessage(
   const abortController = new AbortController();
   activeRunAbortController = abortController;
   fullAutoSteeringInFlight = true;
+  const queuedMedia = consumePendingMedia(rl);
+  let sawResponse = queuedMedia.length === 0;
   tuiFullAutoState = {
     ...tuiFullAutoState,
     runtimeState: 'steering',
@@ -1599,9 +1741,10 @@ async function processFullAutoSteeringMessage(
   void (async () => {
     try {
       const result = await gatewayChat(
-        buildGatewayChatRequest(content),
+        buildGatewayChatRequest(content, queuedMedia),
         abortController.signal,
       );
+      sawResponse = true;
       syncTuiSessionIdFromResult(result);
       if (isInterruptedResult(result)) {
         return;
@@ -1635,6 +1778,9 @@ async function processFullAutoSteeringMessage(
       }
       printResponse(result.result || 'No response.');
     } catch (err) {
+      if (!sawResponse) {
+        restorePendingMedia(rl, queuedMedia);
+      }
       if (abortController.signal.aborted) return;
       printError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -1714,7 +1860,12 @@ async function main(): Promise<void> {
     description: MUTED,
     descriptionSelected: TEAL,
   };
-  const multilineInputController = new TuiMultilineInputController({ rl });
+  const multilineInputController = new TuiMultilineInputController({
+    rl,
+    onPasteShortcut: () => {
+      void handleTuiClipboardPaste(rl);
+    },
+  });
   multilineInputController.install();
   tuiSlashMenu = new TuiSlashMenuController({
     rl,
@@ -1758,8 +1909,14 @@ async function main(): Promise<void> {
     inputRunQueue = inputRunQueue
       .then(async () => {
         const trimmed = input.trim();
+        const hasPendingMedia = tuiPendingMedia.length > 0;
         clearTuiSlashMenu();
-        if (!trimmed) {
+        if (!trimmed && !hasPendingMedia) {
+          promptTuiInput(rl);
+          return;
+        }
+        if (tuiPendingMediaUploads > 0) {
+          printInfo('Wait for attachment uploads to finish before sending.');
           promptTuiInput(rl);
           return;
         }
@@ -1841,6 +1998,9 @@ export async function runTui(options?: Partial<TuiRunOptions>): Promise<void> {
     Number.isFinite(options.startedAtMs)
       ? Math.max(0, Math.floor(options.startedAtMs))
       : Date.now();
+  tuiPendingMedia = [];
+  tuiPendingMediaUploads = 0;
+  tuiClipboardPasteInFlight = false;
   tuiResumeCommand =
     String(options?.resumeCommand || 'hybridclaw tui --resume').trim() ||
     'hybridclaw tui --resume';

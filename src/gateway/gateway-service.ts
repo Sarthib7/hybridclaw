@@ -942,6 +942,32 @@ function isImageMediaItem(item: MediaContextItem): boolean {
   );
 }
 
+function buildVisibleMediaSummary(media: MediaContextItem[]): string {
+  if (media.length === 0) return '';
+  if (media.length === 1) {
+    return `Attached file: ${media[0].filename}`;
+  }
+  const preview = media
+    .slice(0, 3)
+    .map((item) => item.filename)
+    .join(', ');
+  const suffix = media.length > 3 ? `, and ${media.length - 3} more` : '';
+  return `Attached files: ${preview}${suffix}`;
+}
+
+function buildStoredUserTurnContent(
+  userContent: string,
+  media: MediaContextItem[],
+): string {
+  const text = String(userContent || '').trim();
+  const mediaSummary = buildVisibleMediaSummary(media);
+  if (!mediaSummary) return text;
+  if (text === mediaSummary || text.endsWith(`\n\n${mediaSummary}`)) {
+    return text;
+  }
+  return text ? `${text}\n\n${mediaSummary}` : mediaSummary;
+}
+
 function buildMediaPromptContext(media: MediaContextItem[]): string {
   if (media.length === 0) return '';
   const mediaPaths = media
@@ -4437,11 +4463,7 @@ export async function handleGatewayMessage(
       pluginTools: pluginManager?.getToolDefinitions() ?? [],
     });
     agentStage = 'processing-agent-output';
-    const effectiveUserContent =
-      typeof output.effectiveUserPrompt === 'string' &&
-      output.effectiveUserPrompt.trim()
-        ? output.effectiveUserPrompt.trim()
-        : userTurnContent;
+    const storedUserContent = buildStoredUserTurnContent(userTurnContent, media);
     const toolExecutions = output.toolExecutions || [];
     const observedSkillName = resolveObservedSkillName({
       explicitSkillName,
@@ -4665,7 +4687,7 @@ export async function handleGatewayMessage(
       userId: req.userId,
       username: req.username,
       canonicalScopeId: canonicalContextScope,
-      userContent: effectiveUserContent,
+      userContent: storedUserContent,
       resultText,
       toolCallCount: toolExecutions.length,
       startedAt,
@@ -4674,7 +4696,7 @@ export async function handleGatewayMessage(
       sessionId: req.sessionId,
       userId: req.userId,
       username: req.username,
-      userContent: effectiveUserContent,
+      userContent: storedUserContent,
       resultText,
     });
     if (pluginManager) {

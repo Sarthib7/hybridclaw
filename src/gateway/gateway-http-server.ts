@@ -461,7 +461,10 @@ function resolveDisplayPathAlias(
   return relative ? path.resolve(hostRoot, relative) : path.resolve(hostRoot);
 }
 
-function matchesDisplayPathAlias(rawPath: string, displayRoot: string): boolean {
+function matchesDisplayPathAlias(
+  rawPath: string,
+  displayRoot: string,
+): boolean {
   const normalized = rawPath.replace(/\\/g, '/').trim();
   const cleanDisplayRoot = displayRoot.replace(/\/+$/, '');
   return (
@@ -503,8 +506,7 @@ function resolveArtifactRequestPath(rawPath: string): string | null {
       trimmed,
       '/discord-media-cache',
       DISCORD_MEDIA_CACHE_DIR,
-    ) ||
-    path.resolve(trimmed)
+    ) || path.resolve(trimmed)
   );
 }
 

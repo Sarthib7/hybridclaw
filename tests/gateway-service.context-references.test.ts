@@ -152,7 +152,9 @@ test('handleGatewayMessage keeps explicit skill expansion when skill args inject
   expect(systemMessage?.content).not.toContain('## Skills (mandatory)');
   expect(userMessage?.role).toBe('user');
   expect(userMessage?.content).toContain('[Explicit skill invocation]');
-  expect(userMessage?.content).toContain('Use the "pdf" skill for this request.');
+  expect(userMessage?.content).toContain(
+    'Use the "pdf" skill for this request.',
+  );
   expect(userMessage?.content).toContain('Skill input: summarize');
   expect(userMessage?.content).toContain('--- Attached Context ---');
   expect(userMessage?.content).toContain('File: src/app.ts');

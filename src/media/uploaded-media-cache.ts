@@ -85,25 +85,16 @@ function sanitizeFilenameSegment(value: string): string {
     .replace(TRIM_FILENAME_PUNCTUATION_RE, '');
 }
 
-function applyPreferredExtension(
-  filename: string,
-  mimeType: string | null | undefined,
-): string {
-  const preferredExtension =
-    MIME_EXTENSION_MAP[normalizeMimeType(mimeType) || ''];
-  if (!preferredExtension || path.extname(filename)) return filename;
-  return `${filename}${preferredExtension}`;
-}
-
 export function sanitizeUploadedMediaFilename(
   name: string,
   mimeType?: string | null,
 ): string {
   const baseName = path.basename(name.normalize('NFKC').trim() || 'upload');
-  const withExtension = applyPreferredExtension(baseName, mimeType);
-  const parsed = path.parse(withExtension);
+  const parsed = path.parse(baseName);
+  const preferredExtension =
+    MIME_EXTENSION_MAP[normalizeMimeType(mimeType) || ''];
   const extensionCore = sanitizeFilenameSegment(
-    parsed.ext.replace(/^\.+/, '').toLowerCase(),
+    (parsed.ext || preferredExtension || '').replace(/^\.+/, '').toLowerCase(),
   );
   const extension = extensionCore ? `.${extensionCore}` : '';
   const maxBaseChars = Math.max(

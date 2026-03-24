@@ -1094,31 +1094,19 @@ async function promptWithDefault(params: {
   rl: readline.Interface;
   question: string;
   defaultValue?: string;
-  validate?: (value: string) => string | null;
-  errorMessage?: string;
+  required?: boolean;
 }): Promise<string> {
   while (true) {
     const suffix = params.defaultValue ? ` [${params.defaultValue}]` : '';
     const raw = (
       await params.rl.question(`${params.question}${suffix}: `)
     ).trim();
-    const candidate = raw || params.defaultValue || '';
-    const validated = params.validate ? params.validate(candidate) : candidate;
-    if (validated) return validated;
-    console.log(params.errorMessage || 'Please enter a valid value.');
+    const value = raw || params.defaultValue || '';
+    if (value || params.required === false) {
+      return value;
+    }
+    console.log('Please enter a value.');
   }
-}
-
-async function promptOptionalWithDefault(params: {
-  rl: readline.Interface;
-  question: string;
-  defaultValue?: string;
-}): Promise<string> {
-  const suffix = params.defaultValue ? ` [${params.defaultValue}]` : '';
-  const raw = (
-    await params.rl.question(`${params.question}${suffix}: `)
-  ).trim();
-  return raw || params.defaultValue || '';
 }
 
 async function resolveInteractiveMSTeamsLogin(params: {
@@ -1163,10 +1151,11 @@ async function resolveInteractiveMSTeamsLogin(params: {
       question: 'Microsoft Teams app password',
       defaultValue: appPassword || undefined,
     });
-    const tenantId = await promptOptionalWithDefault({
+    const tenantId = await promptWithDefault({
       rl,
       question: 'Microsoft Teams tenant id (optional)',
       defaultValue: params.tenantId || undefined,
+      required: false,
     });
     return {
       appId,

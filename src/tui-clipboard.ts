@@ -146,48 +146,20 @@ export interface TuiClipboardUploadCandidate {
 
 let cachedWslDetection: boolean | null = null;
 
-function execFileUtf8(
+function execFileWithEncoding<TEncoding extends 'utf8' | 'buffer'>(
   command: string,
   args: string[],
-): Promise<{ stdout: string; stderr: string }> {
+  encoding: TEncoding,
+): Promise<{
+  stdout: TEncoding extends 'buffer' ? Buffer : string;
+  stderr: string;
+}> {
   return new Promise((resolve, reject) => {
     execFile(
       command,
       args,
       {
-        encoding: 'utf8',
-        maxBuffer: CLIPBOARD_COMMAND_MAX_BUFFER_BYTES,
-        timeout: CLIPBOARD_COMMAND_TIMEOUT_MS,
-        windowsHide: true,
-      },
-      (error, stdout, stderr) => {
-        if (error) {
-          reject(
-            new Error(
-              stderr?.trim() || error.message || 'clipboard command failed',
-            ),
-          );
-          return;
-        }
-        resolve({
-          stdout: String(stdout || ''),
-          stderr: String(stderr || ''),
-        });
-      },
-    );
-  });
-}
-
-function execFileBuffer(
-  command: string,
-  args: string[],
-): Promise<{ stdout: Buffer; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    execFile(
-      command,
-      args,
-      {
-        encoding: 'buffer',
+        encoding,
         maxBuffer: CLIPBOARD_COMMAND_MAX_BUFFER_BYTES,
         timeout: CLIPBOARD_COMMAND_TIMEOUT_MS,
         windowsHide: true,
@@ -204,14 +176,34 @@ function execFileBuffer(
           return;
         }
         resolve({
-          stdout: Buffer.isBuffer(stdout)
-            ? stdout
-            : Buffer.from(stdout || '', 'utf8'),
+          stdout:
+            encoding === 'buffer'
+              ? (Buffer.isBuffer(stdout)
+                  ? stdout
+                  : Buffer.from(stdout || '', 'utf8'))
+              : String(stdout || ''),
           stderr: String(stderr || ''),
+        } as {
+          stdout: TEncoding extends 'buffer' ? Buffer : string;
+          stderr: string;
         });
       },
     );
   });
+}
+
+function execFileUtf8(
+  command: string,
+  args: string[],
+): Promise<{ stdout: string; stderr: string }> {
+  return execFileWithEncoding(command, args, 'utf8');
+}
+
+function execFileBuffer(
+  command: string,
+  args: string[],
+): Promise<{ stdout: Buffer; stderr: string }> {
+  return execFileWithEncoding(command, args, 'buffer');
 }
 
 export function isProbablyWsl(): boolean {

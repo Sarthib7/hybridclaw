@@ -426,10 +426,13 @@ export async function expandUrlReference(
   ref: ContextReference,
   options: ExpandReferenceOptions,
 ): Promise<[string | null, string | null]> {
-  const rawUrl = ref.url ?? ref.value ?? '';
+  if (!ref.url) {
+    return [formatWarning(ref, 'invalid URL'), null];
+  }
+
   let parsedUrl: URL;
   try {
-    parsedUrl = new URL(rawUrl);
+    parsedUrl = new URL(ref.url);
   } catch {
     return [formatWarning(ref, 'invalid URL'), null];
   }

@@ -24,10 +24,10 @@ import {
   printOpenRouterUsage,
   printWhatsAppUsage,
 } from './help.js';
+import { ensureWhatsAppAuthApi, getWhatsAppAuthApi } from './whatsapp-api.js';
 
 type HybridAIAuthApi = typeof import('../auth/hybridai-auth.js');
 type CodexAuthApi = typeof import('../auth/codex-auth.js');
-type WhatsAppAuthApi = typeof import('../channels/whatsapp/auth.js');
 type OnboardingApi = typeof import('../onboarding.js');
 
 const hybridAIAuthApiState = makeLazyApi<HybridAIAuthApi>(
@@ -37,10 +37,6 @@ const hybridAIAuthApiState = makeLazyApi<HybridAIAuthApi>(
 const codexAuthApiState = makeLazyApi<CodexAuthApi>(
   () => import('../auth/codex-auth.js'),
   'Codex auth API accessed before it was initialized. Call ensureCodexAuthApi() first.',
-);
-const whatsAppAuthApiState = makeLazyApi<WhatsAppAuthApi>(
-  () => import('../channels/whatsapp/auth.js'),
-  'WhatsApp auth API accessed before it was initialized. Call ensureWhatsAppAuthApi() first.',
 );
 const onboardingApiState = makeLazyApi<OnboardingApi>(
   () => import('../onboarding.js'),
@@ -61,14 +57,6 @@ async function ensureCodexAuthApi(): Promise<CodexAuthApi> {
 
 function getCodexAuthApi(): CodexAuthApi {
   return codexAuthApiState.get();
-}
-
-async function ensureWhatsAppAuthApi(): Promise<WhatsAppAuthApi> {
-  return whatsAppAuthApiState.ensure();
-}
-
-function getWhatsAppAuthApi(): WhatsAppAuthApi {
-  return whatsAppAuthApiState.get();
 }
 
 async function ensureOnboardingApi(): Promise<OnboardingApi> {

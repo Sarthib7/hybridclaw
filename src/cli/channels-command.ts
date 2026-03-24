@@ -15,50 +15,16 @@ import {
   saveRuntimeSecrets,
 } from '../security/runtime-secrets.js';
 import { sleep } from '../utils/sleep.js';
-import { makeLazyApi, normalizeArgs } from './common.js';
+import { normalizeArgs } from './common.js';
 import { isHelpRequest, printChannelsUsage } from './help.js';
-
-type WhatsAppAuthApi = typeof import('../channels/whatsapp/auth.js');
-type WhatsAppConnectionApi =
-  typeof import('../channels/whatsapp/connection.js');
-type WhatsAppPhoneApi = typeof import('../channels/whatsapp/phone.js');
-
-const whatsAppAuthApiState = makeLazyApi<WhatsAppAuthApi>(
-  () => import('../channels/whatsapp/auth.js'),
-  'WhatsApp auth API accessed before it was initialized. Call ensureWhatsAppAuthApi() first.',
-);
-const whatsAppConnectionApiState = makeLazyApi<WhatsAppConnectionApi>(
-  () => import('../channels/whatsapp/connection.js'),
-  'WhatsApp connection API accessed before it was initialized. Call ensureWhatsAppConnectionApi() first.',
-);
-const whatsAppPhoneApiState = makeLazyApi<WhatsAppPhoneApi>(
-  () => import('../channels/whatsapp/phone.js'),
-  'WhatsApp phone API accessed before it was initialized. Call ensureWhatsAppPhoneApi() first.',
-);
-
-async function ensureWhatsAppAuthApi(): Promise<WhatsAppAuthApi> {
-  return whatsAppAuthApiState.ensure();
-}
-
-function getWhatsAppAuthApi(): WhatsAppAuthApi {
-  return whatsAppAuthApiState.get();
-}
-
-async function ensureWhatsAppConnectionApi(): Promise<WhatsAppConnectionApi> {
-  return whatsAppConnectionApiState.ensure();
-}
-
-function getWhatsAppConnectionApi(): WhatsAppConnectionApi {
-  return whatsAppConnectionApiState.get();
-}
-
-async function ensureWhatsAppPhoneApi(): Promise<WhatsAppPhoneApi> {
-  return whatsAppPhoneApiState.ensure();
-}
-
-function getWhatsAppPhoneApi(): WhatsAppPhoneApi {
-  return whatsAppPhoneApiState.get();
-}
+import {
+  ensureWhatsAppAuthApi,
+  ensureWhatsAppConnectionApi,
+  ensureWhatsAppPhoneApi,
+  getWhatsAppAuthApi,
+  getWhatsAppConnectionApi,
+  getWhatsAppPhoneApi,
+} from './whatsapp-api.js';
 
 function resolveWhatsAppSetupSettleMs(): number {
   const raw = String(

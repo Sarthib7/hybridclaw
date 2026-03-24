@@ -222,7 +222,7 @@ export function isProbablyWsl(): boolean {
   return cachedWslDetection;
 }
 
-function parseClipboardPayload(
+export function parseClipboardPayload(
   raw: string,
   options?: {
     mapFilePath?: (value: string) => string | null;
@@ -283,18 +283,12 @@ function parseClipboardPayload(
   };
 }
 
-export function parseDarwinClipboardPayload(
-  raw: string,
-): ClipboardPayload | null {
-  return parseClipboardPayload(raw);
-}
-
 async function readDarwinClipboardPayload(): Promise<ClipboardPayload | null> {
   const { stdout } = await execFileUtf8('/usr/bin/swift', [
     '-e',
     DARWIN_CLIPBOARD_SCRIPT,
   ]);
-  return parseDarwinClipboardPayload(stdout);
+  return parseClipboardPayload(stdout);
 }
 
 export function convertWindowsPathToWsl(filePath: string): string | null {
@@ -312,15 +306,6 @@ export function convertWindowsPathToWsl(filePath: string): string | null {
   const [, drive, rest] = driveMatch;
   const suffix = rest.replace(/\\/g, '/');
   return `/mnt/${drive.toLowerCase()}/${suffix}`;
-}
-
-export function parseWindowsClipboardPayload(
-  raw: string,
-  options?: {
-    mapFilePath?: (value: string) => string | null;
-  },
-): ClipboardPayload | null {
-  return parseClipboardPayload(raw, options);
 }
 
 function stripWrappingQuotes(value: string): string {
@@ -368,7 +353,7 @@ async function readWindowsClipboardPayload(options?: {
         '-Command',
         WINDOWS_CLIPBOARD_SCRIPT,
       ]);
-      return parseWindowsClipboardPayload(stdout, options);
+      return parseClipboardPayload(stdout, options);
     } catch {}
   }
   return null;

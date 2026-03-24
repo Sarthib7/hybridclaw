@@ -2,14 +2,13 @@ import { expect, test } from 'vitest';
 
 import {
   convertWindowsPathToWsl,
+  parseClipboardPayload,
   parseClipboardUriList,
-  parseDarwinClipboardPayload,
-  parseWindowsClipboardPayload,
 } from '../src/tui-clipboard.js';
 
-test('parseDarwinClipboardPayload prefers file-path payloads', () => {
+test('parseClipboardPayload prefers file-path payloads', () => {
   expect(
-    parseDarwinClipboardPayload(
+    parseClipboardPayload(
       JSON.stringify({
         filePaths: ['/tmp/a.png', '/tmp/a.png', '/tmp/report.pdf'],
         imageBase64: 'ignored',
@@ -25,9 +24,9 @@ test('parseDarwinClipboardPayload prefers file-path payloads', () => {
   });
 });
 
-test('parseDarwinClipboardPayload returns null for empty clipboard payloads', () => {
+test('parseClipboardPayload returns null for empty clipboard payloads', () => {
   expect(
-    parseDarwinClipboardPayload(
+    parseClipboardPayload(
       JSON.stringify({
         filePaths: [],
         imageBase64: '',
@@ -62,9 +61,9 @@ test('convertWindowsPathToWsl maps drive and UNC WSL paths', () => {
   expect(convertWindowsPathToWsl('not-a-path')).toBeNull();
 });
 
-test('parseWindowsClipboardPayload can remap file paths for WSL', () => {
+test('parseClipboardPayload can remap file paths for WSL', () => {
   expect(
-    parseWindowsClipboardPayload(
+    parseClipboardPayload(
       JSON.stringify({
         filePaths: ['C:\\Users\\bkoehler\\image.png'],
         imageBase64: null,

@@ -53,7 +53,7 @@ type ConfigApi = typeof import('./config/config.js');
 let cachedAppVersion: string | null = null;
 const configApiState = makeLazyApi<ConfigApi>(
   () => import('./config/config.js'),
-  'Config API accessed before initialization.',
+  'Config API accessed before it was initialized. Call ensureConfigApi() first, for example await ensureConfigApi() before calling getGatewayBaseUrl().',
 );
 
 function readVersionFromPackageJson(packageJsonPath: string): string | null {

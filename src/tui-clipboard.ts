@@ -499,8 +499,8 @@ async function readXclipClipboardPayload(): Promise<ClipboardPayload | null> {
 }
 
 async function readLinuxClipboardPayload(): Promise<ClipboardPayload | null> {
-  const readers: Array<() => Promise<ClipboardPayload | null>> = process
-    .env.WAYLAND_DISPLAY
+  const readers: Array<() => Promise<ClipboardPayload | null>> = process.env
+    .WAYLAND_DISPLAY
     ? [readWaylandClipboardPayload, readXclipClipboardPayload]
     : process.env.DISPLAY
       ? [readXclipClipboardPayload, readWaylandClipboardPayload]

@@ -153,6 +153,7 @@ import {
   getLocalModelInfo,
   resolveLocalModelContextWindow,
 } from '../providers/local-discovery.js';
+import { getHybridAIHealth } from '../providers/hybridai-health.js';
 import { getAllBackendHealth } from '../providers/local-health.js';
 import {
   getAvailableModelList,
@@ -290,6 +291,7 @@ import {
   type GatewayCommandRequest,
   type GatewayCommandResult,
   type GatewayHistorySummary,
+  type GatewayProviderHealthEntry,
   type GatewayStatus,
   renderGatewayCommand,
 } from './gateway-types.js';
@@ -799,6 +801,51 @@ function getAdminChannelDisabledSkills(
   );
 }
 
+function buildHybridAIProviderEntry(
+  auth: ReturnType<typeof getHybridAIAuthStatus>,
+  runtimeConfig: RuntimeConfig,
+): GatewayProviderHealthEntry {
+  const configModelCount = dedupeStrings([
+    runtimeConfig.hybridai.defaultModel,
+    ...runtimeConfig.hybridai.models,
+    ...getDiscoveredHybridAIModelNames(),
+  ]).length;
+
+  if (!auth.authenticated) {
+    return {
+      kind: 'remote',
+      reachable: false,
+      error: 'API key missing',
+      modelCount: configModelCount,
+      detail: 'API key missing',
+    };
+  }
+
+  const probe = getHybridAIHealth();
+
+  if (!probe) {
+    return {
+      kind: 'remote',
+      reachable: false,
+      modelCount: configModelCount,
+      detail: 'Checking connectivity…',
+    };
+  }
+
+  return {
+    kind: 'remote',
+    reachable: probe.reachable,
+    ...(probe.error ? { error: probe.error } : {}),
+    ...(typeof probe.latencyMs === 'number'
+      ? { latencyMs: probe.latencyMs }
+      : {}),
+    modelCount: probe.modelCount ?? configModelCount,
+    detail: probe.reachable
+      ? `${probe.latencyMs ?? '?'}ms`
+      : probe.error || 'unreachable',
+  };
+}
+
 function buildGatewayProviderHealth(params: {
   localBackends: GatewayStatus['localBackends'];
   codex: ReturnType<typeof getCodexAuthStatus>;
@@ -806,19 +853,7 @@ function buildGatewayProviderHealth(params: {
 }): NonNullable<GatewayStatus['providerHealth']> {
   const runtimeConfig = getRuntimeConfig();
   const providerHealth: NonNullable<GatewayStatus['providerHealth']> = {
-    hybridai: {
-      kind: 'remote',
-      reachable: params.hybridai.authenticated,
-      ...(params.hybridai.authenticated ? {} : { error: 'API key missing' }),
-      modelCount: dedupeStrings([
-        runtimeConfig.hybridai.defaultModel,
-        ...runtimeConfig.hybridai.models,
-        ...getDiscoveredHybridAIModelNames(),
-      ]).length,
-      detail: params.hybridai.authenticated
-        ? `API key ready${params.hybridai.source ? ` via ${params.hybridai.source}` : ''}`
-        : 'API key missing',
-    },
+    hybridai: buildHybridAIProviderEntry(params.hybridai, runtimeConfig),
     codex: {
       kind: 'remote',
       reachable: params.codex.authenticated && !params.codex.reloginRequired,

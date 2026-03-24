@@ -65,6 +65,10 @@ import {
   stopDiscoveryLoop,
 } from '../providers/local-discovery.js';
 import {
+  startHybridAIHealthLoop,
+  stopHybridAIHealthLoop,
+} from '../providers/hybridai-health.js';
+import {
   startHealthCheckLoop,
   stopHealthCheckLoop,
 } from '../providers/local-health.js';
@@ -1224,6 +1228,7 @@ function setupShutdown(): void {
     stopObservabilityIngest();
     stopDiscoveryLoop();
     stopHealthCheckLoop();
+    stopHybridAIHealthLoop();
     stopAllExecutions();
     await stopGatewayPlugins().catch((error) => {
       logger.debug({ error }, 'Failed to stop plugins during shutdown');
@@ -1435,6 +1440,7 @@ async function main(): Promise<void> {
   startObservabilityIngest();
   startDiscoveryLoop();
   startHealthCheckLoop();
+  startHybridAIHealthLoop();
   detachConfigListener = onConfigChange((next, prev) => {
     const shouldRestart =
       next.hybridai.defaultChatbotId !== prev.hybridai.defaultChatbotId ||

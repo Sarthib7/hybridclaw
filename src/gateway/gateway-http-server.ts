@@ -96,11 +96,11 @@ import {
   upsertGatewayAdminMcpServer,
   upsertGatewayAdminSchedulerJob,
 } from './gateway-service.js';
-import { consumeGatewayMediaUploadQuota } from './media-upload-quota.js';
 import type {
   GatewayChatRequestBody,
   GatewayChatResult,
 } from './gateway-types.js';
+import { consumeGatewayMediaUploadQuota } from './media-upload-quota.js';
 import {
   handleTextChannelApprovalCommand,
   renderTextChannelCommandResult,

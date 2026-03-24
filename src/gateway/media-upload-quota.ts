@@ -36,7 +36,10 @@ export class SlidingWindowByteQuota {
     const activeEntries = (this.buckets.get(key) ?? []).filter(
       (entry) => entry.timestampMs > cutoff,
     );
-    const usedBytes = activeEntries.reduce((total, entry) => total + entry.bytes, 0);
+    const usedBytes = activeEntries.reduce(
+      (total, entry) => total + entry.bytes,
+      0,
+    );
     const projectedBytes = usedBytes + boundedBytes;
 
     if (projectedBytes > boundedLimitBytes) {

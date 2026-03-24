@@ -399,6 +399,14 @@ function dedupeStringList(values: string[]): string[] {
   return out;
 }
 
+function normalizeConfiguredBaseUrl(
+  raw: string | undefined,
+  fallback: string,
+): string {
+  const trimmed = String(raw || '').trim().replace(/\/+$/, '');
+  return trimmed || fallback;
+}
+
 function applyRuntimeConfig(config: RuntimeConfig): void {
   DISCORD_PREFIX = config.discord.prefix;
   DISCORD_GUILD_MEMBERS_INTENT = config.discord.guildMembersIntent;
@@ -498,7 +506,10 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   );
   EMAIL_MEDIA_MAX_MB = Math.max(1, config.email.mediaMaxMb);
 
-  HYBRIDAI_BASE_URL = config.hybridai.baseUrl;
+  HYBRIDAI_BASE_URL = normalizeConfiguredBaseUrl(
+    process.env.HYBRIDAI_BASE_URL,
+    config.hybridai.baseUrl,
+  );
   HYBRIDAI_MODEL = config.hybridai.defaultModel;
   HYBRIDAI_CHATBOT_ID =
     (process.env.HYBRIDAI_CHATBOT_ID?.trim() || '') ||

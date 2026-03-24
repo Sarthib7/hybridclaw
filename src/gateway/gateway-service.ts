@@ -74,6 +74,7 @@ import {
   setRuntimeSkillScopeEnabled,
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
+import { preprocessContextReferences } from '../context-references/index.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import {
@@ -201,6 +202,7 @@ import type {
   SkillObservation,
 } from '../skills/adaptive-skills-types.js';
 import {
+  expandResolvedSkillInvocation,
   expandSkillInvocationWithResolution,
   loadSkillCatalog,
   resolveObservedSkillName,
@@ -4026,6 +4028,17 @@ export async function handleGatewayMessage(
     abortSignal: activeGatewayRequest.signal,
   });
   const userTurnContent = audioPrelude.content;
+  const contextReferenceOptions = {
+    cwd: workspacePath,
+    contextLength: 128_000,
+    allowedRoot: workspacePath,
+  };
+  const contextRefResult = await preprocessContextReferences({
+    message: userTurnContent,
+    ...contextReferenceOptions,
+  });
+  const userTurnContentExpanded = contextRefResult.message;
+  const userTurnContentStripped = contextRefResult.strippedMessage;
   const canonicalContextScope = resolveCanonicalContextScope(session);
   if (isFullAutoEnabled(session)) {
     syncFullAutoRuntimeContext(req.sessionId, {
@@ -4059,7 +4072,7 @@ export async function handleGatewayMessage(
     turnIndex,
     mediaCount: media.length,
     audioTranscriptCount: audioPrelude.transcripts.length,
-    contentLength: userTurnContent.length,
+    contentLength: userTurnContentExpanded.length,
     streamingRequested: Boolean(
       req.onTextDelta || req.onToolProgress || req.onApprovalProgress,
     ),
@@ -4218,7 +4231,7 @@ export async function handleGatewayMessage(
     user_id: req.userId,
     username: req.username || null,
     role: 'user',
-    content: userTurnContent,
+    content: contextRefResult.originalMessage,
     created_at: new Date(startedAt).toISOString(),
   });
   const pluginPromptDetails = pluginManager
@@ -4236,7 +4249,7 @@ export async function handleGatewayMessage(
   );
   const memoryContext = memoryService.buildPromptMemoryContext({
     session,
-    query: userTurnContent,
+    query: userTurnContentStripped,
   });
   const mergedSessionSummary =
     [canonicalPromptSummary, memoryContext.promptSummary]
@@ -4313,7 +4326,18 @@ export async function handleGatewayMessage(
     userTurnContent,
     skills,
   );
-  const expandedUserContent = skillInvocation.content;
+  const skillArgsContext = skillInvocation.invocation
+    ? await preprocessContextReferences({
+        message: skillInvocation.invocation.args,
+        ...contextReferenceOptions,
+      })
+    : null;
+  const expandedUserContent = skillInvocation.invocation
+    ? expandResolvedSkillInvocation(
+        skillInvocation.invocation,
+        skillArgsContext?.message ?? '',
+      )
+    : userTurnContentExpanded;
   const explicitSkillName = skillInvocation.invocation?.skill.name || null;
   const agentUserContent = mediaContextBlock
     ? `${expandedUserContent}\n\n${mediaContextBlock}`

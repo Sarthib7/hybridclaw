@@ -39,7 +39,11 @@ import {
   buildSessionKey,
   classifySessionKeyShape,
 } from '../session/session-key.js';
-import type { PendingApproval, ToolProgressEvent } from '../types.js';
+import type {
+  MediaContextItem,
+  PendingApproval,
+  ToolProgressEvent,
+} from '../types.js';
 import {
   hasSessionAuth,
   setSessionCookie,
@@ -105,6 +109,7 @@ import {
 const SITE_DIR = resolveInstallPath('docs');
 const CONSOLE_DIST_DIR = resolveInstallPath('console', 'dist');
 const AGENT_ARTIFACT_ROOT = path.resolve(path.join(DATA_DIR, 'agents'));
+const DISCORD_MEDIA_CACHE_ROOT_DISPLAY = '/discord-media-cache';
 const DISCORD_MEDIA_CACHE_DIR = path.resolve(
   path.join(DATA_DIR, 'discord-media-cache'),
 );
@@ -504,10 +509,149 @@ function resolveArtifactRequestPath(rawPath: string): string | null {
   return (
     resolveDisplayPathAlias(
       trimmed,
-      '/discord-media-cache',
+      DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
       DISCORD_MEDIA_CACHE_DIR,
     ) || path.resolve(trimmed)
   );
+}
+
+function resolveValidatedApiChatMediaHostPath(rawPath: string): string | null {
+  const trimmed = rawPath.trim();
+  if (!trimmed) return null;
+
+  if (matchesDisplayPathAlias(trimmed, DISCORD_MEDIA_CACHE_ROOT_DISPLAY)) {
+    const resolved = resolveDisplayPathAlias(
+      trimmed,
+      DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
+      DISCORD_MEDIA_CACHE_DIR,
+    );
+    return resolved ? resolvePathForContainmentCheck(resolved) : null;
+  }
+
+  const uploadedMediaCacheDir = getUploadedMediaCacheDirOrNull();
+  if (matchesDisplayPathAlias(trimmed, UPLOADED_MEDIA_CACHE_ROOT_DISPLAY)) {
+    if (!uploadedMediaCacheDir) {
+      throw new HttpRequestError(503, 'Uploaded media cache unavailable.');
+    }
+    const resolved = resolveDisplayPathAlias(
+      trimmed,
+      UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,
+      uploadedMediaCacheDir,
+    );
+    return resolved ? resolvePathForContainmentCheck(resolved) : null;
+  }
+
+  if (!path.isAbsolute(trimmed)) {
+    return null;
+  }
+
+  return resolvePathForContainmentCheck(trimmed);
+}
+
+function isAllowedApiChatMediaHostPath(hostPath: string): boolean {
+  const normalizedHostPath = resolvePathForContainmentCheck(hostPath);
+  if (
+    isWithinRoot(
+      normalizedHostPath,
+      resolvePathForContainmentCheck(DISCORD_MEDIA_CACHE_DIR),
+    )
+  ) {
+    return true;
+  }
+
+  const uploadedMediaCacheDir = getUploadedMediaCacheDirOrNull();
+  if (!uploadedMediaCacheDir) {
+    return false;
+  }
+  return isWithinRoot(
+    normalizedHostPath,
+    resolvePathForContainmentCheck(uploadedMediaCacheDir),
+  );
+}
+
+function normalizeApiChatMediaItems(raw: unknown): MediaContextItem[] {
+  if (raw == null) return [];
+  if (!Array.isArray(raw)) {
+    throw new HttpRequestError(400, 'Invalid `media` in request body.');
+  }
+  if (raw.length === 0) return [];
+
+  const normalized: MediaContextItem[] = [];
+  for (const [index, item] of raw.entries()) {
+    if (!item || typeof item !== 'object') {
+      throw new HttpRequestError(400, `Invalid \`media[${index}]\` item.`);
+    }
+    const mediaItem = item as Record<string, unknown>;
+
+    const pathValue = normalizeOptionalString(mediaItem.path);
+    const url = normalizeOptionalString(mediaItem.url);
+    const originalUrl = normalizeOptionalString(mediaItem.originalUrl);
+    const filename = normalizeOptionalString(mediaItem.filename);
+    if (!pathValue) {
+      throw new HttpRequestError(400, `Missing \`media[${index}].path\`.`);
+    }
+    if (!url) {
+      throw new HttpRequestError(400, `Missing \`media[${index}].url\`.`);
+    }
+    if (!originalUrl) {
+      throw new HttpRequestError(
+        400,
+        `Missing \`media[${index}].originalUrl\`.`,
+      );
+    }
+    if (!filename) {
+      throw new HttpRequestError(400, `Missing \`media[${index}].filename\`.`);
+    }
+
+    const resolvedHostPath = resolveValidatedApiChatMediaHostPath(pathValue);
+    if (
+      !resolvedHostPath ||
+      !isAllowedApiChatMediaHostPath(resolvedHostPath)
+    ) {
+      throw new HttpRequestError(
+        400,
+        `Invalid \`media[${index}].path\`. Only uploaded or Discord media cache files are accepted.`,
+      );
+    }
+
+    const rawSizeBytes = mediaItem.sizeBytes;
+    if (rawSizeBytes != null && typeof rawSizeBytes !== 'number') {
+      throw new HttpRequestError(
+        400,
+        `Invalid \`media[${index}].sizeBytes\`.`,
+      );
+    }
+    if (typeof rawSizeBytes === 'number' && !Number.isFinite(rawSizeBytes)) {
+      throw new HttpRequestError(
+        400,
+        `Invalid \`media[${index}].sizeBytes\`.`,
+      );
+    }
+
+    const rawMimeType = mediaItem.mimeType;
+    if (rawMimeType != null && typeof rawMimeType !== 'string') {
+      throw new HttpRequestError(
+        400,
+        `Invalid \`media[${index}].mimeType\`.`,
+      );
+    }
+
+    normalized.push({
+      path: pathValue,
+      url,
+      originalUrl,
+      filename,
+      sizeBytes:
+        typeof rawSizeBytes === 'number'
+          ? Math.max(0, Math.floor(rawSizeBytes))
+          : 0,
+      mimeType:
+        typeof rawMimeType === 'string'
+          ? normalizeMimeType(rawMimeType.trim())
+          : null,
+    });
+  }
+  return normalized;
 }
 
 function resolveArtifactFile(url: URL): string | null {
@@ -654,7 +798,7 @@ async function handleApiChat(
 ): Promise<void> {
   const body = (await readJsonBody(req)) as Partial<ApiChatRequestBody>;
   const wantsStream = body.stream === true;
-  const media = Array.isArray(body.media) ? body.media : [];
+  const media = normalizeApiChatMediaItems(body.media);
 
   const content = body.content?.trim() || buildMediaOnlyPromptContent(media);
   if (!content) {

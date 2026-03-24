@@ -2170,6 +2170,122 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(200);
   });
 
+  test('accepts uploaded-cache absolute paths for media-only chat requests', async () => {
+    const dataDir = makeTempDataDir();
+    const hostPath = path.join(
+      dataDir,
+      'uploaded-media-cache',
+      '2026-03-24',
+      '1710000000000-abcd-report.pdf',
+    );
+    fs.mkdirSync(path.dirname(hostPath), { recursive: true });
+    fs.writeFileSync(hostPath, 'pdf payload', 'utf8');
+
+    const state = await importFreshHealth({ dataDir });
+    const media = [
+      {
+        path: hostPath,
+        url: `/api/artifact?path=${encodeURIComponent(hostPath)}`,
+        originalUrl: `/api/artifact?path=${encodeURIComponent(hostPath)}`,
+        mimeType: 'application/pdf',
+        sizeBytes: 2048,
+        filename: 'report.pdf',
+      },
+    ];
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        content: '',
+        media,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.handleGatewayMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: 'Attached file: report.pdf',
+        media,
+      }),
+    );
+    expect(res.statusCode).toBe(200);
+  });
+
+  test('rejects media-only chat requests with malformed media items', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        content: '',
+        media: [
+          {
+            path: 42,
+            url: '/api/artifact?path=%2Fuploaded-media-cache%2Fbad.png',
+            originalUrl:
+              '/api/artifact?path=%2Fuploaded-media-cache%2Fbad.png',
+            mimeType: 'image/png',
+            sizeBytes: 123,
+            filename: 'bad.png',
+          },
+        ],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Missing `media[0].path`.',
+    });
+  });
+
+  test('rejects media-only chat requests with forged non-cache media paths', async () => {
+    const dataDir = makeTempDataDir();
+    const forgedPath = path.join(
+      dataDir,
+      'agents',
+      'agent-1',
+      'workspace',
+      'secret.png',
+    );
+    const state = await importFreshHealth({ dataDir });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        content: '',
+        media: [
+          {
+            path: forgedPath,
+            url: `/api/artifact?path=${encodeURIComponent(forgedPath)}`,
+            originalUrl: `/api/artifact?path=${encodeURIComponent(forgedPath)}`,
+            mimeType: 'image/png',
+            sizeBytes: 123,
+            filename: 'secret.png',
+          },
+        ],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error:
+        'Invalid `media[0].path`. Only uploaded or Discord media cache files are accepted.',
+    });
+  });
+
   test('rejects api command requests without an explicit session id', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({

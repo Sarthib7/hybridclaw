@@ -22,6 +22,8 @@ HybridClaw does not keep runtime state in the current working directory. If
 ## Important Config Areas
 
 - `container.*` for sandbox mode, resource limits, networking, and extra binds
+- `hybridai.baseUrl` for the HybridAI API origin; `HYBRIDAI_BASE_URL` can
+  override it for the current process without rewriting `config.json`
 - `mcpServers.*` for Model Context Protocol servers
 - `sessionReset.*` for daily and idle reset policy
 - `sessionRouting.*` for DM continuity scope and linked identities

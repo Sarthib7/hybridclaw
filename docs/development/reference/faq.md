@@ -36,6 +36,19 @@ and command guardrails.
 Yes, when explicitly requested for the intended site. Sensitive credential
 values are still redacted from structured audit logs.
 
+## Can I attach files or paste screenshots in the web chat or TUI?
+
+Yes. The built-in web chat accepts uploads and pasted clipboard files or
+images before send. TUI can queue a copied local file or clipboard image with
+`/paste` or `Ctrl-V`.
+
+## Can I point a prompt at files, diffs, or URLs without pasting them?
+
+Yes. Use inline references such as `@file:path[:start-end]`, `@folder:path`,
+`@diff`, `@staged`, `@git:<count>`, and `@url:https://...`. When a reference
+cannot be attached safely or would exceed prompt budget, HybridClaw leaves the
+prompt text intact and adds a warning instead of silently broadening access.
+
 ## Can I use HybridClaw without Discord?
 
 Yes. You can run `hybridclaw tui`, use the built-in web chat, or connect

@@ -24,6 +24,9 @@ agent reuse authenticated web sessions for later browser automation.
 Local plugins can extend the gateway with typed manifests, plugin tools,
 memory layers, prompt hooks, and lifecycle hooks, including the installable
 QMD-backed memory layer shipped in `plugins/qmd-memory`.
+Web chat and TUI can attach current-turn files, and inline context references
+like `@file:src/app.ts`, `@diff`, or `@url:https://example.com/spec` can
+ground a turn without pasting raw content.
 
 Operators can also health-check the runtime with `hybridclaw doctor`, tune
 skill availability globally or per channel, and review adaptive skill health
@@ -189,6 +192,9 @@ Examples:
 - `/model clear` removes the session override and falls back to the current agent model or the global default.
 - `/agent model <name>` sets the persistent model for the current session agent.
 - `/model info` shows the current model configuration by scope (global default, agent model, and any session override).
+- Use `HYBRIDAI_BASE_URL` to override `hybridai.baseUrl` for the current
+  process without rewriting `~/.hybridclaw/config.json`, which is useful for
+  local or preview HybridAI deployments.
 - Use `HYBRIDCLAW_CODEX_BASE_URL` to override the default Codex backend base URL (`https://chatgpt.com/backend-api/codex`).
 
 Runtime model:
@@ -268,6 +274,26 @@ hybridclaw browser reset
   local storage without exposing credentials in chat.
 - Treat the browser profile directory as sensitive operator data.
 
+## Context References And Attachments
+
+HybridClaw can ground a prompt with current-turn uploads or inline context
+references instead of making you paste large blobs manually.
+
+```text
+Explain this regression using @diff and @file:src/gateway/gateway.ts:120-220
+Compare @folder:docs/development with @url:https://example.com/spec
+```
+
+- Web chat accepts uploads and pasted clipboard items for images, audio, PDFs,
+  Office docs, and text files before send.
+- TUI queues a copied local file or clipboard image with `/paste` or `Ctrl-V`
+  before sending.
+- Inline references supported in prompts are `@file:path[:start-end]`,
+  `@folder:path`, `@diff`, `@staged`, `@git:<count>`, and
+  `@url:https://...`.
+- If a reference is blocked or too large, HybridClaw keeps the prompt text and
+  adds a warning instead of silently broadening access.
+
 ## Agent Packages
 
 HybridClaw can package an agent into a portable `.claw` archive for backup,
@@ -275,18 +301,20 @@ distribution, or bootstrap flows:
 
 ```bash
 hybridclaw agent list
-hybridclaw agent pack main -o /tmp/main.claw
+hybridclaw agent export main -o /tmp/main.claw
 hybridclaw agent inspect /tmp/main.claw
-hybridclaw agent unpack /tmp/main.claw --id demo-agent --yes
+hybridclaw agent install /tmp/main.claw --id demo-agent --yes
 ```
 
-- `agent pack` exports the workspace plus optional bundled workspace skills and
-  home plugins.
+- `agent export` exports the workspace plus optional bundled workspace skills
+  and home plugins.
 - `agent inspect` validates the manifest and prints archive metadata without
   extracting it.
-- `agent unpack` restores the agent, fills missing bootstrap files, and
+- `agent install` restores the agent, fills missing bootstrap files, and
   re-registers bundled content with the runtime.
-- See [docs/development/agent-packages.md](./docs/development/agent-packages.md)
+- Legacy aliases still work: `agent pack` maps to `export`, and `agent unpack`
+  maps to `install`.
+- See [docs/development/extensibility/agent-packages.md](./docs/development/extensibility/agent-packages.md)
   for the archive layout, manifest fields, and security rules.
 
 ## Local Provider Quickstart (LM Studio Example)
@@ -491,7 +519,7 @@ CLI runtime commands:
 - `hybridclaw gateway compact` — Archive older session history into semantic memory while preserving a recent active context tail
 - `hybridclaw gateway reset [yes|no]` — Clear session history, reset per-session model/chatbot/RAG settings, and remove the current agent workspace (confirmation required)
 - `hybridclaw agent list` — Show registered agents in a script-friendly tab-separated format
-- `hybridclaw agent export [agent-id] [-o <path>]`, `inspect <file.claw>`, `install <file.claw> [--id <id>]`, `uninstall <agent-id> [--yes]` — Manage portable `.claw` agent archives
+- `hybridclaw agent export [agent-id] [-o <path>]`, `inspect <file.claw>`, `install <file.claw> [--id <id>]`, `uninstall <agent-id> [--yes]` — Manage portable `.claw` agent archives (legacy `pack` / `unpack` aliases still work)
 - `hybridclaw tui` — Start terminal client connected to gateway
 - `hybridclaw tui --resume <sessionId>` / `hybridclaw --resume <sessionId>` — Resume an earlier TUI session by canonical session id
 - `hybridclaw onboarding` — Run trust-model acceptance plus interactive provider onboarding
@@ -504,9 +532,6 @@ CLI runtime commands:
 - `hybridclaw channels email setup [--address <email>] [--password <password>] [--imap-host <host>] [--imap-port <port>] [--imap-secure|--no-imap-secure] [--smtp-host <host>] [--smtp-port <port>] [--smtp-secure|--no-smtp-secure] [--folder <name>]... [--allow-from <email|*@domain|*>]... [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>]` — Configure IMAP/SMTP email delivery, optionally prompt for missing credentials, default to a 30-second IMAP poll interval, and save `EMAIL_PASSWORD`
 - `hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...` — Prepare private-by-default WhatsApp config, enable the default `👀` ack reaction, optionally wipe stale auth, open a temporary pairing session, and print the QR code
 - `hybridclaw browser login [--url <url>]`, `status`, `reset` — Manage the persistent browser profile used for authenticated web automation
-- `hybridclaw agent list` — List registered agents in a script-friendly format
-- `hybridclaw agent pack [agent-id] [-o <path>] [--skills ...] [--plugins ...]` — Export a portable `.claw` archive with optional bundled skills and plugins
-- `hybridclaw agent inspect <file.claw>` / `unpack <file.claw> [--id <id>] [--force] [--skip-externals] [--yes]` — Validate or restore a packaged agent archive
 - `hybridclaw local status` — Show current local backend config and default model
 - `hybridclaw local configure <backend> <model-id> [--base-url <url>] [--api-key <key>] [--no-default]` — Enable and configure a local backend
 - `hybridclaw hybridai ...`, `hybridclaw codex ...`, and `hybridclaw local ...` — Legacy aliases for the older provider-specific command surface

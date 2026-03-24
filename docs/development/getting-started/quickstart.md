@@ -57,6 +57,21 @@ With the gateway running locally:
 If `WEB_API_TOKEN` is unset, localhost access opens without a login prompt. If
 it is set, `/chat`, `/agents`, and `/admin` all reuse the same token gate.
 
+## Ground A Prompt With Files Or Repo Context
+
+- Web chat accepts uploads and pasted clipboard files or images before send.
+- TUI queues a copied local file or clipboard image with `/paste` or `Ctrl-V`.
+- Inline prompt references supported in chat are `@file:path[:start-end]`,
+  `@folder:path`, `@diff`, `@staged`, `@git:<count>`, and
+  `@url:https://...`.
+
+Examples:
+
+```text
+Summarize @file:README.md and compare it with @url:https://example.com/spec
+Explain this change using @diff and @file:src/gateway/gateway-service.ts:900-1040
+```
+
 ## Channel Integrations
 
 The gateway auto-connects configured channels:

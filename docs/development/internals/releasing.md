@@ -39,7 +39,7 @@ also be re-run manually for an existing release:
 - workflow: `.github/workflows/publish-container.yml`
 - trigger: push tag `v*`
 - manual trigger: `workflow_dispatch` with optional `version` input such as
-  `v0.9.0`
+  `vX.Y.Z`
 - destinations:
   - GHCR: `ghcr.io/<org>/hybridclaw-agent`
   - Docker Hub mirror: `hybridaione/hybridclaw-agent` when Docker Hub

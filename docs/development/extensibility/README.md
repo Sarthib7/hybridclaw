@@ -160,9 +160,14 @@ Another example:
 hybridclaw skill list
 hybridclaw skill enable <name>
 hybridclaw skill disable <name>
+hybridclaw skill inspect <name>
+hybridclaw skill runs <name>
+hybridclaw skill learn <name> [--apply|--reject|--rollback]
+hybridclaw skill history <name>
 hybridclaw skill import [--force] <source>
 /skill-name [input]              # invoke in session
 /skill import [--force] <source> # TUI/web slash import
+/skill learn <name> [--apply|--reject|--rollback] # TUI/web slash amendment flow
 
 # Agent packages
 hybridclaw agent export [agent-id] [-o <path>]

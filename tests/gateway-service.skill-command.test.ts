@@ -306,7 +306,12 @@ test('skill import forwards --force and reports caution overrides', async () => 
     sessionId: 'session-skill-import-force',
     guildId: null,
     channelId: 'web',
-    args: ['skill', 'import', '--force', 'claude-marketplace/pdf@anthropic-agent-skills'],
+    args: [
+      'skill',
+      'import',
+      '--force',
+      'claude-marketplace/pdf@anthropic-agent-skills',
+    ],
   });
 
   expect(importSkillMock).toHaveBeenCalledWith(

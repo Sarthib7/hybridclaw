@@ -679,8 +679,7 @@ description: Keep learning.
     const fetchStub = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (
-        url ===
-        'https://chat-agents.lobehub.com/openai-skills-transcribe.json'
+        url === 'https://chat-agents.lobehub.com/openai-skills-transcribe.json'
       ) {
         return textResponse('The page could not be found', 404);
       }

@@ -315,22 +315,22 @@ async function importFreshCli(options?: {
   });
   const importSkill = vi.fn(
     async (source: string, importOptions?: { force?: boolean }) => {
-    if (options?.skillImportError) {
-      throw options.skillImportError;
-    }
-    return (
-      options?.skillImportResult || {
-        skillName: 'demo-skill',
-        skillDir: '/tmp/.hybridclaw/skills/demo-skill',
-        source,
-        resolvedSource: source,
-        replacedExisting: false,
-        filesImported: 1,
-        guardOverrideApplied: importOptions?.force === true,
-        guardVerdict: importOptions?.force === true ? 'caution' : 'safe',
-        guardFindingsCount: importOptions?.force === true ? 1 : 0,
+      if (options?.skillImportError) {
+        throw options.skillImportError;
       }
-    );
+      return (
+        options?.skillImportResult || {
+          skillName: 'demo-skill',
+          skillDir: '/tmp/.hybridclaw/skills/demo-skill',
+          source,
+          resolvedSource: source,
+          replacedExisting: false,
+          filesImported: 1,
+          guardOverrideApplied: importOptions?.force === true,
+          guardVerdict: importOptions?.force === true ? 'caution' : 'safe',
+          guardFindingsCount: importOptions?.force === true ? 1 : 0,
+        }
+      );
     },
   );
   const readPluginConfigEntry = vi.fn((pluginId: string) => ({

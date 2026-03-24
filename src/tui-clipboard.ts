@@ -131,7 +131,7 @@ if ([System.Windows.Forms.Clipboard]::ContainsImage()) {
 } | ConvertTo-Json -Compress -Depth 4
 `;
 
-interface DarwinClipboardPayload {
+interface ClipboardPayload {
   filePaths: string[];
   imageBase64: string | null;
   mimeType: string | null;
@@ -227,7 +227,7 @@ function parseClipboardPayload(
   options?: {
     mapFilePath?: (value: string) => string | null;
   },
-): DarwinClipboardPayload | null {
+): ClipboardPayload | null {
   const trimmed = String(raw || '').trim();
   if (!trimmed) return null;
 
@@ -285,11 +285,11 @@ function parseClipboardPayload(
 
 export function parseDarwinClipboardPayload(
   raw: string,
-): DarwinClipboardPayload | null {
+): ClipboardPayload | null {
   return parseClipboardPayload(raw);
 }
 
-async function readDarwinClipboardPayload(): Promise<DarwinClipboardPayload | null> {
+async function readDarwinClipboardPayload(): Promise<ClipboardPayload | null> {
   const { stdout } = await execFileUtf8('/usr/bin/swift', [
     '-e',
     DARWIN_CLIPBOARD_SCRIPT,
@@ -319,7 +319,7 @@ export function parseWindowsClipboardPayload(
   options?: {
     mapFilePath?: (value: string) => string | null;
   },
-): DarwinClipboardPayload | null {
+): ClipboardPayload | null {
   return parseClipboardPayload(raw, options);
 }
 
@@ -362,7 +362,7 @@ function parseClipboardTextPaths(raw: string): string[] {
 
 async function readWindowsClipboardPayload(options?: {
   mapFilePath?: (value: string) => string | null;
-}): Promise<DarwinClipboardPayload | null> {
+}): Promise<ClipboardPayload | null> {
   for (const command of ['powershell.exe', 'pwsh', 'powershell']) {
     try {
       const { stdout } = await execFileUtf8(command, [
@@ -429,7 +429,7 @@ interface LinuxClipboardBackendReader {
 
 async function readLinuxBackendClipboardPayload(
   reader: LinuxClipboardBackendReader,
-): Promise<DarwinClipboardPayload | null> {
+): Promise<ClipboardPayload | null> {
   const uriList = await reader.readText(LINUX_TEXT_URI_MIME);
   const filePaths = parseClipboardUriList(uriList || '');
   if (filePaths.length > 0) {
@@ -468,7 +468,7 @@ async function readLinuxBackendClipboardPayload(
   return null;
 }
 
-async function readWaylandClipboardPayload(): Promise<DarwinClipboardPayload | null> {
+async function readWaylandClipboardPayload(): Promise<ClipboardPayload | null> {
   return readLinuxBackendClipboardPayload({
     readText: (mimeType) =>
       maybeReadClipboardText('wl-paste', ['--type', mimeType]),
@@ -477,7 +477,7 @@ async function readWaylandClipboardPayload(): Promise<DarwinClipboardPayload | n
   });
 }
 
-async function readXclipClipboardPayload(): Promise<DarwinClipboardPayload | null> {
+async function readXclipClipboardPayload(): Promise<ClipboardPayload | null> {
   return readLinuxBackendClipboardPayload({
     readText: (mimeType) =>
       maybeReadClipboardText('xclip', [
@@ -498,8 +498,8 @@ async function readXclipClipboardPayload(): Promise<DarwinClipboardPayload | nul
   });
 }
 
-async function readLinuxClipboardPayload(): Promise<DarwinClipboardPayload | null> {
-  const readers: Array<() => Promise<DarwinClipboardPayload | null>> = process
+async function readLinuxClipboardPayload(): Promise<ClipboardPayload | null> {
+  const readers: Array<() => Promise<ClipboardPayload | null>> = process
     .env.WAYLAND_DISPLAY
     ? [readWaylandClipboardPayload, readXclipClipboardPayload]
     : process.env.DISPLAY
@@ -515,7 +515,7 @@ async function readLinuxClipboardPayload(): Promise<DarwinClipboardPayload | nul
 }
 
 async function payloadToUploadCandidates(
-  payload: DarwinClipboardPayload | null,
+  payload: ClipboardPayload | null,
 ): Promise<TuiClipboardUploadCandidate[]> {
   if (!payload) return [];
 

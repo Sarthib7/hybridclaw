@@ -1801,8 +1801,12 @@ function handleApiEvents(req: IncomingMessage, res: ServerResponse): void {
   });
 
   const sendSnapshot = async (): Promise<void> => {
-    sendEvent('overview', await getGatewayAdminOverview());
-    sendEvent('status', await getGatewayStatus());
+    try {
+      sendEvent('overview', await getGatewayAdminOverview());
+      sendEvent('status', await getGatewayStatus());
+    } catch (err) {
+      logger.debug({ err }, 'SSE snapshot failed');
+    }
   };
 
   void sendSnapshot();
@@ -1909,7 +1913,13 @@ export function startGatewayHttpServer(): void {
     if (pathname === '/health' && method === 'GET') {
       void getGatewayStatus().then(
         (status) => sendJson(res, 200, status),
-        () => sendJson(res, 503, { status: 'error' }),
+        (err) => {
+          logger.error({ err }, 'Health check failed');
+          sendJson(res, 503, {
+            status: 'error',
+            error: err instanceof Error ? err.message : String(err),
+          });
+        },
       );
       return;
     }

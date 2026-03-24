@@ -1431,9 +1431,12 @@ async function main(): Promise<void> {
   startOrRestartHeartbeat();
   startObservabilityIngest();
   startDiscoveryLoop();
-  // Warm up on-demand health probe caches (fire-and-forget).
-  void localBackendsProbe.get().catch(() => {});
-  void hybridAIProbe.get().catch(() => {});
+  void localBackendsProbe.get().catch((err) => {
+    logger.warn({ err }, 'Startup warm-up of local backends probe failed');
+  });
+  void hybridAIProbe.get().catch((err) => {
+    logger.warn({ err }, 'Startup warm-up of HybridAI probe failed');
+  });
   detachConfigListener = onConfigChange((next, prev) => {
     const shouldRestart =
       next.hybridai.defaultChatbotId !== prev.hybridai.defaultChatbotId ||

@@ -1932,10 +1932,18 @@ function buildTokenUsageAuditPayload(
 }
 
 export async function getGatewayStatus(): Promise<GatewayStatus> {
-  const [localBackendsMap, hybridaiHealth] = await Promise.all([
+  const [localBackendsResult, hybridaiResult] = await Promise.allSettled([
     localBackendsProbe.get(),
     hybridAIProbe.get(),
   ]);
+  const localBackendsMap =
+    localBackendsResult.status === 'fulfilled'
+      ? localBackendsResult.value
+      : new Map();
+  const hybridaiHealth: HybridAIHealthResult =
+    hybridaiResult.status === 'fulfilled'
+      ? hybridaiResult.value
+      : { reachable: false, detail: 'probe failed', error: 'probe failed', latencyMs: 0 };
   const sandbox = getSandboxDiagnostics();
   const codex = getCodexAuthStatus();
   const localBackends = Object.fromEntries(

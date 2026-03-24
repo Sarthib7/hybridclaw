@@ -13,7 +13,7 @@ import {
   runtimeSecretsPath,
   saveRuntimeSecrets,
 } from '../security/runtime-secrets.js';
-import { makeLazyApi, normalizeArgs } from './common.js';
+import { makeLazyApi, normalizeArgs, parseValueFlag } from './common.js';
 import {
   isHelpRequest,
   printAuthUsage,
@@ -89,15 +89,17 @@ function extractBaseUrlArg(args: string[]): {
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index] || '';
-    if (arg === '--base-url') {
-      const next = args[index + 1];
-      if (!next) throw new Error('Missing value for `--base-url`.');
-      baseUrl = next;
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith('--base-url=')) {
-      baseUrl = arg.slice('--base-url='.length);
+    const baseUrlFlag = parseValueFlag({
+      arg,
+      args,
+      index,
+      names: ['--base-url'],
+      placeholder: '<url>',
+      allowEmptyEquals: true,
+    });
+    if (baseUrlFlag) {
+      baseUrl = baseUrlFlag.value;
+      index = baseUrlFlag.nextIndex;
       continue;
     }
     remaining.push(arg);
@@ -162,15 +164,17 @@ function parseOpenRouterLoginArgs(args: string[]): ParsedOpenRouterLoginArgs {
       setDefault = true;
       continue;
     }
-    if (arg === '--api-key') {
-      const next = remaining[index + 1];
-      if (!next) throw new Error('Missing value for `--api-key`.');
-      apiKey = next;
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith('--api-key=')) {
-      apiKey = arg.slice('--api-key='.length);
+    const apiKeyFlag = parseValueFlag({
+      arg,
+      args: remaining,
+      index,
+      names: ['--api-key'],
+      placeholder: '<key>',
+      allowEmptyEquals: true,
+    });
+    if (apiKeyFlag) {
+      apiKey = apiKeyFlag.value;
+      index = apiKeyFlag.nextIndex;
       continue;
     }
     if (arg.startsWith('-')) {
@@ -666,15 +670,17 @@ function parseLocalConfigureArgs(args: string[]): ParsedLocalConfigureArgs {
       setDefault = true;
       continue;
     }
-    if (arg === '--api-key') {
-      const next = remaining[index + 1];
-      if (!next) throw new Error('Missing value for `--api-key`.');
-      apiKey = next;
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith('--api-key=')) {
-      apiKey = arg.slice('--api-key='.length);
+    const apiKeyFlag = parseValueFlag({
+      arg,
+      args: remaining,
+      index,
+      names: ['--api-key'],
+      placeholder: '<key>',
+      allowEmptyEquals: true,
+    });
+    if (apiKeyFlag) {
+      apiKey = apiKeyFlag.value;
+      index = apiKeyFlag.nextIndex;
       continue;
     }
     if (arg.startsWith('-')) {
@@ -1014,45 +1020,63 @@ function parseMSTeamsLoginArgs(args: string[]): {
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index] || '';
-    if (arg === '--app-id' || arg === '--client-id') {
-      const next = args[index + 1];
-      if (!next) throw new Error('Missing value for `--app-id`.');
-      appId = next.trim() || null;
-      index += 1;
+    const appIdFlag =
+      parseValueFlag({
+        arg,
+        args,
+        index,
+        names: ['--app-id'],
+        placeholder: '<id>',
+        allowEmptyEquals: true,
+      }) ||
+      parseValueFlag({
+        arg,
+        args,
+        index,
+        names: ['--client-id'],
+        placeholder: '<id>',
+        displayName: '--app-id',
+        allowEmptyEquals: true,
+      });
+    if (appIdFlag) {
+      appId = appIdFlag.value || null;
+      index = appIdFlag.nextIndex;
       continue;
     }
-    if (arg.startsWith('--app-id=')) {
-      appId = arg.slice('--app-id='.length).trim() || null;
+    const appPasswordFlag =
+      parseValueFlag({
+        arg,
+        args,
+        index,
+        names: ['--app-password'],
+        placeholder: '<secret>',
+        allowEmptyEquals: true,
+      }) ||
+      parseValueFlag({
+        arg,
+        args,
+        index,
+        names: ['--client-secret'],
+        placeholder: '<secret>',
+        displayName: '--app-password',
+        allowEmptyEquals: true,
+      });
+    if (appPasswordFlag) {
+      appPassword = appPasswordFlag.value || null;
+      index = appPasswordFlag.nextIndex;
       continue;
     }
-    if (arg.startsWith('--client-id=')) {
-      appId = arg.slice('--client-id='.length).trim() || null;
-      continue;
-    }
-    if (arg === '--app-password' || arg === '--client-secret') {
-      const next = args[index + 1];
-      if (!next) throw new Error('Missing value for `--app-password`.');
-      appPassword = next.trim() || null;
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith('--app-password=')) {
-      appPassword = arg.slice('--app-password='.length).trim() || null;
-      continue;
-    }
-    if (arg.startsWith('--client-secret=')) {
-      appPassword = arg.slice('--client-secret='.length).trim() || null;
-      continue;
-    }
-    if (arg === '--tenant-id') {
-      const next = args[index + 1];
-      if (!next) throw new Error('Missing value for `--tenant-id`.');
-      tenantId = next.trim() || null;
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith('--tenant-id=')) {
-      tenantId = arg.slice('--tenant-id='.length).trim() || null;
+    const tenantIdFlag = parseValueFlag({
+      arg,
+      args,
+      index,
+      names: ['--tenant-id'],
+      placeholder: '<id>',
+      allowEmptyEquals: true,
+    });
+    if (tenantIdFlag) {
+      tenantId = tenantIdFlag.value || null;
+      index = tenantIdFlag.nextIndex;
       continue;
     }
     if (arg.startsWith('-')) {

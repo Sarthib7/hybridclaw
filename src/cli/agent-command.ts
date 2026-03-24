@@ -6,7 +6,7 @@ import {
   getRuntimeConfig,
   runtimeConfigPath,
 } from '../config/runtime-config.js';
-import { normalizeArgs } from './common.js';
+import { normalizeArgs, parseValueFlag } from './common.js';
 import { isHelpRequest, printAgentUsage } from './help.js';
 
 async function ensureAgentPackagingRuntime(): Promise<void> {
@@ -63,44 +63,6 @@ async function promptTrimmed(
   const suffix = fallback ? ` [${fallback}]` : '';
   const answer = (await rl.question(`${question}${suffix}: `)).trim();
   return answer || fallback;
-}
-
-function parseValueFlag(params: {
-  arg: string;
-  args: string[];
-  index: number;
-  names: string[];
-  placeholder: string;
-}): { value: string; nextIndex: number } | null {
-  const { arg, args, index, names, placeholder } = params;
-
-  for (const name of names) {
-    if (arg === name) {
-      const value = String(args[index + 1] || '').trim();
-      if (!value) {
-        throw new Error(
-          `Missing value for \`${name}\`. Use \`${name} ${placeholder}\`.`,
-        );
-      }
-      return {
-        value,
-        nextIndex: index + 1,
-      };
-    }
-
-    if (arg.startsWith(`${name}=`)) {
-      const value = arg.slice(`${name}=`.length).trim();
-      if (!value) {
-        throw new Error(`Missing value for \`${name}=${placeholder}\`.`);
-      }
-      return {
-        value,
-        nextIndex: index,
-      };
-    }
-  }
-
-  return null;
 }
 
 export async function handleAgentPackageCommand(args: string[]): Promise<void> {

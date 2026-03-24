@@ -1,4 +1,7 @@
 const DOCS_BASE_PATH = '/development';
+const GITHUB_REPO_URL = 'https://github.com/HybridAIOne/hybridclaw';
+const DISCORD_URL = 'https://discord.gg/jsVW4vJw27';
+const SEARCH_RESULT_LIMIT = 10;
 
 export const DEVELOPMENT_DOCS_SECTIONS = [
   {
@@ -71,6 +74,13 @@ const DOCS_BY_PATH = new Map(
   ),
 );
 const KNOWN_DOC_PATHS = new Set(DOCS_BY_PATH.keys());
+const DOCS_SEARCH_ENTRIES = DEVELOPMENT_DOCS_SECTIONS.flatMap((section) =>
+  section.pages.map((page) => ({
+    label: page.title,
+    parentTitle: section.title,
+    routePath: buildDocHtmlHref(page.path),
+  })),
+);
 
 export function normalizeDocPath(input) {
   return String(input || '')
@@ -177,6 +187,10 @@ export function buildDocHtmlHref(docPath, basePath = DOCS_BASE_PATH) {
 
 export function buildDocMarkdownHref(docPath, basePath = DOCS_BASE_PATH) {
   return `${normalizeBasePath(basePath)}/${normalizeDocPath(docPath)}`;
+}
+
+function renderExternalLinkIcon() {
+  return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 2h4v4h-1.5V4.56L7.03 10.03l-1.06-1.06L11.44 3.5H10V2ZM3 4h4v1.5H4.5v6h6V9H12v4H3V4Z" fill="currentColor"></path></svg>';
 }
 
 function resolvePageCandidate(currentDocPath, rawHref) {
@@ -565,6 +579,44 @@ function derivePageTitle(docPath) {
   return DOCS_BY_PATH.get(docPath)?.title || stripMarkdownFormatting(docPath);
 }
 
+function findSectionForDocPath(docPath) {
+  return (
+    DEVELOPMENT_DOCS_SECTIONS.find((section) =>
+      section.pages.some((page) => page.path === docPath),
+    ) || null
+  );
+}
+
+function renderBreadcrumbs(docPath, basePath) {
+  const items = [
+    { label: 'Home', href: '/' },
+    { label: 'Documentation', href: buildDocHtmlHref('README.md', basePath) },
+  ];
+
+  const section = findSectionForDocPath(docPath);
+  if (section && section.title !== 'Overview') {
+    items.push({
+      label: section.title,
+      href: buildDocHtmlHref(section.pages[0]?.path || 'README.md', basePath),
+    });
+  }
+
+  items.push({ label: derivePageTitle(docPath), href: null });
+
+  return items
+    .map((item, index) => {
+      const body = item.href
+        ? `<a href="${escapeHtml(item.href)}">${escapeHtml(item.label)}</a>`
+        : `<span aria-current="page">${escapeHtml(item.label)}</span>`;
+      const suffix =
+        index === items.length - 1
+          ? ''
+          : '<span class="docs-breadcrumb-separator">/</span>';
+      return `<span class="docs-breadcrumb-item">${body}${suffix}</span>`;
+    })
+    .join('');
+}
+
 function renderSidebar(currentDocPath, basePath) {
   return DEVELOPMENT_DOCS_SECTIONS.map((section) => {
     const links = section.pages
@@ -582,10 +634,13 @@ function renderSidebar(currentDocPath, basePath) {
 }
 
 function renderToc(headings) {
-  if (!Array.isArray(headings) || headings.length < 2) {
-    return '';
+  const visibleHeadings = Array.isArray(headings)
+    ? headings.filter((heading) => heading.level >= 2 && heading.level <= 4)
+    : [];
+  if (visibleHeadings.length === 0) {
+    return '<div class="docs-toc-empty">This page has no sectional headings.</div>';
   }
-  const links = headings
+  const links = visibleHeadings
     .map(
       (heading) =>
         `<a class="docs-toc-link docs-toc-link-level-${heading.level}" href="#${escapeHtml(
@@ -611,31 +666,65 @@ function renderNotFoundState(mount, docPath, basePath) {
   document.title = 'Docs Not Found · HybridClaw';
   mount.innerHTML = `
     <div class="docs-app-shell">
-      <aside class="docs-sidebar">
-        <a class="docs-brand" href="/">
-          <span class="docs-brand-mark">HC</span>
-          <span class="docs-brand-text">HybridClaw Docs</span>
+      <header class="docs-topbar">
+        <a class="docs-brand" href="${escapeHtml(
+          buildDocHtmlHref('README.md', basePath),
+        )}">
+          <img src="/static/favicon.svg" alt="HybridClaw">
+          <span>HybridClaw</span>
+          <span class="docs-brand-accent">Docs</span>
         </a>
-        <div class="docs-nav">${renderSidebar('', basePath)}</div>
-      </aside>
-      <main class="docs-main">
-        <div class="docs-topbar">
-          <a class="docs-home-link" href="/">Back to Home</a>
-          <a class="docs-home-link" href="${escapeHtml(
-            buildDocMarkdownHref('README.md', basePath),
-          )}">View Docs Source</a>
+        <nav class="docs-topnav" aria-label="Top navigation">
+          <a href="/">Home</a>
+          <a href="${GITHUB_REPO_URL}" target="_blank" rel="noreferrer">GitHub ${renderExternalLinkIcon()}</a>
+          <a href="${DISCORD_URL}" target="_blank" rel="noreferrer">Discord ${renderExternalLinkIcon()}</a>
+        </nav>
+        <div class="docs-search-shell">
+          <label class="docs-search" aria-label="Search docs">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M13.5 12.4 17.6 16.5l-1.1 1.1-4.1-4.1a6 6 0 1 1 1.1-1.1ZM8.5 13A4.5 4.5 0 1 0 8.5 4a4.5 4.5 0 0 0 0 9Z" fill="currentColor"></path></svg>
+            <input type="search" placeholder="Search docs" data-doc-search-input>
+            <span class="docs-search-kbd">/</span>
+            <span class="docs-search-kbd">K</span>
+          </label>
+          <div class="docs-search-results" data-doc-search-results hidden>
+            <div class="docs-search-results-list" data-doc-search-list></div>
+            <div class="docs-search-empty" data-doc-search-empty hidden>No matches yet.</div>
+          </div>
         </div>
-        <article class="docs-article">
-          <div class="docs-badge">Docs</div>
-          <h1>Page Not Found</h1>
-          <p class="docs-description">No development doc matched <code>${escapeHtml(
-            docPath,
-          )}</code>.</p>
-          <p>Use the sidebar to open an existing page, or go back to <a href="${escapeHtml(
-            buildDocHtmlHref('README.md', basePath),
-          )}">the docs index</a>.</p>
-        </article>
-      </main>
+        <button class="docs-theme-toggle" type="button" data-doc-theme-toggle aria-label="Switch theme">Dark</button>
+      </header>
+      <div class="docs-frame">
+        <aside class="docs-sidebar">
+          <div class="docs-nav">${renderSidebar('', basePath)}</div>
+        </aside>
+        <main class="docs-main">
+          <div class="docs-page-head">
+            <div class="docs-breadcrumbs" aria-label="Breadcrumb">
+              ${renderBreadcrumbs('README.md', basePath)}
+            </div>
+            <div class="docs-page-actions">
+              <a class="docs-page-source-link" href="${escapeHtml(
+                buildDocMarkdownHref('README.md', basePath),
+              )}">View .md</a>
+            </div>
+          </div>
+          <article class="docs-article">
+            <div class="docs-content">
+              <h1>Page Not Found</h1>
+              <p>No development doc matched <code>${escapeHtml(docPath)}</code>.</p>
+              <p>Use the sidebar to open an existing page, or go back to <a href="${escapeHtml(
+                buildDocHtmlHref('README.md', basePath),
+              )}">the docs index</a>.</p>
+            </div>
+          </article>
+        </main>
+        <aside class="docs-toc" aria-label="On this page">
+          <div class="docs-toc-title">On this page</div>
+          <div class="docs-toc-links">
+            <div class="docs-toc-empty">Open an existing page from the sidebar.</div>
+          </div>
+        </aside>
+      </div>
     </div>
   `;
 }
@@ -694,54 +783,70 @@ export async function mountDevelopmentDocsApp(options = {}) {
     basePath,
   });
   const pageTitle = metadata.title || derivePageTitle(docPath);
-  const pageDescription =
-    metadata.description ||
-    body
-      .split('\n')
-      .map((line) => line.trim())
-      .find(
-        (line) => line && !line.startsWith('#') && !line.startsWith('---'),
-      ) ||
-    '';
-
   document.title = `${pageTitle} · HybridClaw Docs`;
   mount.innerHTML = `
     <div class="docs-app-shell">
-      <aside class="docs-sidebar">
-        <a class="docs-brand" href="/">
-          <span class="docs-brand-mark">HC</span>
-          <span class="docs-brand-text">HybridClaw Docs</span>
+      <header class="docs-topbar">
+        <a class="docs-brand" href="${escapeHtml(
+          buildDocHtmlHref('README.md', basePath),
+        )}">
+          <img src="/static/favicon.svg" alt="HybridClaw">
+          <span>HybridClaw</span>
+          <span class="docs-brand-accent">Docs</span>
         </a>
-        <div class="docs-nav">${renderSidebar(docPath, basePath)}</div>
-      </aside>
-      <main class="docs-main">
-        <div class="docs-topbar">
-          <a class="docs-home-link" href="/">Back to Home</a>
+        <nav class="docs-topnav" aria-label="Top navigation">
+          <a href="/">Home</a>
+          <a href="${GITHUB_REPO_URL}" target="_blank" rel="noreferrer">GitHub ${renderExternalLinkIcon()}</a>
+          <a href="${DISCORD_URL}" target="_blank" rel="noreferrer">Discord ${renderExternalLinkIcon()}</a>
+        </nav>
+        <div class="docs-search-shell">
+          <label class="docs-search" aria-label="Search docs">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M13.5 12.4 17.6 16.5l-1.1 1.1-4.1-4.1a6 6 0 1 1 1.1-1.1ZM8.5 13A4.5 4.5 0 1 0 8.5 4a4.5 4.5 0 0 0 0 9Z" fill="currentColor"></path></svg>
+            <input type="search" placeholder="Search docs" data-doc-search-input>
+            <span class="docs-search-kbd">/</span>
+            <span class="docs-search-kbd">K</span>
+          </label>
+          <div class="docs-search-results" data-doc-search-results hidden>
+            <div class="docs-search-results-list" data-doc-search-list></div>
+            <div class="docs-search-empty" data-doc-search-empty hidden>No matches yet.</div>
+          </div>
         </div>
-        <article class="docs-article">
+        <button class="docs-theme-toggle" type="button" data-doc-theme-toggle aria-label="Switch theme">Dark</button>
+      </header>
+      <div class="docs-frame">
+        <aside class="docs-sidebar">
+          <div class="docs-nav">${renderSidebar(docPath, basePath)}</div>
+        </aside>
+        <main class="docs-main">
           <div class="docs-page-head">
-            <div class="docs-page-head-content">
-              <div class="docs-badge">Development Manual</div>
-              <h1>${escapeHtml(pageTitle)}</h1>
-              ${
-                pageDescription
-                  ? `<p class="docs-description">${escapeHtml(pageDescription)}</p>`
-                  : ''
-              }
+            <div class="docs-breadcrumbs" aria-label="Breadcrumb">
+              ${renderBreadcrumbs(docPath, basePath)}
             </div>
-            <div class="docs-actions">
-              <button type="button" class="docs-action-button" data-copy-markdown>Copy Markdown</button>
-              <a class="docs-action-link" href="${escapeHtml(markdownHref)}">View .md</a>
+            <div class="docs-page-actions">
+              <button type="button" class="docs-page-action" data-copy-markdown>Copy Markdown</button>
+              <a class="docs-page-source-link" href="${escapeHtml(markdownHref)}">View .md</a>
             </div>
           </div>
-          ${renderToc(headings)}
-          <div class="docs-content">${html}</div>
-        </article>
-      </main>
+          <article class="docs-article">
+            <div class="docs-content">${html}</div>
+          </article>
+        </main>
+        <aside class="docs-toc" aria-label="On this page">
+          <div class="docs-toc-title">On this page</div>
+          <div class="docs-toc-links">
+            ${renderToc(headings)}
+          </div>
+        </aside>
+      </div>
     </div>
   `;
 
   const copyButton = mount.querySelector('[data-copy-markdown]');
+  const searchInput = mount.querySelector('[data-doc-search-input]');
+  const searchResults = mount.querySelector('[data-doc-search-results]');
+  const searchEmpty = mount.querySelector('[data-doc-search-empty]');
+  const searchList = mount.querySelector('[data-doc-search-list]');
+  const themeToggle = mount.querySelector('[data-doc-theme-toggle]');
   if (copyButton instanceof HTMLButtonElement) {
     copyButton.addEventListener('click', async () => {
       try {
@@ -758,6 +863,151 @@ export async function mountDevelopmentDocsApp(options = {}) {
       }
     });
   }
+
+  const applyTheme = (theme) => {
+    document.documentElement.dataset.theme = theme;
+    try {
+      localStorage.setItem('hybridclaw-docs-theme', theme);
+    } catch {}
+    if (themeToggle instanceof HTMLButtonElement) {
+      themeToggle.setAttribute(
+        'aria-label',
+        theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode',
+      );
+      themeToggle.textContent = theme === 'dark' ? 'Light' : 'Dark';
+    }
+  };
+
+  let initialTheme = 'light';
+  try {
+    const storedTheme = localStorage.getItem('hybridclaw-docs-theme');
+    if (storedTheme === 'light' || storedTheme === 'dark') {
+      initialTheme = storedTheme;
+    } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+      initialTheme = 'dark';
+    }
+  } catch {
+    if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+      initialTheme = 'dark';
+    }
+  }
+  applyTheme(initialTheme);
+
+  if (themeToggle instanceof HTMLButtonElement) {
+    themeToggle.addEventListener('click', () => {
+      applyTheme(
+        document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark',
+      );
+    });
+  }
+
+  const renderSearchResults = (query) => {
+    if (
+      !(searchInput instanceof HTMLInputElement) ||
+      !(searchResults instanceof HTMLElement) ||
+      !(searchEmpty instanceof HTMLElement) ||
+      !(searchList instanceof HTMLElement)
+    ) {
+      return [];
+    }
+
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) {
+      searchResults.hidden = true;
+      searchList.innerHTML = '';
+      searchEmpty.hidden = true;
+      return [];
+    }
+
+    const matches = DOCS_SEARCH_ENTRIES.filter((entry) => {
+      const haystack = `${entry.label} ${entry.parentTitle}`.toLowerCase();
+      return haystack.includes(normalizedQuery);
+    }).slice(0, SEARCH_RESULT_LIMIT);
+
+    searchList.innerHTML = '';
+    searchResults.hidden = false;
+    searchEmpty.hidden = matches.length !== 0;
+
+    for (const entry of matches) {
+      const link = document.createElement('a');
+      link.className = 'docs-search-result';
+      link.href = entry.routePath;
+
+      const title = document.createElement('strong');
+      title.textContent = entry.label;
+      link.appendChild(title);
+
+      const meta = document.createElement('span');
+      meta.className = 'docs-search-result-meta';
+      meta.textContent = entry.parentTitle;
+      link.appendChild(meta);
+
+      searchList.appendChild(link);
+    }
+
+    return matches;
+  };
+
+  const isEditableTarget = (target) =>
+    target instanceof HTMLElement &&
+    (target.isContentEditable ||
+      target.tagName === 'INPUT' ||
+      target.tagName === 'TEXTAREA' ||
+      target.tagName === 'SELECT');
+
+  if (searchInput instanceof HTMLInputElement) {
+    searchInput.addEventListener('input', () => {
+      renderSearchResults(searchInput.value || '');
+    });
+    searchInput.addEventListener('focus', () => {
+      renderSearchResults(searchInput.value || '');
+    });
+    searchInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        searchInput.value = '';
+        renderSearchResults('');
+        searchInput.blur();
+        return;
+      }
+      if (event.key === 'Enter') {
+        const matches = renderSearchResults(searchInput.value || '');
+        if (matches[0]?.routePath) {
+          window.location.href = matches[0].routePath;
+        }
+      }
+    });
+  }
+
+  document.addEventListener('click', (event) => {
+    if (
+      searchResults instanceof HTMLElement &&
+      !searchResults.contains(event.target) &&
+      event.target !== searchInput
+    ) {
+      searchResults.hidden = true;
+    }
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (
+      (event.key === '/' && !isEditableTarget(event.target)) ||
+      ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k')
+    ) {
+      event.preventDefault();
+      if (searchInput instanceof HTMLInputElement) {
+        searchInput.focus();
+        searchInput.select();
+      }
+      return;
+    }
+    if (
+      event.key === 'Escape' &&
+      searchInput instanceof HTMLInputElement &&
+      document.activeElement === searchInput
+    ) {
+      searchInput.blur();
+    }
+  });
 
   scrollToHash();
   return true;

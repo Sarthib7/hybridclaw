@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
-import { normalizeArgs } from './cli/common.js';
+import { makeLazyApi, normalizeArgs } from './cli/common.js';
 import {
   isHelpRequest,
   printAuditUsage,
@@ -51,10 +51,14 @@ type ConfigApi = typeof import('./config/config.js');
 type OnboardingApi = typeof import('./onboarding.js');
 
 let cachedAppVersion: string | null = null;
-let configApi: ConfigApi | null = null;
-let configApiPromise: Promise<ConfigApi> | null = null;
-let onboardingApi: OnboardingApi | null = null;
-let onboardingApiPromise: Promise<OnboardingApi> | null = null;
+const configApiState = makeLazyApi<ConfigApi>(
+  () => import('./config/config.js'),
+  'Config API accessed before initialization.',
+);
+const onboardingApiState = makeLazyApi<OnboardingApi>(
+  () => import('./onboarding.js'),
+  'Onboarding API accessed before it was initialized. Call ensureOnboardingApi() first.',
+);
 
 function readVersionFromPackageJson(packageJsonPath: string): string | null {
   try {
@@ -105,17 +109,11 @@ function resolveCliVersion(): string {
 }
 
 async function ensureConfigApi(): Promise<ConfigApi> {
-  if (configApi) return configApi;
-  configApiPromise ??= import('./config/config.js');
-  configApi = await configApiPromise;
-  return configApi;
+  return configApiState.ensure();
 }
 
 function getConfigApi(): ConfigApi {
-  if (!configApi) {
-    throw new Error('Config API accessed before initialization.');
-  }
-  return configApi;
+  return configApiState.get();
 }
 
 function getGatewayBaseUrl(): string {
@@ -123,10 +121,7 @@ function getGatewayBaseUrl(): string {
 }
 
 async function ensureOnboardingApi(): Promise<OnboardingApi> {
-  if (onboardingApi) return onboardingApi;
-  onboardingApiPromise ??= import('./onboarding.js');
-  onboardingApi = await onboardingApiPromise;
-  return onboardingApi;
+  return onboardingApiState.ensure();
 }
 
 function resolveInstallRoot(): string {

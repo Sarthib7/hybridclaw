@@ -15,7 +15,7 @@ import {
   saveRuntimeSecrets,
 } from '../security/runtime-secrets.js';
 import { sleep } from '../utils/sleep.js';
-import { normalizeArgs } from './common.js';
+import { makeLazyApi, normalizeArgs } from './common.js';
 import { isHelpRequest, printChannelsUsage } from './help.js';
 
 type WhatsAppAuthApi = typeof import('../channels/whatsapp/auth.js');
@@ -23,77 +23,41 @@ type WhatsAppConnectionApi =
   typeof import('../channels/whatsapp/connection.js');
 type WhatsAppPhoneApi = typeof import('../channels/whatsapp/phone.js');
 
-let whatsAppAuthApi: WhatsAppAuthApi | null = null;
-let whatsAppAuthApiPromise: Promise<WhatsAppAuthApi> | null = null;
-let whatsAppConnectionApi: WhatsAppConnectionApi | null = null;
-let whatsAppConnectionApiPromise: Promise<WhatsAppConnectionApi> | null = null;
-let whatsAppPhoneApi: WhatsAppPhoneApi | null = null;
-let whatsAppPhoneApiPromise: Promise<WhatsAppPhoneApi> | null = null;
+const whatsAppAuthApiState = makeLazyApi<WhatsAppAuthApi>(
+  () => import('../channels/whatsapp/auth.js'),
+  'WhatsApp auth API accessed before it was initialized. Call ensureWhatsAppAuthApi() first.',
+);
+const whatsAppConnectionApiState = makeLazyApi<WhatsAppConnectionApi>(
+  () => import('../channels/whatsapp/connection.js'),
+  'WhatsApp connection API accessed before it was initialized. Call ensureWhatsAppConnectionApi() first.',
+);
+const whatsAppPhoneApiState = makeLazyApi<WhatsAppPhoneApi>(
+  () => import('../channels/whatsapp/phone.js'),
+  'WhatsApp phone API accessed before it was initialized. Call ensureWhatsAppPhoneApi() first.',
+);
 
 async function ensureWhatsAppAuthApi(): Promise<WhatsAppAuthApi> {
-  if (whatsAppAuthApi) return whatsAppAuthApi;
-  if (!whatsAppAuthApiPromise) {
-    whatsAppAuthApiPromise = import('../channels/whatsapp/auth.js').then(
-      (api) => {
-        whatsAppAuthApi = api;
-        return api;
-      },
-    );
-  }
-  return whatsAppAuthApiPromise;
+  return whatsAppAuthApiState.ensure();
 }
 
 function getWhatsAppAuthApi(): WhatsAppAuthApi {
-  if (!whatsAppAuthApi) {
-    throw new Error(
-      'WhatsApp auth API accessed before it was initialized. Call ensureWhatsAppAuthApi() first.',
-    );
-  }
-  return whatsAppAuthApi;
+  return whatsAppAuthApiState.get();
 }
 
 async function ensureWhatsAppConnectionApi(): Promise<WhatsAppConnectionApi> {
-  if (whatsAppConnectionApi) return whatsAppConnectionApi;
-  if (!whatsAppConnectionApiPromise) {
-    whatsAppConnectionApiPromise = import(
-      '../channels/whatsapp/connection.js'
-    ).then((api) => {
-      whatsAppConnectionApi = api;
-      return api;
-    });
-  }
-  return whatsAppConnectionApiPromise;
+  return whatsAppConnectionApiState.ensure();
 }
 
 function getWhatsAppConnectionApi(): WhatsAppConnectionApi {
-  if (!whatsAppConnectionApi) {
-    throw new Error(
-      'WhatsApp connection API accessed before it was initialized. Call ensureWhatsAppConnectionApi() first.',
-    );
-  }
-  return whatsAppConnectionApi;
+  return whatsAppConnectionApiState.get();
 }
 
 async function ensureWhatsAppPhoneApi(): Promise<WhatsAppPhoneApi> {
-  if (whatsAppPhoneApi) return whatsAppPhoneApi;
-  if (!whatsAppPhoneApiPromise) {
-    whatsAppPhoneApiPromise = import('../channels/whatsapp/phone.js').then(
-      (api) => {
-        whatsAppPhoneApi = api;
-        return api;
-      },
-    );
-  }
-  return whatsAppPhoneApiPromise;
+  return whatsAppPhoneApiState.ensure();
 }
 
 function getWhatsAppPhoneApi(): WhatsAppPhoneApi {
-  if (!whatsAppPhoneApi) {
-    throw new Error(
-      'WhatsApp phone API accessed before it was initialized. Call ensureWhatsAppPhoneApi() first.',
-    );
-  }
-  return whatsAppPhoneApi;
+  return whatsAppPhoneApiState.get();
 }
 
 function resolveWhatsAppSetupSettleMs(): number {

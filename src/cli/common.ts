@@ -1,6 +1,36 @@
 import type { SkillConfigChannelKind } from '../channels/channel.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 
+export function makeLazyApi<T>(
+  importer: () => Promise<T>,
+  notInitializedMessage: string,
+): {
+  ensure: () => Promise<T>;
+  get: () => T;
+} {
+  let api: T | null = null;
+  let promise: Promise<T> | null = null;
+
+  return {
+    async ensure(): Promise<T> {
+      if (api) return api;
+      if (!promise) {
+        promise = importer().then((loadedApi) => {
+          api = loadedApi;
+          return loadedApi;
+        });
+      }
+      return promise;
+    },
+    get(): T {
+      if (!api) {
+        throw new Error(notInitializedMessage);
+      }
+      return api;
+    },
+  };
+}
+
 export function normalizeArgs(args: string[]): string[] {
   return args.map((arg) => arg.trim()).filter(Boolean);
 }

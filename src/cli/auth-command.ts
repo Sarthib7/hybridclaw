@@ -13,7 +13,7 @@ import {
   runtimeSecretsPath,
   saveRuntimeSecrets,
 } from '../security/runtime-secrets.js';
-import { normalizeArgs } from './common.js';
+import { makeLazyApi, normalizeArgs } from './common.js';
 import {
   isHelpRequest,
   printAuthUsage,
@@ -30,86 +30,49 @@ type CodexAuthApi = typeof import('../auth/codex-auth.js');
 type WhatsAppAuthApi = typeof import('../channels/whatsapp/auth.js');
 type OnboardingApi = typeof import('../onboarding.js');
 
-let hybridAIAuthApi: HybridAIAuthApi | null = null;
-let hybridAIAuthApiPromise: Promise<HybridAIAuthApi> | null = null;
-let codexAuthApi: CodexAuthApi | null = null;
-let codexAuthApiPromise: Promise<CodexAuthApi> | null = null;
-let whatsAppAuthApi: WhatsAppAuthApi | null = null;
-let whatsAppAuthApiPromise: Promise<WhatsAppAuthApi> | null = null;
-let onboardingApi: OnboardingApi | null = null;
-let onboardingApiPromise: Promise<OnboardingApi> | null = null;
+const hybridAIAuthApiState = makeLazyApi<HybridAIAuthApi>(
+  () => import('../auth/hybridai-auth.js'),
+  'HybridAI auth API accessed before it was initialized. Call ensureHybridAIAuthApi() first.',
+);
+const codexAuthApiState = makeLazyApi<CodexAuthApi>(
+  () => import('../auth/codex-auth.js'),
+  'Codex auth API accessed before it was initialized. Call ensureCodexAuthApi() first.',
+);
+const whatsAppAuthApiState = makeLazyApi<WhatsAppAuthApi>(
+  () => import('../channels/whatsapp/auth.js'),
+  'WhatsApp auth API accessed before it was initialized. Call ensureWhatsAppAuthApi() first.',
+);
+const onboardingApiState = makeLazyApi<OnboardingApi>(
+  () => import('../onboarding.js'),
+  'Onboarding API accessed before it was initialized. Call ensureOnboardingApi() first.',
+);
 
 async function ensureHybridAIAuthApi(): Promise<HybridAIAuthApi> {
-  if (hybridAIAuthApi) return hybridAIAuthApi;
-  if (!hybridAIAuthApiPromise) {
-    hybridAIAuthApiPromise = import('../auth/hybridai-auth.js').then((api) => {
-      hybridAIAuthApi = api;
-      return api;
-    });
-  }
-  return hybridAIAuthApiPromise;
+  return hybridAIAuthApiState.ensure();
 }
 
 function getHybridAIAuthApi(): HybridAIAuthApi {
-  if (!hybridAIAuthApi) {
-    throw new Error(
-      'HybridAI auth API accessed before it was initialized. Call ensureHybridAIAuthApi() first.',
-    );
-  }
-  return hybridAIAuthApi;
+  return hybridAIAuthApiState.get();
 }
 
 async function ensureCodexAuthApi(): Promise<CodexAuthApi> {
-  if (codexAuthApi) return codexAuthApi;
-  if (!codexAuthApiPromise) {
-    codexAuthApiPromise = import('../auth/codex-auth.js').then((api) => {
-      codexAuthApi = api;
-      return api;
-    });
-  }
-  return codexAuthApiPromise;
+  return codexAuthApiState.ensure();
 }
 
 function getCodexAuthApi(): CodexAuthApi {
-  if (!codexAuthApi) {
-    throw new Error(
-      'Codex auth API accessed before it was initialized. Call ensureCodexAuthApi() first.',
-    );
-  }
-  return codexAuthApi;
+  return codexAuthApiState.get();
 }
 
 async function ensureWhatsAppAuthApi(): Promise<WhatsAppAuthApi> {
-  if (whatsAppAuthApi) return whatsAppAuthApi;
-  if (!whatsAppAuthApiPromise) {
-    whatsAppAuthApiPromise = import('../channels/whatsapp/auth.js').then(
-      (api) => {
-        whatsAppAuthApi = api;
-        return api;
-      },
-    );
-  }
-  return whatsAppAuthApiPromise;
+  return whatsAppAuthApiState.ensure();
 }
 
 function getWhatsAppAuthApi(): WhatsAppAuthApi {
-  if (!whatsAppAuthApi) {
-    throw new Error(
-      'WhatsApp auth API accessed before it was initialized. Call ensureWhatsAppAuthApi() first.',
-    );
-  }
-  return whatsAppAuthApi;
+  return whatsAppAuthApiState.get();
 }
 
 async function ensureOnboardingApi(): Promise<OnboardingApi> {
-  if (onboardingApi) return onboardingApi;
-  if (!onboardingApiPromise) {
-    onboardingApiPromise = import('../onboarding.js').then((api) => {
-      onboardingApi = api;
-      return api;
-    });
-  }
-  return onboardingApiPromise;
+  return onboardingApiState.ensure();
 }
 
 function parseCodexLoginMethod(

@@ -836,12 +836,10 @@ function buildHybridAIProviderEntry(
     kind: 'remote',
     reachable: probe.reachable,
     ...(probe.error ? { error: probe.error } : {}),
-    ...(typeof probe.latencyMs === 'number'
-      ? { latencyMs: probe.latencyMs }
-      : {}),
+    latencyMs: probe.latencyMs,
     modelCount: probe.modelCount ?? configModelCount,
     detail: probe.reachable
-      ? `${probe.latencyMs ?? '?'}ms`
+      ? `${probe.latencyMs}ms`
       : probe.error || 'unreachable',
   };
 }

@@ -1,19 +1,18 @@
 import {
   LOCAL_HEALTH_CHECK_INTERVAL_MS,
 } from '../config/config.js';
-import { logger } from '../logger.js';
+import type { ProviderProbeResult } from '../doctor/provider-probes.js';
 import { probeHybridAI } from '../doctor/provider-probes.js';
+import { logger } from '../logger.js';
 
-export interface HybridAIHealthResult {
-  reachable: boolean;
-  detail: string;
-  modelCount?: number;
-  latencyMs?: number;
+export interface HybridAIHealthResult extends ProviderProbeResult {
+  latencyMs: number;
   error?: string;
 }
 
 let cachedResult: HybridAIHealthResult | null = null;
 let probeTimer: ReturnType<typeof setInterval> | null = null;
+let probeInFlight = false;
 
 async function runProbe(): Promise<HybridAIHealthResult> {
   const startedAt = Date.now();
@@ -38,7 +37,13 @@ async function runProbe(): Promise<HybridAIHealthResult> {
 }
 
 async function refreshCache(): Promise<void> {
-  cachedResult = await runProbe();
+  if (probeInFlight) return;
+  probeInFlight = true;
+  try {
+    cachedResult = await runProbe();
+  } finally {
+    probeInFlight = false;
+  }
 }
 
 export function getHybridAIHealth(): HybridAIHealthResult | null {

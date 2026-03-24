@@ -2392,6 +2392,32 @@ describe('gateway HTTP server', () => {
     expect(fs.readFileSync(storedPath, 'utf8')).toBe('png-bytes');
   });
 
+  test('rejects unsupported upload media types like text/html', async () => {
+    const dataDir = makeTempDataDir();
+    const state = await importFreshHealth({ dataDir });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/media/upload',
+      headers: {
+        'content-type': 'text/html; charset=utf-8',
+        'x-hybridclaw-filename': encodeURIComponent('index.html'),
+      },
+      body: Buffer.from('<script>alert(1)</script>'),
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(415);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Unsupported media type: text/html.',
+    });
+    expect(
+      fs.existsSync(path.join(dataDir, 'uploaded-media-cache')),
+    ).toBe(false);
+  });
+
   test('starts with an empty DATA_DIR and returns 503 for media uploads', async () => {
     const state = await importFreshHealth({ dataDir: '' });
     const req = makeRequest({

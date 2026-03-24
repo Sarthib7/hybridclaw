@@ -149,6 +149,17 @@ const SAFE_INLINE_ARTIFACT_MIME_TYPES: Record<string, string> = {
   '.webp': 'image/webp',
   '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 };
+const ALLOWED_MEDIA_UPLOAD_MIME_TYPES = new Set([
+  'application/json',
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'text/csv',
+  'text/markdown',
+  'text/plain',
+  'text/xml',
+]);
 
 type ApiChatRequestBody = GatewayChatRequestBody & { stream?: boolean };
 type ApiMessageActionRequestBody = Partial<DiscordToolActionRequest>;
@@ -724,6 +735,14 @@ function buildMediaOnlyPromptContent(media: { filename: string }[]): string {
     : `Attached files: ${summary}`;
 }
 
+function isAllowedMediaUploadMimeType(mimeType: string): boolean {
+  return (
+    mimeType.startsWith('audio/') ||
+    mimeType.startsWith('image/') ||
+    ALLOWED_MEDIA_UPLOAD_MIME_TYPES.has(mimeType)
+  );
+}
+
 function resolveSiteFile(pathname: string): string | null {
   return resolveStaticFile(
     SITE_DIR,
@@ -887,6 +906,12 @@ async function handleApiMediaUpload(
   const mimeType =
     normalizeMimeType(normalizeHeaderValue(req.headers['content-type'])) ||
     'application/octet-stream';
+  if (!isAllowedMediaUploadMimeType(mimeType)) {
+    sendJson(res, 415, {
+      error: `Unsupported media type: ${mimeType}.`,
+    });
+    return;
+  }
   let stored: Awaited<ReturnType<typeof writeUploadedMediaCacheFile>>;
   try {
     stored = await writeUploadedMediaCacheFile({

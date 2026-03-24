@@ -10,6 +10,8 @@ import {
 
 const MAX_FOLDER_ENTRIES = 200;
 const GIT_MAX_BUFFER = 2 * 1024 * 1024;
+const URL_FETCH_TIMEOUT_MS = 10_000;
+const URL_FETCH_MAX_BYTES = 512 * 1024;
 
 export type ContextReferenceUrlFetcher = (url: string) => Promise<string>;
 
@@ -192,8 +194,68 @@ async function listFolderEntries(folderPath: string): Promise<{
   }
 }
 
+async function readResponseTextLimited(
+  response: Response,
+  maxBytes: number,
+): Promise<string> {
+  const contentLengthHeader = response.headers.get('content-length');
+  const contentLength = Number.parseInt(contentLengthHeader || '', 10);
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+    throw new Error(`response body exceeds ${maxBytes} bytes`);
+  }
+
+  if (!response.body) {
+    const text = await response.text();
+    if (Buffer.byteLength(text, 'utf8') > maxBytes) {
+      throw new Error(`response body exceeds ${maxBytes} bytes`);
+    }
+    return text;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let totalBytes = 0;
+  let text = '';
+
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+
+      totalBytes += chunk.value.byteLength;
+      if (totalBytes > maxBytes) {
+        throw new Error(`response body exceeds ${maxBytes} bytes`);
+      }
+
+      text += decoder.decode(chunk.value, { stream: true });
+    }
+
+    return `${text}${decoder.decode()}`;
+  } catch (error) {
+    await reader.cancel().catch(() => undefined);
+    throw error;
+  }
+}
+
 async function defaultUrlFetcher(url: string): Promise<string> {
-  const response = await fetch(url, { redirect: 'manual' });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      redirect: 'manual',
+      signal: AbortSignal.timeout(URL_FETCH_TIMEOUT_MS),
+    });
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.name === 'TimeoutError' || error.name === 'AbortError')
+    ) {
+      throw new Error(
+        `URL fetch timed out after ${URL_FETCH_TIMEOUT_MS}ms`,
+      );
+    }
+    throw error;
+  }
+
   if (
     response.type === 'opaqueredirect' ||
     response.status === 301 ||
@@ -207,7 +269,7 @@ async function defaultUrlFetcher(url: string): Promise<string> {
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}`);
   }
-  return response.text();
+  return readResponseTextLimited(response, URL_FETCH_MAX_BYTES);
 }
 
 export async function expandFileReference(

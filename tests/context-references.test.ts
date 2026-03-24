@@ -357,6 +357,7 @@ describe('context references', () => {
         ok: false,
         status: 302,
         type: 'basic',
+        headers: new Headers(),
         text: async () => '',
       }));
       vi.stubGlobal('fetch', fetchMock);
@@ -372,6 +373,46 @@ describe('context references', () => {
         expect.objectContaining({ redirect: 'manual' }),
       );
       expect(warning).toContain('redirects are blocked');
+      expect(block).toBeNull();
+    });
+
+    test('times out slow URL fetches in the default fetcher', async () => {
+      const fetchMock = vi.fn(async () => {
+        throw new DOMException('signal timed out', 'TimeoutError');
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const { expandReference } = await loadResolverModule();
+      const ref = parseContextReferences(
+        'Read @url:https://example.com/docs.md',
+      )[0];
+      const [warning, block] = await expandReference(ref, workspacePath, {});
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://example.com/docs.md',
+        expect.objectContaining({ redirect: 'manual' }),
+      );
+      expect(warning).toContain('timed out after 10000ms');
+      expect(block).toBeNull();
+    });
+
+    test('blocks oversized URL responses in the default fetcher', async () => {
+      const fetchMock = vi.fn(async () =>
+        new Response('x'.repeat(600_000), {
+          headers: {
+            'content-type': 'text/plain; charset=utf-8',
+          },
+        }),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      const { expandReference } = await loadResolverModule();
+      const ref = parseContextReferences(
+        'Read @url:https://example.com/docs.txt',
+      )[0];
+      const [warning, block] = await expandReference(ref, workspacePath, {});
+
+      expect(warning).toContain('response body exceeds 524288 bytes');
       expect(block).toBeNull();
     });
   });

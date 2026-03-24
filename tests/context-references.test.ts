@@ -321,7 +321,9 @@ describe('context references', () => {
       );
 
       const { expandReference } = await loadResolverModule();
-      const ref = parseContextReferences('Inspect @file:src/secret-link.txt')[0];
+      const ref = parseContextReferences(
+        'Inspect @file:src/secret-link.txt',
+      )[0];
       const [warning, block] = await expandReference(ref, workspacePath, {
         allowedRoot: workspacePath,
       });

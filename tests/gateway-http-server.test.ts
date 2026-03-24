@@ -303,6 +303,12 @@ async function importFreshHealth(options?: {
   authSecret?: string;
   hybridAiBaseUrl?: string;
   runningInsideContainer?: boolean;
+  mediaUploadQuotaDecision?: {
+    allowed: boolean;
+    remainingBytes: number;
+    retryAfterMs: number;
+    usedBytes: number;
+  };
 }) {
   vi.resetModules();
 
@@ -730,6 +736,13 @@ async function importFreshHealth(options?: {
   const claimQueuedProactiveMessages = vi.fn(() => [
     { id: 1, text: 'queued message' },
   ]);
+  const consumeGatewayMediaUploadQuota = vi.fn((params: { bytes: number }) => ({
+    allowed: true,
+    remainingBytes: Number.POSITIVE_INFINITY,
+    retryAfterMs: 0,
+    usedBytes: params.bytes,
+    ...options?.mediaUploadQuotaDecision,
+  }));
 
   vi.doMock('node:http', () => ({
     default: { createServer },
@@ -816,6 +829,9 @@ async function importFreshHealth(options?: {
     ),
     normalizeDiscordToolAction,
   }));
+  vi.doMock('../src/gateway/media-upload-quota.ts', () => ({
+    consumeGatewayMediaUploadQuota,
+  }));
 
   const gatewayHttpServer = await import(
     '../src/gateway/gateway-http-server.js'
@@ -857,6 +873,7 @@ async function importFreshHealth(options?: {
     runMessageToolAction,
     normalizeDiscordToolAction,
     claimQueuedProactiveMessages,
+    consumeGatewayMediaUploadQuota,
   };
 }
 
@@ -871,6 +888,7 @@ afterEach(() => {
   vi.doUnmock('../src/channels/msteams/runtime.js');
   vi.doUnmock('../src/channels/message/tool-actions.js');
   vi.doUnmock('../src/channels/discord/tool-actions.js');
+  vi.doUnmock('../src/gateway/media-upload-quota.ts');
   vi.resetModules();
   if (ORIGINAL_HYBRIDCLAW_AUTH_SECRET === undefined) {
     delete process.env.HYBRIDCLAW_AUTH_SECRET;
@@ -2412,6 +2430,45 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(415);
     expect(JSON.parse(res.body)).toEqual({
       error: 'Unsupported media type: text/html.',
+    });
+    expect(fs.existsSync(path.join(dataDir, 'uploaded-media-cache'))).toBe(
+      false,
+    );
+  });
+
+  test('returns 429 when the media upload quota is exhausted', async () => {
+    const dataDir = makeTempDataDir();
+    const state = await importFreshHealth({
+      dataDir,
+      mediaUploadQuotaDecision: {
+        allowed: false,
+        remainingBytes: 0,
+        retryAfterMs: 12_000,
+        usedBytes: 100 * 1024 * 1024,
+      },
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/media/upload',
+      headers: {
+        'content-type': 'image/png',
+        'x-hybridclaw-filename': encodeURIComponent('Screen Shot.png'),
+      },
+      body: Buffer.from('png-bytes'),
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(state.consumeGatewayMediaUploadQuota).toHaveBeenCalledWith({
+      key: 'loopback:127.0.0.1',
+      bytes: 'png-bytes'.length,
+    });
+    expect(res.statusCode).toBe(429);
+    expect(res.headers['Retry-After']).toBe('12');
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Media upload quota exceeded. Try again later.',
     });
     expect(fs.existsSync(path.join(dataDir, 'uploaded-media-cache'))).toBe(
       false,

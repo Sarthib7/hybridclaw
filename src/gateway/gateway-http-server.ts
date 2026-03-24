@@ -96,6 +96,7 @@ import {
   upsertGatewayAdminMcpServer,
   upsertGatewayAdminSchedulerJob,
 } from './gateway-service.js';
+import { consumeGatewayMediaUploadQuota } from './media-upload-quota.js';
 import type {
   GatewayChatRequestBody,
   GatewayChatResult,
@@ -369,6 +370,24 @@ function hasApiAuth(
   }
   if (authHeader === `Bearer ${WEB_API_TOKEN}`) return true;
   return gatewayTokenMatch;
+}
+
+function resolveApiMediaUploadQuotaKey(req: IncomingMessage): string {
+  const authHeader = req.headers.authorization || '';
+  if (WEB_API_TOKEN && authHeader === `Bearer ${WEB_API_TOKEN}`) {
+    return 'web-token';
+  }
+  if (GATEWAY_API_TOKEN && authHeader === `Bearer ${GATEWAY_API_TOKEN}`) {
+    return 'gateway-token';
+  }
+
+  const normalizedAddress = String(req.socket.remoteAddress || '')
+    .replace(/^::ffff:/, '')
+    .trim();
+  if (isLoopbackAddress(req.socket.remoteAddress)) {
+    return `loopback:${normalizedAddress || 'unknown'}`;
+  }
+  return 'authenticated';
 }
 
 function sendJson(
@@ -912,6 +931,22 @@ async function handleApiMediaUpload(
     });
     return;
   }
+
+  const quotaDecision = consumeGatewayMediaUploadQuota({
+    key: resolveApiMediaUploadQuotaKey(req),
+    bytes: buffer.length,
+  });
+  if (!quotaDecision.allowed) {
+    res.setHeader(
+      'Retry-After',
+      String(Math.max(1, Math.ceil(quotaDecision.retryAfterMs / 1_000))),
+    );
+    sendJson(res, 429, {
+      error: 'Media upload quota exceeded. Try again later.',
+    });
+    return;
+  }
+
   let stored: Awaited<ReturnType<typeof writeUploadedMediaCacheFile>>;
   try {
     stored = await writeUploadedMediaCacheFile({

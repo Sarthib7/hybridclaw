@@ -604,10 +604,7 @@ function normalizeApiChatMediaItems(raw: unknown): MediaContextItem[] {
     }
 
     const resolvedHostPath = resolveValidatedApiChatMediaHostPath(pathValue);
-    if (
-      !resolvedHostPath ||
-      !isAllowedApiChatMediaHostPath(resolvedHostPath)
-    ) {
+    if (!resolvedHostPath || !isAllowedApiChatMediaHostPath(resolvedHostPath)) {
       throw new HttpRequestError(
         400,
         `Invalid \`media[${index}].path\`. Only uploaded or Discord media cache files are accepted.`,
@@ -616,24 +613,15 @@ function normalizeApiChatMediaItems(raw: unknown): MediaContextItem[] {
 
     const rawSizeBytes = mediaItem.sizeBytes;
     if (rawSizeBytes != null && typeof rawSizeBytes !== 'number') {
-      throw new HttpRequestError(
-        400,
-        `Invalid \`media[${index}].sizeBytes\`.`,
-      );
+      throw new HttpRequestError(400, `Invalid \`media[${index}].sizeBytes\`.`);
     }
     if (typeof rawSizeBytes === 'number' && !Number.isFinite(rawSizeBytes)) {
-      throw new HttpRequestError(
-        400,
-        `Invalid \`media[${index}].sizeBytes\`.`,
-      );
+      throw new HttpRequestError(400, `Invalid \`media[${index}].sizeBytes\`.`);
     }
 
     const rawMimeType = mediaItem.mimeType;
     if (rawMimeType != null && typeof rawMimeType !== 'string') {
-      throw new HttpRequestError(
-        400,
-        `Invalid \`media[${index}].mimeType\`.`,
-      );
+      throw new HttpRequestError(400, `Invalid \`media[${index}].mimeType\`.`);
     }
 
     normalized.push({

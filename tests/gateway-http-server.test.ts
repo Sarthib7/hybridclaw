@@ -2225,8 +2225,7 @@ describe('gateway HTTP server', () => {
           {
             path: 42,
             url: '/api/artifact?path=%2Fuploaded-media-cache%2Fbad.png',
-            originalUrl:
-              '/api/artifact?path=%2Fuploaded-media-cache%2Fbad.png',
+            originalUrl: '/api/artifact?path=%2Fuploaded-media-cache%2Fbad.png',
             mimeType: 'image/png',
             sizeBytes: 123,
             filename: 'bad.png',

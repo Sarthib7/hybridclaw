@@ -90,37 +90,43 @@ export async function preprocessContextReferences(
   const hardLimit = Math.floor(contextLength * HARD_LIMIT_RATIO);
 
   const finalWarnings = [...warnings];
-  let finalBlocks = blocks;
-  let finalAttachedContext = attachedContext || null;
-  let finalContextTokens = contextTokens;
 
   if (contextTokens > hardLimit) {
     finalWarnings.push(
       `Context attachments estimated ${contextTokens} tokens, exceeding the hard limit of ${hardLimit}; attached context was omitted.`,
     );
-    finalBlocks = [];
-    finalAttachedContext = null;
-    finalContextTokens = 0;
-  } else if (contextTokens > softLimit) {
+    return {
+      originalMessage,
+      strippedMessage,
+      message: joinSections([
+        strippedMessage,
+        buildWarningsSection(finalWarnings),
+      ]),
+      references,
+      warnings: finalWarnings,
+      attachedContext: null,
+      contextTokens: 0,
+    };
+  }
+
+  if (contextTokens > softLimit) {
     finalWarnings.push(
       `Context attachments estimated ${contextTokens} tokens, exceeding the soft limit of ${softLimit}.`,
     );
   }
 
-  const message = joinSections([
-    strippedMessage,
-    buildWarningsSection(finalWarnings),
-    buildAttachedContext(finalBlocks),
-  ]);
-
   return {
     originalMessage,
     strippedMessage,
-    message,
+    message: joinSections([
+      strippedMessage,
+      buildWarningsSection(finalWarnings),
+      buildAttachedContext(blocks),
+    ]),
     references,
     warnings: finalWarnings,
-    attachedContext: finalAttachedContext,
-    contextTokens: finalContextTokens,
+    attachedContext: attachedContext || null,
+    contextTokens,
   };
 }
 

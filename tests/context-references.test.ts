@@ -351,6 +351,29 @@ describe('context references', () => {
       expect(block).toContain('```md');
       expect(block).toContain('# hello');
     });
+
+    test('blocks redirect responses in the default URL fetcher', async () => {
+      const fetchMock = vi.fn(async () => ({
+        ok: false,
+        status: 302,
+        type: 'basic',
+        text: async () => '',
+      }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const { expandReference } = await loadResolverModule();
+      const ref = parseContextReferences(
+        'Read @url:https://example.com/docs.md',
+      )[0];
+      const [warning, block] = await expandReference(ref, workspacePath, {});
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://example.com/docs.md',
+        expect.objectContaining({ redirect: 'manual' }),
+      );
+      expect(warning).toContain('redirects are blocked');
+      expect(block).toBeNull();
+    });
   });
 
   describe('preprocessContextReferences', () => {

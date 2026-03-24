@@ -64,14 +64,8 @@ import {
   startDiscoveryLoop,
   stopDiscoveryLoop,
 } from '../providers/local-discovery.js';
-import {
-  startHybridAIHealthLoop,
-  stopHybridAIHealthLoop,
-} from '../providers/hybridai-health.js';
-import {
-  startHealthCheckLoop,
-  stopHealthCheckLoop,
-} from '../providers/local-health.js';
+import { hybridAIProbe } from '../providers/hybridai-health.js';
+import { localBackendsProbe } from '../providers/local-health.js';
 import { startHeartbeat, stopHeartbeat } from '../scheduler/heartbeat.js';
 import {
   rearmScheduler,
@@ -1227,8 +1221,7 @@ function setupShutdown(): void {
     stopHeartbeat();
     stopObservabilityIngest();
     stopDiscoveryLoop();
-    stopHealthCheckLoop();
-    stopHybridAIHealthLoop();
+    // On-demand probes have no timers to stop.
     stopAllExecutions();
     await stopGatewayPlugins().catch((error) => {
       logger.debug({ error }, 'Failed to stop plugins during shutdown');
@@ -1439,8 +1432,9 @@ async function main(): Promise<void> {
   startOrRestartHeartbeat();
   startObservabilityIngest();
   startDiscoveryLoop();
-  startHealthCheckLoop();
-  startHybridAIHealthLoop();
+  // Warm up on-demand health probe caches (fire-and-forget).
+  void localBackendsProbe.get().catch(() => {});
+  void hybridAIProbe.get().catch(() => {});
   detachConfigListener = onConfigChange((next, prev) => {
     const shouldRestart =
       next.hybridai.defaultChatbotId !== prev.hybridai.defaultChatbotId ||
@@ -1488,10 +1482,10 @@ async function main(): Promise<void> {
       JSON.stringify(next.local) !== JSON.stringify(prev.local);
     if (localConfigChanged) {
       logger.info(
-        'Config changed, restarting local discovery and health loops',
+        'Config changed, restarting local discovery and invalidating health cache',
       );
       startDiscoveryLoop();
-      startHealthCheckLoop();
+      localBackendsProbe.invalidate();
     }
     if (!shouldRestartObservability) return;
 

@@ -1,6 +1,5 @@
 import {
   LOCAL_HEALTH_CHECK_ENABLED,
-  LOCAL_HEALTH_CHECK_INTERVAL_MS,
   LOCAL_HEALTH_CHECK_TIMEOUT_MS,
   LOCAL_LMSTUDIO_BASE_URL,
   LOCAL_LMSTUDIO_ENABLED,
@@ -16,9 +15,11 @@ import type {
   LocalBackendType,
   ModelHealthCheckResult,
 } from './local-types.js';
+import { createOnDemandProbe } from './on-demand-probe.js';
 import { isRecord, normalizeBaseUrl } from './utils.js';
 
-let healthTimer: ReturnType<typeof setInterval> | null = null;
+const PROBE_TTL_MS = 30_000;
+
 const backendHealth = new Map<LocalBackendType, HealthCheckResult>();
 
 function hasEnabledLocalBackend(): boolean {
@@ -191,6 +192,11 @@ export async function checkAllBackends(): Promise<
   return new Map(backendHealth);
 }
 
+export const localBackendsProbe = createOnDemandProbe(
+  checkAllBackends,
+  PROBE_TTL_MS,
+);
+
 export function getBackendHealth(
   backend: LocalBackendType,
 ): HealthCheckResult | null {
@@ -201,26 +207,5 @@ export function getAllBackendHealth(): Map<
   LocalBackendType,
   HealthCheckResult
 > {
-  return new Map(backendHealth);
-}
-
-export function startHealthCheckLoop(): void {
-  stopHealthCheckLoop();
-  if (!hasEnabledLocalBackend() || !LOCAL_HEALTH_CHECK_ENABLED) {
-    backendHealth.clear();
-    return;
-  }
-  void checkAllBackends();
-  healthTimer = setInterval(
-    () => {
-      void checkAllBackends();
-    },
-    Math.max(5_000, LOCAL_HEALTH_CHECK_INTERVAL_MS),
-  );
-}
-
-export function stopHealthCheckLoop(): void {
-  if (!healthTimer) return;
-  clearInterval(healthTimer);
-  healthTimer = null;
+  return localBackendsProbe.peek() ?? new Map(backendHealth);
 }

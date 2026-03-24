@@ -80,6 +80,7 @@ import {
   isAudioMediaItem,
   prependAudioTranscriptionsToUserContent,
 } from '../media/audio-transcription.js';
+import { summarizeMediaFilenames } from '../media/media-summary.js';
 import { extractMemoryCitations } from '../memory/citation-extractor.js';
 import { NoCompactableMessagesError } from '../memory/compaction.js';
 import {
@@ -944,15 +945,10 @@ function isImageMediaItem(item: MediaContextItem): boolean {
 
 function buildVisibleMediaSummary(media: MediaContextItem[]): string {
   if (media.length === 0) return '';
-  if (media.length === 1) {
-    return `Attached file: ${media[0].filename}`;
-  }
-  const preview = media
-    .slice(0, 3)
-    .map((item) => item.filename)
-    .join(', ');
-  const suffix = media.length > 3 ? `, and ${media.length - 3} more` : '';
-  return `Attached files: ${preview}${suffix}`;
+  const summary = summarizeMediaFilenames(media.map((item) => item.filename));
+  return media.length === 1
+    ? `Attached file: ${summary}`
+    : `Attached files: ${summary}`;
 }
 
 function buildStoredUserTurnContent(

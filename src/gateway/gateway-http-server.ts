@@ -28,6 +28,7 @@ import type {
 import { resolveInstallPath } from '../infra/install-root.js';
 import { logger } from '../logger.js';
 import { normalizeMimeType } from '../media/mime-utils.js';
+import { summarizeMediaFilenames } from '../media/media-summary.js';
 import {
   resolveUploadedMediaCacheHostDir,
   UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,
@@ -551,15 +552,10 @@ function normalizeHeaderValue(
 
 function buildMediaOnlyPromptContent(media: { filename: string }[]): string {
   if (media.length === 0) return '';
-  if (media.length === 1) {
-    return `Attached file: ${media[0].filename}`;
-  }
-  const preview = media
-    .slice(0, 3)
-    .map((item) => item.filename)
-    .join(', ');
-  const suffix = media.length > 3 ? `, and ${media.length - 3} more` : '';
-  return `Attached files: ${preview}${suffix}`;
+  const summary = summarizeMediaFilenames(media.map((item) => item.filename));
+  return media.length === 1
+    ? `Attached file: ${summary}`
+    : `Attached files: ${summary}`;
 }
 
 function resolveSiteFile(pathname: string): string | null {

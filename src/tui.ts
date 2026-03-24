@@ -40,6 +40,7 @@ import {
   sessionShowModeShowsTools,
 } from './gateway/show-mode.js';
 import { logger } from './logger.js';
+import { summarizeMediaFilenames } from './media/media-summary.js';
 import {
   normalizeModelCandidates,
   parseModelInfoSummaryFromText,
@@ -902,14 +903,12 @@ function cloneGatewayMediaItems(media: GatewayMediaItem[]): GatewayMediaItem[] {
 
 function summarizeGatewayMediaItems(media: GatewayMediaItem[]): string {
   if (media.length === 0) return '0 attachments';
-  const preview = media
-    .slice(0, 3)
-    .map((item) => item.filename || 'attachment')
-    .join(', ');
-  const suffix = media.length > 3 ? `, and ${media.length - 3} more` : '';
+  const preview = summarizeMediaFilenames(
+    media.map((item) => item.filename || 'attachment'),
+  );
   const countLabel =
     media.length === 1 ? '1 attachment' : `${media.length} attachments`;
-  return `${countLabel}: ${preview}${suffix}`;
+  return `${countLabel}: ${preview}`;
 }
 
 function buildPendingMediaPromptLabel(): string | null {

@@ -93,7 +93,7 @@ function extractBaseUrlArg(args: string[]): {
       arg,
       args,
       index,
-      names: ['--base-url'],
+      name: '--base-url',
       placeholder: '<url>',
       allowEmptyEquals: true,
     });
@@ -168,7 +168,7 @@ function parseOpenRouterLoginArgs(args: string[]): ParsedOpenRouterLoginArgs {
       arg,
       args: remaining,
       index,
-      names: ['--api-key'],
+      name: '--api-key',
       placeholder: '<key>',
       allowEmptyEquals: true,
     });
@@ -671,7 +671,7 @@ function parseLocalConfigureArgs(args: string[]): ParsedLocalConfigureArgs {
       arg,
       args: remaining,
       index,
-      names: ['--api-key'],
+      name: '--api-key',
       placeholder: '<key>',
       allowEmptyEquals: true,
     });
@@ -1021,7 +1021,7 @@ function parseMSTeamsLoginArgs(args: string[]): {
         arg,
         args,
         index,
-        names: ['--app-id'],
+        name: '--app-id',
         placeholder: '<id>',
         allowEmptyEquals: true,
       }) ||
@@ -1029,7 +1029,7 @@ function parseMSTeamsLoginArgs(args: string[]): {
         arg,
         args,
         index,
-        names: ['--client-id'],
+        name: '--client-id',
         placeholder: '<id>',
         displayName: '--app-id',
         allowEmptyEquals: true,
@@ -1044,7 +1044,7 @@ function parseMSTeamsLoginArgs(args: string[]): {
         arg,
         args,
         index,
-        names: ['--app-password'],
+        name: '--app-password',
         placeholder: '<secret>',
         allowEmptyEquals: true,
       }) ||
@@ -1052,7 +1052,7 @@ function parseMSTeamsLoginArgs(args: string[]): {
         arg,
         args,
         index,
-        names: ['--client-secret'],
+        name: '--client-secret',
         placeholder: '<secret>',
         displayName: '--app-password',
         allowEmptyEquals: true,
@@ -1066,7 +1066,7 @@ function parseMSTeamsLoginArgs(args: string[]): {
       arg,
       args,
       index,
-      names: ['--tenant-id'],
+      name: '--tenant-id',
       placeholder: '<id>',
       allowEmptyEquals: true,
     });

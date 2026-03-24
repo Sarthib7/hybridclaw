@@ -31,7 +31,17 @@ export function normalizeArgs(args: string[]): string[] {
   return args.map((arg) => arg.trim()).filter(Boolean);
 }
 
-export function parseValueFlag(params: {
+type SingleValueFlagParams = {
+  arg: string;
+  args: string[];
+  index: number;
+  name: string;
+  placeholder: string;
+  displayName?: string;
+  allowEmptyEquals?: boolean;
+};
+
+type MultiValueFlagParams = {
   arg: string;
   args: string[];
   index: number;
@@ -39,16 +49,26 @@ export function parseValueFlag(params: {
   placeholder: string;
   displayName?: string;
   allowEmptyEquals?: boolean;
-}): { value: string; nextIndex: number } | null {
+};
+
+export function parseValueFlag(
+  params: SingleValueFlagParams,
+): { value: string; nextIndex: number } | null;
+export function parseValueFlag(
+  params: MultiValueFlagParams,
+): { value: string; nextIndex: number } | null;
+export function parseValueFlag(
+  params: SingleValueFlagParams | MultiValueFlagParams,
+): { value: string; nextIndex: number } | null {
   const {
     arg,
     args,
     index,
-    names,
     placeholder,
     displayName,
     allowEmptyEquals = false,
   } = params;
+  const names = 'name' in params ? [params.name] : params.names;
 
   for (const name of names) {
     const label = displayName || name;

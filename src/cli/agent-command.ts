@@ -153,7 +153,7 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
         arg,
         args: normalized,
         index,
-        names: ['--description'],
+        name: '--description',
         placeholder: '<text>',
       });
       if (descriptionFlag) {
@@ -165,7 +165,7 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
         arg,
         args: normalized,
         index,
-        names: ['--author'],
+        name: '--author',
         placeholder: '<text>',
       });
       if (authorFlag) {
@@ -177,7 +177,7 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
         arg,
         args: normalized,
         index,
-        names: ['--version'],
+        name: '--version',
         placeholder: '<value>',
       });
       if (versionFlag) {
@@ -189,7 +189,7 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
         arg,
         args: normalized,
         index,
-        names: ['--skills'],
+        name: '--skills',
         placeholder: '<ask|active|all|some>',
       });
       if (skillsFlag) {
@@ -201,7 +201,7 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
         arg,
         args: normalized,
         index,
-        names: ['--skill'],
+        name: '--skill',
         placeholder: '<name>',
       });
       if (skillFlag) {
@@ -218,7 +218,7 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
         arg,
         args: normalized,
         index,
-        names: ['--plugins'],
+        name: '--plugins',
         placeholder: '<ask|active|all|some>',
       });
       if (pluginsFlag) {
@@ -230,7 +230,7 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
         arg,
         args: normalized,
         index,
-        names: ['--plugin'],
+        name: '--plugin',
         placeholder: '<id>',
       });
       if (pluginFlag) {
@@ -454,7 +454,7 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
         arg,
         args: normalized,
         index,
-        names: ['--id'],
+        name: '--id',
         placeholder: '<agent-id>',
       });
       if (idFlag) {

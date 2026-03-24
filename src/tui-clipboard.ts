@@ -499,19 +499,12 @@ async function readXclipClipboardPayload(): Promise<DarwinClipboardPayload | nul
 }
 
 async function readLinuxClipboardPayload(): Promise<DarwinClipboardPayload | null> {
-  const readers: Array<() => Promise<DarwinClipboardPayload | null>> = [];
-  if (process.env.WAYLAND_DISPLAY) {
-    readers.push(() => readWaylandClipboardPayload());
-  }
-  if (process.env.DISPLAY) {
-    readers.push(() => readXclipClipboardPayload());
-  }
-  if (!process.env.WAYLAND_DISPLAY) {
-    readers.push(() => readWaylandClipboardPayload());
-  }
-  if (!process.env.DISPLAY) {
-    readers.push(() => readXclipClipboardPayload());
-  }
+  const readers: Array<() => Promise<DarwinClipboardPayload | null>> =
+    process.env.WAYLAND_DISPLAY
+      ? [readWaylandClipboardPayload, readXclipClipboardPayload]
+      : process.env.DISPLAY
+        ? [readXclipClipboardPayload, readWaylandClipboardPayload]
+        : [readWaylandClipboardPayload, readXclipClipboardPayload];
 
   for (const readPayload of readers) {
     const payload = await readPayload();

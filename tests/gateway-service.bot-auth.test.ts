@@ -391,6 +391,62 @@ test('bot list suggests http when HybridAI baseUrl uses https for a local non-TL
   );
 });
 
+test('bot list error uses HYBRIDAI_BASE_URL from env when present', async () => {
+  setupHome({ HYBRIDAI_BASE_URL: 'https://preview-pr-123.example.com' });
+
+  vi.doMock('../src/providers/hybridai-bots.ts', () => {
+    class HybridAIBotFetchError extends Error {
+      status: number;
+      code?: number | string;
+      type?: string;
+      constructor(params: {
+        status: number;
+        message: string;
+        code?: number | string;
+        type?: string;
+      }) {
+        super(params.message);
+        this.name = 'HybridAIBotFetchError';
+        this.status = params.status;
+        this.code = params.code;
+        this.type = params.type;
+      }
+    }
+
+    return {
+      HybridAIBotFetchError,
+      fetchHybridAIBots: vi.fn(async () => {
+        throw new HybridAIBotFetchError({
+          status: 0,
+          type: 'network_error',
+          message: 'fetch failed (connect ECONNREFUSED 10.0.0.1:443)',
+        });
+      }),
+    };
+  });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  initDatabase({ quiet: true });
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await handleGatewayCommand({
+    sessionId: 'session-bot-env-base-url',
+    guildId: null,
+    channelId: 'channel-bot-env-base-url',
+    args: ['bot', 'list'],
+  });
+
+  expect(result.kind).toBe('error');
+  if (result.kind !== 'error') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.text).toBe(
+    'HybridAI is not reachable at `https://preview-pr-123.example.com`. Check `hybridai.baseUrl` and confirm the HybridAI service is running.',
+  );
+});
+
 test('bot list still classifies generic auth errors without HybridAIBotFetchError metadata', async () => {
   setupHome();
 

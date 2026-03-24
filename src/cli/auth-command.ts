@@ -55,24 +55,56 @@ function getCodexAuthApi(): CodexAuthApi {
   return codexAuthApiState.get();
 }
 
-function parseCodexLoginMethod(
+function parseExclusiveLoginMethodFlag<T extends string>(
   args: string[],
-): 'auto' | 'device-code' | 'browser-pkce' | 'codex-cli-import' {
+  params: {
+    methods: Array<{
+      flag: '--device-code' | '--browser' | '--import';
+      value: T;
+    }>;
+    rejectUnknownFlags?: boolean;
+  },
+): T | null {
   const flags = new Set(args.map((arg) => arg.trim().toLowerCase()));
-  const requested = [
-    flags.has('--device-code') ? 'device-code' : null,
-    flags.has('--browser') ? 'browser-pkce' : null,
-    flags.has('--import') ? 'codex-cli-import' : null,
-  ].filter(Boolean) as Array<
-    'device-code' | 'browser-pkce' | 'codex-cli-import'
-  >;
+  const allowedFlags = new Set<string>(
+    params.methods.map((method) => method.flag),
+  );
+
+  if (params.rejectUnknownFlags) {
+    for (const arg of args) {
+      if (!arg.startsWith('-')) continue;
+      const normalized = arg.trim().toLowerCase();
+      if (!allowedFlags.has(normalized)) {
+        throw new Error(`Unknown flag: ${arg}`);
+      }
+    }
+  }
+
+  const requested = params.methods
+    .filter((method) => flags.has(method.flag))
+    .map((method) => method.value);
 
   if (requested.length > 1) {
     throw new Error(
       'Use only one of `--device-code`, `--browser`, or `--import`.',
     );
   }
-  return requested[0] || 'auto';
+
+  return requested[0] || null;
+}
+
+function parseCodexLoginMethod(
+  args: string[],
+): 'auto' | 'device-code' | 'browser-pkce' | 'codex-cli-import' {
+  return (
+    parseExclusiveLoginMethodFlag(args, {
+      methods: [
+        { flag: '--device-code', value: 'device-code' },
+        { flag: '--browser', value: 'browser-pkce' },
+        { flag: '--import', value: 'codex-cli-import' },
+      ],
+    }) || 'auto'
+  );
 }
 
 interface ParsedHybridAILoginArgs {
@@ -110,33 +142,18 @@ function extractBaseUrlArg(args: string[]): {
 
 function parseHybridAILoginArgs(args: string[]): ParsedHybridAILoginArgs {
   const { baseUrl, remaining } = extractBaseUrlArg(args);
-  for (const arg of remaining) {
-    if (arg.startsWith('-')) {
-      const normalized = arg.trim().toLowerCase();
-      if (
-        normalized !== '--device-code' &&
-        normalized !== '--browser' &&
-        normalized !== '--import'
-      ) {
-        throw new Error(`Unknown flag: ${arg}`);
-      }
-    }
-  }
+  const method =
+    parseExclusiveLoginMethodFlag(remaining, {
+      methods: [
+        { flag: '--device-code', value: 'device-code' },
+        { flag: '--browser', value: 'browser' },
+        { flag: '--import', value: 'import' },
+      ],
+      rejectUnknownFlags: true,
+    }) || 'auto';
 
-  const flags = new Set(remaining.map((arg) => arg.trim().toLowerCase()));
-  const requested = [
-    flags.has('--device-code') ? 'device-code' : null,
-    flags.has('--browser') ? 'browser' : null,
-    flags.has('--import') ? 'import' : null,
-  ].filter(Boolean) as Array<'device-code' | 'browser' | 'import'>;
-
-  if (requested.length > 1) {
-    throw new Error(
-      'Use only one of `--device-code`, `--browser`, or `--import`.',
-    );
-  }
   return {
-    method: requested[0] || 'auto',
+    method,
     ...(baseUrl ? { baseUrl } : {}),
   };
 }

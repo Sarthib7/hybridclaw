@@ -1520,6 +1520,16 @@ describe('CLI hybridai commands', () => {
     });
   });
 
+  it('rejects conflicting codex login flags', async () => {
+    const { cli } = await importFreshCli();
+
+    await expect(
+      cli.main(['auth', 'login', 'codex', '--browser', '--import']),
+    ).rejects.toThrow(
+      'Use only one of `--device-code`, `--browser`, or `--import`.',
+    );
+  });
+
   it('routes auth login local to local backend configuration', async () => {
     const { cli, updateRuntimeConfig } = await importFreshCli();
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});

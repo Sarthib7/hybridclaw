@@ -153,6 +153,39 @@ async function flushAsyncWork(): Promise<void> {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.resetModules();
+  vi.useRealTimers();
+});
+
+test('skips stale append catch-up messages', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-03-25T20:30:00.000Z'));
+
+  const { processInboundWhatsAppMessage, runtime, upsertHandlers } =
+    await importFreshRuntimeModule();
+  const messageHandler = vi.fn(async () => {});
+
+  await runtime.initWhatsApp(messageHandler);
+  expect(upsertHandlers).toHaveLength(1);
+
+  await upsertHandlers[0]?.({
+    type: 'append',
+    messages: [
+      {
+        key: {
+          id: 'old-append-1',
+          fromMe: false,
+          remoteJid: '491703330161@s.whatsapp.net',
+        },
+        messageTimestamp: Math.floor(Date.now() / 1000) - 120,
+        message: {
+          conversation: 'old history message',
+        },
+      },
+    ],
+  });
+
+  expect(processInboundWhatsAppMessage).not.toHaveBeenCalled();
+  expect(messageHandler).not.toHaveBeenCalled();
 });
 
 test('createWhatsAppRuntime isolates runtime state per instance', async () => {
@@ -337,6 +370,57 @@ test('prefixes self-chat replies with [hybridclaw]', async () => {
       }),
     }),
   );
+});
+
+test('routes self-chat replies to the inbound chat jid when inbound chat jid is lid', async () => {
+  const { processInboundWhatsAppMessage, runtime, socket, upsertHandlers } =
+    await importFreshRuntimeModule({
+      isSelfChat: true,
+    });
+  processInboundWhatsAppMessage.mockResolvedValue({
+    sessionId: 'wa:491703330161@s.whatsapp.net',
+    guildId: null,
+    channelId: '1061007917075@lid',
+    userId: '+491703330161',
+    username: '+491703330161',
+    content: 'hello from my phone',
+    media: [],
+    chatJid: '1061007917075@lid',
+    senderJid: '1061007917075:14@lid',
+    isGroup: false,
+    isSelfChat: true,
+    rawMessage: {},
+  });
+  const messageHandler = vi.fn(async (...args: unknown[]) => {
+    const reply = args[7] as (content: string) => Promise<void>;
+    await reply('hello from the bot');
+  });
+
+  await runtime.initWhatsApp(messageHandler);
+  expect(upsertHandlers).toHaveLength(1);
+
+  await upsertHandlers[0]?.({
+    type: 'notify',
+    messages: [
+      {
+        key: {
+          id: 'phone-lid-1',
+          fromMe: true,
+          remoteJid: '1061007917075@lid',
+          participant: '1061007917075:14@lid',
+        },
+        message: {
+          conversation: 'hello from my phone',
+        },
+      },
+    ],
+  });
+
+  await flushAsyncWork();
+
+  expect(socket.sendMessage).toHaveBeenCalledWith('1061007917075@lid', {
+    text: '[hybridclaw] hello from the bot',
+  });
 });
 
 test('does not prefix non-self WhatsApp replies', async () => {

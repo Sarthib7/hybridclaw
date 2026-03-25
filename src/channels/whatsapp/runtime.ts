@@ -65,6 +65,7 @@ export interface WhatsAppRuntime {
 }
 
 const SELF_CHAT_REPLY_PREFIX = '[hybridclaw]';
+const APPEND_RECENT_GRACE_MS = 60_000;
 const SELF_CHAT_REPLY_PREFIX_RE = new RegExp(
   `^${SELF_CHAT_REPLY_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\s|$)`,
   'i',
@@ -78,6 +79,17 @@ function formatSelfChatReply(content: string): string {
   return trimmed
     ? `${SELF_CHAT_REPLY_PREFIX} ${trimmed}`
     : SELF_CHAT_REPLY_PREFIX;
+}
+
+function parseMessageTimestampMs(message: WAMessage): number | null {
+  const raw = message.messageTimestamp;
+  if (raw == null) return null;
+  const parsed =
+    typeof raw === 'number'
+      ? raw
+      : Number(typeof raw === 'object' ? raw.toString() : raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed * 1000;
 }
 
 export function createWhatsAppRuntime(): WhatsAppRuntime {
@@ -130,7 +142,7 @@ export function createWhatsAppRuntime(): WhatsAppRuntime {
         socket.ev.on('messages.upsert', ({ messages, type }) => {
           if (type !== 'notify' && type !== 'append') return;
           for (const message of messages) {
-            void handleUpsertedMessage(message, messages, messageHandler);
+            void handleUpsertedMessage(message, messages, type, messageHandler);
           }
         });
       },
@@ -201,8 +213,19 @@ export function createWhatsAppRuntime(): WhatsAppRuntime {
   const handleUpsertedMessage = async (
     message: WAMessage,
     batchedMessages: WAMessage[],
+    upsertType: 'notify' | 'append',
     messageHandler: WhatsAppMessageHandler,
   ): Promise<void> => {
+    if (upsertType === 'append') {
+      const messageTimestampMs = parseMessageTimestampMs(message);
+      if (
+        messageTimestampMs != null &&
+        messageTimestampMs < Date.now() - APPEND_RECENT_GRACE_MS
+      ) {
+        return;
+      }
+    }
+
     const remoteJid = message.key.remoteJid?.trim();
     const messageId = message.key.id?.trim();
     if (

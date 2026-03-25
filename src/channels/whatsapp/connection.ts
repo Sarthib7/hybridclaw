@@ -143,6 +143,7 @@ export function createWhatsAppConnectionManager(params?: {
     resolve: (socket: WASocket) => void;
     reject: (error: Error) => void;
   }> = [];
+  let credsSaveQueue: Promise<void> = Promise.resolve();
 
   const resolveWaiters = (nextSocket: WASocket): void => {
     while (waiters.length > 0) {
@@ -168,6 +169,23 @@ export function createWhatsAppConnectionManager(params?: {
       reconnectTimer = null;
       void connect();
     }, delayMs);
+  };
+
+  const enqueueSaveCreds = (
+    saveCreds: () => Promise<void> | void,
+  ): Promise<void> => {
+    credsSaveQueue = credsSaveQueue
+      .catch(() => undefined)
+      .then(() => Promise.resolve(saveCreds()))
+      .catch((error) => {
+        logWhatsAppMessage(
+          childLogger,
+          'warn',
+          'Failed to persist WhatsApp credentials',
+          { error },
+        );
+      });
+    return credsSaveQueue;
   };
 
   const connect = async (): Promise<void> => {
@@ -196,6 +214,7 @@ export function createWhatsAppConnectionManager(params?: {
         logger: baileysLogger,
         markOnlineOnConnect: false,
         printQRInTerminal: false,
+        syncFullHistory: false,
         version: latestVersion?.version,
       });
       if (stopped) {
@@ -211,14 +230,7 @@ export function createWhatsAppConnectionManager(params?: {
       params?.onSocketCreated?.(nextSocket);
 
       nextSocket.ev.on('creds.update', () => {
-        void Promise.resolve(saveCreds()).catch((error) => {
-          logWhatsAppMessage(
-            childLogger,
-            'warn',
-            'Failed to persist WhatsApp credentials',
-            { error },
-          );
-        });
+        void enqueueSaveCreds(saveCreds);
       });
 
       nextSocket.ev.on(
@@ -375,6 +387,7 @@ export function createWhatsAppConnectionManager(params?: {
           childLogger.debug({ error }, 'WhatsApp socket shutdown raised');
         }
       }
+      await credsSaveQueue.catch(() => undefined);
       releaseAuthLock?.();
       releaseAuthLock = null;
       rejectWaiters(new Error('WhatsApp runtime stopped'));

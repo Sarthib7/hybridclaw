@@ -32,7 +32,6 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
     '/skill import <source> [--force] [--skip-skill-scan]',
   );
   expect(labels).toContain('/skill import --force <source>');
-  expect(labels).toContain('/skill import --skip-skill-scan <source>');
 });
 
 test('resolves slash menu queries only at the end of the active line', () => {

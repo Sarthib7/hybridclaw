@@ -1246,13 +1246,6 @@ function buildSlashCommandCatalogDefinitions(
               description:
                 'Import a reviewed community skill and override caution findings',
             },
-            {
-              id: 'skill.import.skip-skill-scan',
-              label: '/skill import --skip-skill-scan <source>',
-              insertText: '/skill import --skip-skill-scan ',
-              description:
-                'Import a community skill without running the security scanner',
-            },
           ],
         },
       ],

@@ -109,9 +109,7 @@ function parseSkillImportArgs(
       continue;
     }
     printSkillUsage();
-    throw new Error(
-      `Unexpected extra arguments for \`${usage}\`.`,
-    );
+    throw new Error(`Unexpected extra arguments for \`${usage}\`.`);
   }
 
   if (!source) {
@@ -420,7 +418,10 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
     );
 
     const { importSkill } = await import('../skills/skills-import.js');
-    const result = await importSkill(source, { force, skipGuard: skipSkillScan });
+    const result = await importSkill(source, {
+      force,
+      skipGuard: skipSkillScan,
+    });
     if (result.guardSkipped) {
       console.warn(
         `Security scanner skipped for ${result.skillName} because --skip-skill-scan was set.`,

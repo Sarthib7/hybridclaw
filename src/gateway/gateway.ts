@@ -63,11 +63,11 @@ import {
   listQueuedProactiveMessages,
 } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
+import { hybridAIProbe } from '../providers/hybridai-health.js';
 import {
   startDiscoveryLoop,
   stopDiscoveryLoop,
 } from '../providers/local-discovery.js';
-import { hybridAIProbe } from '../providers/hybridai-health.js';
 import { localBackendsProbe } from '../providers/local-health.js';
 import { startHeartbeat, stopHeartbeat } from '../scheduler/heartbeat.js';
 import {
@@ -1065,7 +1065,9 @@ async function startWhatsAppIntegration(): Promise<boolean> {
           if (cleanedResultText.trim()) {
             const responseText = buildResponseText(
               cleanedResultText,
-              sessionShowModeShowsTools(showMode) ? result.toolsUsed : undefined,
+              sessionShowModeShowsTools(showMode)
+                ? result.toolsUsed
+                : undefined,
             );
             await reply(responseText);
           }

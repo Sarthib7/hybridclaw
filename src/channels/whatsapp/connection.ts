@@ -65,18 +65,17 @@ function attachWhatsAppTransportErrorSinks(
 ): void {
   if (!isEventEmitterLike(transport)) return;
 
-  attachWhatsAppEmitterErrorSink(
-    target,
-    transport,
-    'WhatsApp websocket error',
-  );
+  attachWhatsAppEmitterErrorSink(target, transport, 'WhatsApp websocket error');
 
   const rawSocket = (
     transport as {
       socket?: {
         _req?: {
           socket?: unknown;
-          on?: (event: string, handler: (...args: unknown[]) => void) => unknown;
+          on?: (
+            event: string,
+            handler: (...args: unknown[]) => void,
+          ) => unknown;
         };
       };
     }

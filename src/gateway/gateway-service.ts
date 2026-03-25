@@ -148,15 +148,15 @@ import {
   getDiscoveredHybridAIModelContextWindow,
   getDiscoveredHybridAIModelNames,
 } from '../providers/hybridai-discovery.js';
+import {
+  type HybridAIHealthResult,
+  hybridAIProbe,
+} from '../providers/hybridai-health.js';
 import { resolveModelContextWindowFallback } from '../providers/hybridai-models.js';
 import {
   getLocalModelInfo,
   resolveLocalModelContextWindow,
 } from '../providers/local-discovery.js';
-import {
-  type HybridAIHealthResult,
-  hybridAIProbe,
-} from '../providers/hybridai-health.js';
 import { localBackendsProbe } from '../providers/local-health.js';
 import {
   getAvailableModelList,
@@ -1729,15 +1729,11 @@ function parseSkillImportArgs(
       source = normalized;
       continue;
     }
-    throw new Error(
-      `Usage: \`${usage}\``,
-    );
+    throw new Error(`Usage: \`${usage}\``);
   }
 
   if (!source) {
-    throw new Error(
-      `Usage: \`${usage}\``,
-    );
+    throw new Error(`Usage: \`${usage}\``);
   }
 
   return { source, force, skipSkillScan };

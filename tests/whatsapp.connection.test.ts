@@ -333,9 +333,7 @@ test('nested WhatsApp transport emitters are handled without throwing', async ()
   expect(whatsappLogger.warn).toHaveBeenCalledWith(
     'WhatsApp handshake request timed out',
   );
-  expect(whatsappLogger.warn).toHaveBeenCalledWith(
-    'WhatsApp TLS socket error',
-  );
+  expect(whatsappLogger.warn).toHaveBeenCalledWith('WhatsApp TLS socket error');
 });
 
 test('info-level WhatsApp logs omit structured metadata', async () => {
@@ -368,10 +366,14 @@ test('info-level WhatsApp logs omit structured metadata', async () => {
 });
 
 test('debug-level WhatsApp logs keep structured metadata', async () => {
-  const { APP_VERSION, createWhatsAppConnectionManager, sockets, whatsappLogger } =
-    await importFreshConnectionModule({
-      logLevel: 'debug',
-    });
+  const {
+    APP_VERSION,
+    createWhatsAppConnectionManager,
+    sockets,
+    whatsappLogger,
+  } = await importFreshConnectionModule({
+    logLevel: 'debug',
+  });
 
   const manager = createWhatsAppConnectionManager();
   await manager.start();

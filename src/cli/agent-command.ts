@@ -532,7 +532,9 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
     const importedSkillsCount = result.importedSkills?.length ?? 0;
     if (importedSkillsCount > 0) {
       console.log(`🌐 Skill imports installed: ${importedSkillsCount}`);
-      const skippedSkillScans = result.importedSkills.filter((skill) => skill.guardSkipped).length;
+      const skippedSkillScans = result.importedSkills.filter(
+        (skill) => skill.guardSkipped,
+      ).length;
       if (skippedSkillScans > 0) {
         console.warn(
           `⚠️ Skill scanner skipped for ${skippedSkillScans} imported skill${skippedSkillScans === 1 ? '' : 's'} because --skip-skill-scan was set.`,

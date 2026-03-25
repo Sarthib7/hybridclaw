@@ -67,6 +67,9 @@ function attachWhatsAppTransportErrorSinks(
 
   attachWhatsAppEmitterErrorSink(target, transport, 'WhatsApp websocket error');
 
+  // Baileys still exposes the underlying ws EventEmitter on `ws.socket` in
+  // this runtime surface. Keep an explicit sink here so a raw transport error
+  // cannot surface as an uncaught EventEmitter `error`.
   const rawSocket = (transport as { socket?: unknown }).socket;
 
   attachWhatsAppEmitterErrorSink(

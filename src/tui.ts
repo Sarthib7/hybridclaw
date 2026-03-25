@@ -496,7 +496,7 @@ function printHelp(): void {
   console.log();
   console.log(`  ${BOLD}${GOLD}Commands${RESET}`);
   console.log(
-    `  ${TEAL}TAB${RESET} accept suggestion ${MUTED}|${RESET} ${TEAL}↑↓${RESET} navigate slash menu ${MUTED}|${RESET} ${TEAL}Shift+Return${RESET}/${TEAL}Ctrl-J${RESET} line break ${MUTED}|${RESET} ${TEAL}ESC${RESET} close menu`,
+    `  ${TEAL}TAB${RESET} accept suggestion ${MUTED}|${RESET} ${TEAL}Ctrl-N/Ctrl-P${RESET} navigate slash menu ${MUTED}|${RESET} ${TEAL}Shift+Return${RESET}/${TEAL}Ctrl-J${RESET} line break ${MUTED}|${RESET} ${TEAL}ESC${RESET} close menu`,
   );
   console.log(
     `  ${TEAL}Context injection:${RESET} ${TEAL}@file${RESET} ${TEAL}@folder${RESET} ${TEAL}@diff${RESET} ${TEAL}@staged${RESET} ${TEAL}@git${RESET}`,

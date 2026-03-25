@@ -496,7 +496,7 @@ function printHelp(): void {
   console.log();
   console.log(`  ${BOLD}${GOLD}Commands${RESET}`);
   console.log(
-    `  ${TEAL}TAB${RESET} accept suggestion ${MUTED}|${RESET} ${TEAL}↑↓${RESET} navigate slash menu ${MUTED}|${RESET} ${TEAL}Shift+Return${RESET}/${TEAL}Ctrl-J${RESET} line break ${MUTED}|${RESET} ${TEAL}ESC${RESET} close menu`,
+    `  ${TEAL}TAB${RESET} accept suggestion ${MUTED}|${RESET} ${TEAL}Ctrl-N/Ctrl-P${RESET} navigate slash menu ${MUTED}|${RESET} ${TEAL}Shift+Return${RESET}/${TEAL}Ctrl-J${RESET} line break ${MUTED}|${RESET} ${TEAL}ESC${RESET} close menu`,
   );
   console.log(
     `  ${TEAL}Context injection:${RESET} ${TEAL}@file${RESET} ${TEAL}@folder${RESET} ${TEAL}@diff${RESET} ${TEAL}@staged${RESET} ${TEAL}@git${RESET}`,
@@ -544,7 +544,7 @@ function printHelp(): void {
     `  ${TEAL}/audit [sessionId]${RESET} Show recent structured audit events`,
   );
   console.log(
-    `  ${TEAL}/skill config|list|inspect <name>|inspect --all|runs <name>|learn <name> [--apply|--reject|--rollback]|history <name>|import [--force] <source>${RESET} Manage skill config, health, runs, amendments, and imports`,
+    `  ${TEAL}/skill config|list|inspect <name>|inspect --all|runs <name>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>${RESET} Manage skill config, health, runs, amendments, and imports`,
   );
   console.log(
     `  ${TEAL}/schedule add "<cron>" <prompt>${RESET} Add a scheduled task`,

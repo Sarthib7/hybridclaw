@@ -27,7 +27,10 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
   expect(labels).toContain('/skill runs <name>');
   expect(labels).toContain('/skill learn <name> --apply');
   expect(labels).toContain('/skill history <name>');
-  expect(labels).toContain('/skill import <source> [--force]');
+  expect(labels).toContain('/skill sync <source>');
+  expect(labels).toContain(
+    '/skill import <source> [--force] [--skip-skill-scan]',
+  );
   expect(labels).toContain('/skill import --force <source>');
 });
 
@@ -203,4 +206,60 @@ test('second escape clears the current prompt line after dismissing the menu', (
   expect(rl.line).toBe('');
   expect(rl.cursor).toBe(0);
   expect(operations).toContain('refresh');
+});
+
+test('arrow up falls through to readline history when slash query has no matches', () => {
+  const { rl, operations } = buildControllerHarness();
+
+  rl.line = '/mcp reconnect datalion';
+  rl.cursor = rl.line.length;
+  operations.length = 0;
+
+  (
+    rl as unknown as { _ttyWrite: (chunk: string, key: readline.Key) => void }
+  )._ttyWrite('', { name: 'up' });
+
+  expect(operations).toContain('tty:');
+});
+
+test('arrow down falls through to readline history when slash query has no matches', () => {
+  const { rl, operations } = buildControllerHarness();
+
+  rl.line = '/mcp reconnect datalion';
+  rl.cursor = rl.line.length;
+  operations.length = 0;
+
+  (
+    rl as unknown as { _ttyWrite: (chunk: string, key: readline.Key) => void }
+  )._ttyWrite('', { name: 'down' });
+
+  expect(operations).toContain('tty:');
+});
+
+test('arrow up falls through to readline history even when matches exist', () => {
+  const { rl, operations } = buildControllerHarness();
+
+  rl.line = '/mo';
+  rl.cursor = rl.line.length;
+  operations.length = 0;
+
+  (
+    rl as unknown as { _ttyWrite: (chunk: string, key: readline.Key) => void }
+  )._ttyWrite('', { name: 'up' });
+
+  expect(operations).toContain('tty:');
+});
+
+test('ctrl-p still navigates slash menu entries when matches exist', () => {
+  const { rl, operations } = buildControllerHarness();
+
+  rl.line = '/mo';
+  rl.cursor = rl.line.length;
+  operations.length = 0;
+
+  (
+    rl as unknown as { _ttyWrite: (chunk: string, key: readline.Key) => void }
+  )._ttyWrite('', { name: 'p', ctrl: true });
+
+  expect(operations).not.toContain('tty:');
 });

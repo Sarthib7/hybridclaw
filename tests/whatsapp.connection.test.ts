@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import { afterEach, expect, test, vi } from 'vitest';
 
 async function flushMicrotasks(count = 4): Promise<void> {
@@ -53,12 +54,14 @@ async function importFreshConnectionModule(options?: {
     };
     evHandlers: Map<string, Array<(payload: unknown) => void>>;
     wsHandlers: Map<string, Array<(payload: unknown) => void>>;
+    rawSocketEmitter: EventEmitter;
     socket: {
       ev: {
         on: (event: string, handler: (payload: unknown) => void) => void;
       };
       ws: {
         on: (event: string, handler: (payload: unknown) => void) => void;
+        socket: EventEmitter;
       };
       user?: { id?: string };
       end: ReturnType<typeof vi.fn>;
@@ -144,6 +147,7 @@ async function importFreshConnectionModule(options?: {
             string,
             Array<(payload: unknown) => void>
           >();
+          const rawSocketEmitter = new EventEmitter();
           const socket = {
             ev: {
               on(event: string, handler: (payload: unknown) => void) {
@@ -158,11 +162,18 @@ async function importFreshConnectionModule(options?: {
                 handlers.push(handler);
                 wsHandlers.set(event, handlers);
               },
+              socket: rawSocketEmitter,
             },
             user: undefined,
             end: vi.fn(),
           };
-          sockets.push({ evHandlers, wsHandlers, socket, config });
+          sockets.push({
+            evHandlers,
+            wsHandlers,
+            rawSocketEmitter,
+            socket,
+            config,
+          });
           return socket;
         },
       ),
@@ -280,6 +291,28 @@ test('waitForSocket does not revive the manager after stop during implicit start
 
   await expect(socketPromise).rejects.toThrow('WhatsApp runtime stopped');
   expect(sockets).toHaveLength(0);
+});
+
+test('transport-level WhatsApp emitters are handled without throwing', async () => {
+  const { createWhatsAppConnectionManager, sockets, whatsappLogger } =
+    await importFreshConnectionModule();
+
+  const manager = createWhatsAppConnectionManager();
+  await manager.start();
+
+  const transport = sockets[0];
+  expect(transport).toBeDefined();
+
+  expect(() =>
+    transport?.rawSocketEmitter.emit(
+      'error',
+      new Error('Opening handshake has timed out'),
+    ),
+  ).not.toThrow();
+
+  expect(whatsappLogger.warn).toHaveBeenCalledWith(
+    'WhatsApp raw websocket error',
+  );
 });
 
 test('info-level WhatsApp logs omit structured metadata', async () => {

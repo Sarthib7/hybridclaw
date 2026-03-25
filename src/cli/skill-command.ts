@@ -12,6 +12,7 @@ import type {
   SkillObservation,
 } from '../skills/adaptive-skills-types.js';
 import { parseSkillImportArgs } from '../skills/skill-import-args.js';
+import { buildGuardWarningLines } from '../skills/skill-import-warnings.js';
 import { normalizeArgs, parseSkillScopeArgs } from './common.js';
 import { isHelpRequest, printSkillUsage } from './help.js';
 
@@ -384,15 +385,8 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
       force,
       skipGuard: skipSkillScan,
     });
-    if (result.guardSkipped) {
-      console.warn(
-        `Security scanner skipped for ${result.skillName} because --skip-skill-scan was set.`,
-      );
-    } else if (result.guardOverrideApplied) {
-      const findingCount = result.guardFindingsCount ?? 0;
-      console.warn(
-        `Security scanner reported caution findings for ${result.skillName} (${findingCount} finding${findingCount === 1 ? '' : 's'}); proceeding because --force was set.`,
-      );
+    for (const warning of buildGuardWarningLines(result)) {
+      console.warn(warning);
     }
     console.log(
       `${result.replacedExisting ? 'Replaced' : 'Imported'} ${result.skillName} from ${result.resolvedSource}`,
@@ -416,15 +410,8 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
       force: true,
       skipGuard: skipSkillScan,
     });
-    if (result.guardSkipped) {
-      console.warn(
-        `Security scanner skipped for ${result.skillName} because --skip-skill-scan was set.`,
-      );
-    } else if (result.guardOverrideApplied) {
-      const findingCount = result.guardFindingsCount ?? 0;
-      console.warn(
-        `Security scanner reported caution findings for ${result.skillName} (${findingCount} finding${findingCount === 1 ? '' : 's'}); proceeding because --force was set.`,
-      );
+    for (const warning of buildGuardWarningLines(result)) {
+      console.warn(warning);
     }
     console.log(
       `${result.replacedExisting ? 'Replaced' : 'Imported'} ${result.skillName} from ${result.resolvedSource}`,

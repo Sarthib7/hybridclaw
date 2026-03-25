@@ -207,6 +207,7 @@ import type {
   SkillObservation,
 } from '../skills/adaptive-skills-types.js';
 import { parseSkillImportArgs } from '../skills/skill-import-args.js';
+import { buildGuardWarningLines } from '../skills/skill-import-warnings.js';
 import {
   expandResolvedSkillInvocation,
   expandSkillInvocationWithResolution,
@@ -6802,20 +6803,10 @@ export async function handleGatewayCommand(
             skipGuard: skipSkillScan,
           });
           const lines = [
+            ...buildGuardWarningLines(result),
             `${result.replacedExisting ? 'Replaced' : 'Imported'} ${result.skillName} from ${result.resolvedSource}`,
             `Installed to ${result.skillDir}`,
           ];
-          if (result.guardSkipped) {
-            lines.unshift(
-              `Security scanner skipped for ${result.skillName} because --skip-skill-scan was set.`,
-            );
-          }
-          if (result.guardOverrideApplied) {
-            const findingCount = result.guardFindingsCount ?? 0;
-            lines.unshift(
-              `Security scanner reported caution findings for ${result.skillName} (${findingCount} finding${findingCount === 1 ? '' : 's'}); proceeding because --force was set.`,
-            );
-          }
           return infoCommand('Skill Import', lines.join('\n'));
         }
 
@@ -6835,20 +6826,10 @@ export async function handleGatewayCommand(
             skipGuard: skipSkillScan,
           });
           const lines = [
+            ...buildGuardWarningLines(result),
             `${result.replacedExisting ? 'Replaced' : 'Imported'} ${result.skillName} from ${result.resolvedSource}`,
             `Installed to ${result.skillDir}`,
           ];
-          if (result.guardSkipped) {
-            lines.unshift(
-              `Security scanner skipped for ${result.skillName} because --skip-skill-scan was set.`,
-            );
-          }
-          if (result.guardOverrideApplied) {
-            const findingCount = result.guardFindingsCount ?? 0;
-            lines.unshift(
-              `Security scanner reported caution findings for ${result.skillName} (${findingCount} finding${findingCount === 1 ? '' : 's'}); proceeding because --force was set.`,
-            );
-          }
           return infoCommand('Skill Sync', lines.join('\n'));
         }
 

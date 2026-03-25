@@ -293,7 +293,7 @@ function renderPanel(
   pushBorder('├', '─', '┤');
   pushRow('Controls', `${palette.bold}${palette.gold}`);
   pushWrappedRow('TAB  accept slash suggestion');
-  pushWrappedRow('↑↓   navigate slash menu');
+  pushWrappedRow('Ctrl-N/P  navigate slash menu');
   pushWrappedRow('ESC  close menu or interrupt run');
   pushWrappedRow('Context injection: @file @folder @diff @staged @git');
 

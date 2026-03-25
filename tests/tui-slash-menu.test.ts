@@ -233,7 +233,7 @@ test('arrow down falls through to readline history when slash query has no match
   expect(operations).toContain('tty:');
 });
 
-test('arrow up still navigates slash menu entries when matches exist', () => {
+test('arrow up falls through to readline history even when matches exist', () => {
   const { rl, operations } = buildControllerHarness();
 
   rl.line = '/mo';
@@ -243,6 +243,20 @@ test('arrow up still navigates slash menu entries when matches exist', () => {
   (
     rl as unknown as { _ttyWrite: (chunk: string, key: readline.Key) => void }
   )._ttyWrite('', { name: 'up' });
+
+  expect(operations).toContain('tty:');
+});
+
+test('ctrl-p still navigates slash menu entries when matches exist', () => {
+  const { rl, operations } = buildControllerHarness();
+
+  rl.line = '/mo';
+  rl.cursor = rl.line.length;
+  operations.length = 0;
+
+  (
+    rl as unknown as { _ttyWrite: (chunk: string, key: readline.Key) => void }
+  )._ttyWrite('', { name: 'p', ctrl: true });
 
   expect(operations).not.toContain('tty:');
 });

@@ -206,6 +206,7 @@ import type {
   SkillHealthMetrics,
   SkillObservation,
 } from '../skills/adaptive-skills-types.js';
+import { parseSkillImportArgs } from '../skills/skill-import-args.js';
 import {
   expandResolvedSkillInvocation,
   expandSkillInvocationWithResolution,
@@ -216,7 +217,6 @@ import {
   deriveSkillExecutionOutcome,
   recordSkillExecution,
 } from '../skills/skills-observation.js';
-import { parseSkillImportArgs } from '../skills/skill-import-args.js';
 import type {
   ArtifactMetadata,
   CanonicalSessionContext,

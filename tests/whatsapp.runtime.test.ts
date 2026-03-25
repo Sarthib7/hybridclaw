@@ -6,10 +6,12 @@ import { afterEach, expect, test, vi } from 'vitest';
 async function importFreshRuntimeModule(options?: {
   isSelfChat?: boolean;
   ackReaction?: string;
+  debounceInbound?: boolean;
 }) {
   vi.resetModules();
   const isSelfChat = options?.isSelfChat ?? true;
-  const ackReaction = options?.ackReaction ?? '';
+  let currentAckReaction = options?.ackReaction ?? '';
+  const debounceInbound = options?.debounceInbound ?? false;
 
   const upsertHandlers: Array<
     (payload: { messages?: unknown[]; type?: string }) => void | Promise<void>
@@ -97,7 +99,7 @@ async function importFreshRuntimeModule(options?: {
         textChunkLimit: 4000,
         debounceMs: 2500,
         sendReadReceipts: false,
-        ackReaction,
+        ackReaction: currentAckReaction,
         mediaMaxMb: 20,
       },
     })),
@@ -113,12 +115,25 @@ async function importFreshRuntimeModule(options?: {
     createWhatsAppConnectionManager,
   }));
 
+  let pendingBatch:
+    | {
+        item: unknown;
+        onFlush: (item: unknown) => Promise<void>;
+      }
+    | null = null;
   vi.doMock('../src/channels/whatsapp/debounce.ts', () => ({
-    createWhatsAppDebouncer: vi.fn(() => ({
-      enqueue: vi.fn(),
-      flushAll: vi.fn(async () => {}),
+    createWhatsAppDebouncer: vi.fn((onFlush: (item: unknown) => Promise<void>) => ({
+      enqueue: vi.fn((item: unknown) => {
+        pendingBatch = { item, onFlush };
+      }),
+      flushAll: vi.fn(async () => {
+        if (!pendingBatch) return;
+        const batch = pendingBatch;
+        pendingBatch = null;
+        await batch.onFlush(batch.item);
+      }),
     })),
-    shouldDebounceWhatsAppInbound: vi.fn(() => false),
+    shouldDebounceWhatsAppInbound: vi.fn(() => debounceInbound),
   }));
 
   const sendWhatsAppReaction = vi.fn(async () => true);
@@ -149,6 +164,9 @@ async function importFreshRuntimeModule(options?: {
     processInboundWhatsAppMessage,
     runtime,
     sendWhatsAppReaction,
+    setAckReaction: (nextAckReaction: string) => {
+      currentAckReaction = nextAckReaction;
+    },
     socket,
     upsertHandlers,
   };
@@ -408,6 +426,59 @@ test('clears WhatsApp ack reactions after the turn completes', async () => {
       jid: '491703330161@s.whatsapp.net',
       key: expect.objectContaining({
         id: 'phone-ack-1',
+      }),
+    }),
+  );
+});
+
+test('uses the ack reaction captured at intake for debounced cleanup', async () => {
+  const {
+    clearWhatsAppReaction,
+    runtime,
+    sendWhatsAppReaction,
+    setAckReaction,
+    upsertHandlers,
+  } = await importFreshRuntimeModule({
+    ackReaction: '👀',
+    debounceInbound: true,
+  });
+  const messageHandler = vi.fn(async () => {});
+
+  await runtime.initWhatsApp(messageHandler);
+  expect(upsertHandlers).toHaveLength(1);
+
+  await upsertHandlers[0]?.({
+    type: 'notify',
+    messages: [
+      {
+        key: {
+          id: 'phone-debounce-ack-1',
+          fromMe: false,
+          remoteJid: '491703330161@s.whatsapp.net',
+        },
+        message: {
+          conversation: 'hello',
+        },
+      },
+    ],
+  });
+
+  setAckReaction('');
+  await runtime.shutdownWhatsApp();
+
+  expect(sendWhatsAppReaction).toHaveBeenCalledWith(
+    expect.objectContaining({
+      emoji: '👀',
+      key: expect.objectContaining({
+        id: 'phone-debounce-ack-1',
+      }),
+    }),
+  );
+  expect(clearWhatsAppReaction).toHaveBeenCalledWith(
+    expect.objectContaining({
+      jid: '491703330161@s.whatsapp.net',
+      key: expect.objectContaining({
+        id: 'phone-debounce-ack-1',
       }),
     }),
   );

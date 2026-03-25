@@ -193,8 +193,7 @@ export function createWhatsAppRuntime(): WhatsAppRuntime {
         batch.isSelfChat ? formatSelfChatReply(content) : content,
       );
     };
-    const ackReaction = getConfigSnapshot().whatsapp.ackReaction.trim();
-    const reactionCleanupTargets = ackReaction
+    const reactionCleanupTargets = batch.ackReaction
       ? buildReactionCleanupTargets(batch.batchedMessages)
       : [];
     typingController.start();
@@ -318,6 +317,7 @@ export function createWhatsAppRuntime(): WhatsAppRuntime {
 
     const batch: WhatsAppInboundBatch = {
       ...inbound,
+      ackReaction: config.ackReaction.trim(),
       batchedMessages,
     };
     if (

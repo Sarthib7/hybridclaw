@@ -1283,9 +1283,7 @@ function matchesIncludePattern(
   if (normalizedPattern.includes('/')) {
     return matcher.test(normalizedRelativePath);
   }
-  return (
-    matcher.test(basename) || matcher.test(normalizedRelativePath)
-  );
+  return matcher.test(basename) || matcher.test(normalizedRelativePath);
 }
 
 function resolveGlobSearchRoot(pattern: string): string {
@@ -1293,8 +1291,7 @@ function resolveGlobSearchRoot(pattern: string): string {
   if (firstMetaIndex === -1) return pattern;
 
   const prefixEnd = pattern.lastIndexOf('/', firstMetaIndex);
-  let candidate =
-    prefixEnd > 0 ? pattern.slice(0, prefixEnd) : WORKSPACE_ROOT;
+  let candidate = prefixEnd > 0 ? pattern.slice(0, prefixEnd) : WORKSPACE_ROOT;
   while (candidate && candidate !== path.dirname(candidate)) {
     try {
       const stats = fs.statSync(candidate);
@@ -1528,11 +1525,7 @@ function runGrepSearch(args: Record<string, unknown>): string {
     if (status !== 'ok') break;
   }
 
-  const note = buildSearchStatusNote(
-    status,
-    'grep',
-    GREP_SEARCH_TIMEOUT_MS,
-  );
+  const note = buildSearchStatusNote(status, 'grep', GREP_SEARCH_TIMEOUT_MS);
   if (matches.length === 0) {
     return note ? `No matches found.\n\n(${note})` : 'No matches found.';
   }

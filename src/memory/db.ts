@@ -65,7 +65,6 @@ let db: Database.Database;
 let databaseInitialized = false;
 
 export const DATABASE_SCHEMA_VERSION = 15;
-const SCHEMA_VERSION = DATABASE_SCHEMA_VERSION;
 
 interface InitDatabaseOptions {
   quiet?: boolean;
@@ -87,7 +86,14 @@ type AgentRow = {
   updated_at: string;
 };
 
-type SkillObservationRow = SkillObservation;
+type SkillObservationRow = Omit<
+  SkillObservation,
+  'outcome' | 'error_category' | 'feedback_sentiment'
+> & {
+  outcome: string;
+  error_category: string | null;
+  feedback_sentiment: string | null;
+};
 
 type SkillObservationSummaryRow = Omit<
   SkillObservationSummary,
@@ -122,27 +128,42 @@ function setSchemaVersion(database: Database.Database, version: number): void {
   database.pragma(`user_version = ${bounded}`);
 }
 
-function prepareQuery<Row, Bind extends unknown[] = []>(
-  database: Database.Database,
-  sql: string,
-): Database.Statement<Bind, Row> {
-  return database.prepare<Bind, Row>(sql);
-}
-
 function queryOne<Row, Bind extends unknown[] = []>(
   database: Database.Database,
   sql: string,
   ...params: Bind
+): Row | undefined;
+function queryOne<Row>(
+  database: Database.Database,
+  sql: string,
+  ...params: unknown[]
+): Row | undefined;
+
+function queryOne<Row>(
+  database: Database.Database,
+  sql: string,
+  ...params: unknown[]
 ): Row | undefined {
-  return prepareQuery<Row, Bind>(database, sql).get(...params);
+  return database.prepare<unknown[], Row>(sql).get(...params);
 }
 
 function queryAll<Row, Bind extends unknown[] = []>(
   database: Database.Database,
   sql: string,
   ...params: Bind
+): Row[];
+function queryAll<Row>(
+  database: Database.Database,
+  sql: string,
+  ...params: unknown[]
+): Row[];
+
+function queryAll<Row>(
+  database: Database.Database,
+  sql: string,
+  ...params: unknown[]
 ): Row[] {
-  return prepareQuery<Row, Bind>(database, sql).all(...params);
+  return database.prepare<unknown[], Row>(sql).all(...params);
 }
 
 function tableExists(database: Database.Database, table: string): boolean {
@@ -1446,10 +1467,10 @@ function runMigrations(
 ): void {
   const currentVersion = getSchemaVersion(database);
   const quiet = opts?.quiet === true;
-  if (currentVersion > SCHEMA_VERSION) {
+  if (currentVersion > DATABASE_SCHEMA_VERSION) {
     if (!quiet) {
       logger.warn(
-        { currentVersion, supportedVersion: SCHEMA_VERSION },
+        { currentVersion, supportedVersion: DATABASE_SCHEMA_VERSION },
         'Database schema version is newer than this binary supports; skipping migrations',
       );
     }
@@ -1477,10 +1498,10 @@ function runMigrations(
   if (currentVersion < 14) migrateV14(database);
   if (currentVersion < 15) migrateV15(database);
 
-  setSchemaVersion(database, SCHEMA_VERSION);
-  if (!quiet && currentVersion < SCHEMA_VERSION) {
+  setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
+  if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
     logger.info(
-      { fromVersion: currentVersion, toVersion: SCHEMA_VERSION },
+      { fromVersion: currentVersion, toVersion: DATABASE_SCHEMA_VERSION },
       'Database schema migrated',
     );
   }
@@ -1703,16 +1724,15 @@ function parseMemoryKvValue(raw: unknown): unknown {
 export function getMemoryValue(sessionId: string, key: string): unknown | null {
   const normalizedKey = normalizeMemoryKvKey(key);
   if (!normalizedKey) return null;
-  const row = db
-    .prepare(
-      `SELECT value
-       FROM kv_store
-       WHERE agent_id = ?
-         AND key = ?`,
-    )
-    .get(sessionId, normalizedKey) as
-    | { value: Buffer | Uint8Array | string }
-    | undefined;
+  const row = queryOne<{ value: Buffer | Uint8Array | string }, [string, string]>(
+    db,
+    `SELECT value
+     FROM kv_store
+     WHERE agent_id = ?
+       AND key = ?`,
+    sessionId,
+    normalizedKey,
+  );
   if (!row) return null;
   return parseMemoryKvValue(row.value);
 }
@@ -1931,17 +1951,16 @@ export function loadCanonicalSession(
   if (!normalizedUserId) {
     throw new Error('Canonical session userId is required');
   }
-  const row = db
-    .prepare(
-      `SELECT canonical_id, agent_id, user_id, messages, compaction_cursor, compacted_summary, message_count, created_at, updated_at
-       FROM canonical_sessions
-       WHERE agent_id = ?
-         AND user_id = ?
-       LIMIT 1`,
-    )
-    .get(normalizedAgentId, normalizedUserId) as
-    | CanonicalSessionRow
-    | undefined;
+  const row = queryOne<CanonicalSessionRow, [string, string]>(
+    db,
+    `SELECT canonical_id, agent_id, user_id, messages, compaction_cursor, compacted_summary, message_count, created_at, updated_at
+     FROM canonical_sessions
+     WHERE agent_id = ?
+       AND user_id = ?
+     LIMIT 1`,
+    normalizedAgentId,
+    normalizedUserId,
+  );
 
   const now = new Date().toISOString();
   if (!row) {
@@ -2033,7 +2052,6 @@ export function appendCanonicalMessages(params: {
         previousSummary: canonical.compacted_summary,
         compactingMessages: compacting,
       });
-      canonical.compaction_cursor = toCompact;
       canonical.messages = canonical.messages.slice(toCompact);
       canonical.compaction_cursor = 0;
     }
@@ -2258,7 +2276,7 @@ export function getUsageTotals(params?: {
   const where =
     whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
 
-  const row = queryOne<UsageTotals, unknown[]>(
+  const row = queryOne<UsageTotals>(
     db,
     `SELECT
          COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
@@ -2498,7 +2516,7 @@ export function listUsageByModel(params?: {
   });
   const where =
     whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
-  const rows = queryAll<UsageModelAggregate, unknown[]>(
+  const rows = queryAll<UsageModelAggregate>(
     db,
     `SELECT
        model,
@@ -2538,7 +2556,7 @@ export function listUsageByAgent(params?: {
   });
   const where =
     whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
-  const rows = queryAll<UsageAgentAggregate, unknown[]>(
+  const rows = queryAll<UsageAgentAggregate>(
     db,
     `SELECT
        agent_id,
@@ -2578,17 +2596,7 @@ export function listUsageBySession(params?: {
   });
   const where =
     whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
-  const rows = queryAll<
-    UsageSessionAggregate & {
-      total_input_tokens: unknown;
-      total_output_tokens: unknown;
-      total_tokens: unknown;
-      total_cost_usd: unknown;
-      call_count: unknown;
-      total_tool_calls: unknown;
-    },
-    unknown[]
-  >(
+  const rows = queryAll<UsageSessionAggregate>(
     db,
     `SELECT
        session_id,
@@ -2630,7 +2638,7 @@ export function listUsageDailyBreakdown(params?: {
     whereClauses.push('agent_id = ?');
     args.push(agentId);
   }
-  const rows = queryAll<UsageDailyAggregate, unknown[]>(
+  const rows = queryAll<UsageDailyAggregate>(
     db,
     `SELECT
        date(timestamp) AS day,
@@ -3038,7 +3046,7 @@ export function queryKnowledgeGraph(
   // OpenFang-compatible v1 query semantics: single-hop relation scan, max 100.
   sql.push('LIMIT 100');
 
-  const rows = queryAll<RawKnowledgeGraphRow, unknown[]>(
+  const rows = queryAll<RawKnowledgeGraphRow>(
     db,
     sql.join('\n'),
     ...args,
@@ -3131,9 +3139,11 @@ function generateSessionInstanceId(now: Date = new Date()): string {
 }
 
 function selectSessionById(sessionId: string): Session | undefined {
-  return db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId) as
-    | Session
-    | undefined;
+  return queryOne<Session, [string]>(
+    db,
+    'SELECT * FROM sessions WHERE id = ?',
+    sessionId,
+  );
 }
 
 function selectCurrentSessionBySessionKey(
@@ -3702,11 +3712,10 @@ export function getRecentSessionsForUser(params: {
         userId,
       );
 
-  const firstUserMessageForSession = prepareQuery<
-    { content: string | null },
-    [string, string]
+  const firstUserMessageForSession = db.prepare<
+    [string, string],
+    { content: string | null }
   >(
-    db,
     `SELECT content
      FROM messages
      WHERE session_id = ?
@@ -3715,11 +3724,10 @@ export function getRecentSessionsForUser(params: {
      ORDER BY id ASC
      LIMIT 1`,
   );
-  const firstMessageForSession = prepareQuery<
-    { content: string | null },
-    [string]
+  const firstMessageForSession = db.prepare<
+    [string],
+    { content: string | null }
   >(
-    db,
     `SELECT content
      FROM messages
      WHERE session_id = ?
@@ -4217,7 +4225,7 @@ function recallSemanticMemoriesByLike(params: {
   });
   args.push(candidateLimit);
 
-  const rawRows = queryAll<RawSemanticMemoryRow, unknown[]>(
+  const rawRows = queryAll<RawSemanticMemoryRow>(
     db,
     `SELECT *
      FROM semantic_memories
@@ -4275,7 +4283,7 @@ function recallSemanticMemoriesByVector(params: {
     filter: params.filter,
   });
   args.push(candidateLimit);
-  const rawRows = queryAll<RawSemanticMemoryRow, unknown[]>(
+  const rawRows = queryAll<RawSemanticMemoryRow>(
     db,
     `SELECT *
      FROM semantic_memories
@@ -4331,7 +4339,7 @@ function recallSemanticMemoriesByRecent(params: {
     filter: params.filter,
   });
   args.push(params.limit);
-  const rows = queryAll<RawSemanticMemoryRow, unknown[]>(
+  const rows = queryAll<RawSemanticMemoryRow>(
     db,
     `SELECT *
      FROM semantic_memories
@@ -5376,10 +5384,6 @@ export function getRecentAudit(limit = 20): AuditEntry[] {
   );
 }
 
-function toPayloadObject(payload: AuditEventPayload): Record<string, unknown> {
-  return payload as unknown as Record<string, unknown>;
-}
-
 function readPayloadStringValue(
   payload: Record<string, unknown>,
   key: string,
@@ -5418,7 +5422,7 @@ export function logStructuredAuditEvent(record: WireRecord): void {
 
   if (eventType !== 'approval.response') return;
 
-  const payload = toPayloadObject(record.event);
+  const payload = record.event;
   const toolCallId =
     readPayloadStringValue(payload, 'toolCallId') || `seq:${record.seq}`;
   const action = readPayloadStringValue(payload, 'action') || 'unknown';

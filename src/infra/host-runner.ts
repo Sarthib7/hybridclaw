@@ -99,10 +99,12 @@ function interruptedHostOutput(): ContainerOutput {
   };
 }
 
-function isIgnorableHostProcessStdinError(
+function isStdinWriteInterrupt(
   error: unknown,
   proc: Pick<ChildProcess, 'killed' | 'exitCode'>,
+  abortSignal?: AbortSignal,
 ): boolean {
+  if (abortSignal?.aborted) return true;
   const code =
     error && typeof error === 'object' && 'code' in error
       ? String((error as { code?: unknown }).code || '')
@@ -111,15 +113,6 @@ function isIgnorableHostProcessStdinError(
     (code === 'EPIPE' || code === 'ERR_STREAM_DESTROYED') &&
     (proc.killed || proc.exitCode !== null)
   );
-}
-
-function shouldTreatHostInputWriteErrorAsInterrupt(
-  error: unknown,
-  proc: Pick<ChildProcess, 'killed' | 'exitCode'>,
-  abortSignal?: AbortSignal,
-): boolean {
-  if (abortSignal?.aborted) return true;
-  return isIgnorableHostProcessStdinError(error, proc);
 }
 
 export function getActiveHostSessionIds(): string[] {
@@ -450,7 +443,7 @@ function getOrSpawnHostProcess(sessionId: string, agentId: string): PoolEntry {
   });
 
   proc.stdin?.on('error', (err) => {
-    if (isIgnorableHostProcessStdinError(err, proc)) {
+    if (isStdinWriteInterrupt(err, proc)) {
       logger.debug(
         { sessionId, error: err },
         'Ignoring host agent stdin error after process shutdown',
@@ -643,13 +636,7 @@ export async function runHostProcess(
       try {
         entry.process.stdin?.write(`${JSON.stringify(input)}\n`);
       } catch (err) {
-        if (
-          shouldTreatHostInputWriteErrorAsInterrupt(
-            err,
-            entry.process,
-            abortSignal,
-          )
-        ) {
+        if (isStdinWriteInterrupt(err, entry.process, abortSignal)) {
           logger.info(
             { sessionId, error: err },
             'Host agent input write interrupted by process shutdown',

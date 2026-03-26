@@ -425,6 +425,37 @@
       line-height: 1.4;
     }
 
+    .msg.markdown .md-table-wrap {
+      overflow-x: auto;
+    }
+
+    .msg.markdown .md-table-wrap + p,
+    .msg.markdown p + .md-table-wrap,
+    .msg.markdown .md-table-wrap + .md-table-wrap {
+      margin-top: 10px;
+    }
+
+    .msg.markdown table {
+      width: 100%;
+      border-collapse: collapse;
+      white-space: normal;
+      font-size: 0.96em;
+    }
+
+    .msg.markdown th,
+    .msg.markdown td {
+      padding: 8px 10px;
+      border: 1px solid #d8dfeb;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .msg.markdown th {
+      background: #f5f8fd;
+      color: #172034;
+      font-weight: 700;
+    }
+
     .msg-block {
       max-width: 860px;
       width: fit-content;
@@ -1456,6 +1487,48 @@
       return text;
     }
 
+    function splitMarkdownTableRow(line) {
+      let value = String(line || '').trim();
+      if (value.startsWith('|')) value = value.slice(1);
+      if (value.endsWith('|')) value = value.slice(0, -1);
+      return value.split('|').map((cell) => cell.trim());
+    }
+
+    function isMarkdownTableSeparator(line) {
+      const cells = splitMarkdownTableRow(line);
+      if (!cells.length) return false;
+      return cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+    }
+
+    function isMarkdownTableBodyRow(line) {
+      const trimmed = String(line || '').trim();
+      return trimmed.includes('|') && trimmed !== '|' && !isMarkdownTableSeparator(trimmed);
+    }
+
+    function cellAlignment(separatorCell) {
+      const trimmed = String(separatorCell || '').trim();
+      if (trimmed.startsWith(':') && trimmed.endsWith(':')) return 'center';
+      if (trimmed.endsWith(':')) return 'right';
+      return 'left';
+    }
+
+    function renderMarkdownTable(headerLine, separatorLine, bodyLines) {
+      const headers = splitMarkdownTableRow(headerLine);
+      const separators = splitMarkdownTableRow(separatorLine);
+      const alignments = headers.map((_, index) => cellAlignment(separators[index] || '---'));
+      const bodyRows = bodyLines.map((line) => splitMarkdownTableRow(line));
+
+      const thead = `<thead><tr>${headers
+        .map((cell, index) => `<th style="text-align:${alignments[index]}">${renderInlineMarkdown(cell)}</th>`)
+        .join('')}</tr></thead>`;
+      const tbody = `<tbody>${bodyRows
+        .map((row) => `<tr>${headers
+          .map((_, index) => `<td style="text-align:${alignments[index]}">${renderInlineMarkdown(row[index] || '')}</td>`)
+          .join('')}</tr>`)
+        .join('')}</tbody>`;
+      return `<div class="md-table-wrap"><table>${thead}${tbody}</table></div>`;
+    }
+
     function renderMarkdown(raw) {
       let text = String(raw || '').replace(/\r\n/g, '\n');
       const codeBlocks = [];
@@ -1484,7 +1557,8 @@
         paragraphLines = [];
       };
 
-      for (const line of lines) {
+      for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index];
         const codeMatch = line.match(/^@@CB(\d+)@@$/);
         if (codeMatch) {
           flushParagraph();
@@ -1496,6 +1570,21 @@
         if (!line.trim()) {
           flushParagraph();
           closeList();
+          continue;
+        }
+
+        const nextLine = lines[index + 1] || '';
+        if (line.includes('|') && isMarkdownTableSeparator(nextLine)) {
+          flushParagraph();
+          closeList();
+          const bodyLines = [];
+          index += 2;
+          while (index < lines.length && isMarkdownTableBodyRow(lines[index])) {
+            bodyLines.push(lines[index]);
+            index += 1;
+          }
+          out.push(renderMarkdownTable(line, nextLine, bodyLines));
+          index -= 1;
           continue;
         }
 

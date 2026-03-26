@@ -2470,9 +2470,34 @@ function parseAdminSchedulerJob(
 
   const name = String(value.name || '').trim();
   const description = String(value.description || '').trim();
+  const agentId = String(value.agentId || '').trim();
+  const boardStatusRaw = String(value.boardStatus || '')
+    .trim()
+    .toLowerCase();
   const rawSchedule = isRecord(value.schedule) ? value.schedule : {};
   const rawAction = isRecord(value.action) ? value.action : {};
   const rawDelivery = isRecord(value.delivery) ? value.delivery : {};
+  let boardStatus:
+    | 'backlog'
+    | 'in_progress'
+    | 'review'
+    | 'done'
+    | 'cancelled'
+    | undefined;
+  if (boardStatusRaw) {
+    if (
+      boardStatusRaw !== 'backlog' &&
+      boardStatusRaw !== 'in_progress' &&
+      boardStatusRaw !== 'review' &&
+      boardStatusRaw !== 'done' &&
+      boardStatusRaw !== 'cancelled'
+    ) {
+      throw new Error(
+        'Scheduler board status must be `backlog`, `in_progress`, `review`, `done`, or `cancelled`.',
+      );
+    }
+    boardStatus = boardStatusRaw;
+  }
 
   const scheduleKind = String(rawSchedule.kind || 'cron')
     .trim()
@@ -2526,9 +2551,9 @@ function parseAdminSchedulerJob(
       'Scheduler action kind must be `agent_turn` or `system_event`.',
     );
   }
-  const actionMessage = String(rawAction.message || '').trim();
+  const actionMessage = String(rawAction.message || '').trim() || description;
   if (!actionMessage) {
-    throw new Error('`action.message` is required.');
+    throw new Error('`action.message` or `description` is required.');
   }
 
   const deliveryKind = String(rawDelivery.kind || 'channel')
@@ -2558,6 +2583,8 @@ function parseAdminSchedulerJob(
     id,
     ...(name ? { name } : {}),
     ...(description ? { description } : {}),
+    ...(agentId ? { agentId } : {}),
+    ...(boardStatus ? { boardStatus } : {}),
     schedule: {
       kind: scheduleKind,
       at,
@@ -2876,6 +2903,8 @@ export function getGatewayAdminScheduler(): GatewayAdminSchedulerResponse {
             (typeof job.description === 'string' && job.description.trim()) ||
             runtime?.description ||
             null,
+          agentId: job.agentId ?? null,
+          boardStatus: job.boardStatus ?? null,
           enabled: job.enabled,
           schedule: job.schedule,
           action: job.action,
@@ -2896,71 +2925,75 @@ export function getGatewayAdminScheduler(): GatewayAdminSchedulerResponse {
           taskId: null,
         } satisfies GatewayAdminSchedulerJob;
       }),
-      ...getAllTasks().map((task) => {
-        const normalizedPrompt = task.prompt.replace(/\s+/g, ' ').trim();
-        const createdAtMs = parseSchedulerTimestampMs(task.created_at);
-        const lastStatus =
-          task.last_status === 'success' || task.last_status === 'error'
-            ? task.last_status
-            : null;
+      ...getAllTasks()
+        .map((task) => {
+          const normalizedPrompt = task.prompt.replace(/\s+/g, ' ').trim();
+          const createdAtMs = parseSchedulerTimestampMs(task.created_at);
+          const lastStatus =
+            task.last_status === 'success' || task.last_status === 'error'
+              ? task.last_status
+              : null;
 
-        return {
-          id: `task:${task.id}`,
-          source: 'task',
-          name:
-            normalizedPrompt.length > 72
-              ? `${normalizedPrompt.slice(0, 69).trimEnd()}...`
-              : normalizedPrompt || `Task #${task.id}`,
-          description: `#${task.id}`,
-          enabled: Boolean(task.enabled),
-          schedule: task.run_at
-            ? {
-                kind: 'at',
-                at: task.run_at,
-                everyMs: null,
-                expr: null,
-                tz: '',
-              }
-            : task.every_ms
+          return {
+            id: `task:${task.id}`,
+            source: 'task',
+            name:
+              normalizedPrompt.length > 72
+                ? `${normalizedPrompt.slice(0, 69).trimEnd()}...`
+                : normalizedPrompt || `Task #${task.id}`,
+            description: `#${task.id}`,
+            agentId: null,
+            boardStatus: null,
+            enabled: Boolean(task.enabled),
+            schedule: task.run_at
               ? {
-                  kind: 'every',
-                  at: null,
-                  everyMs: task.every_ms,
+                  kind: 'at',
+                  at: task.run_at,
+                  everyMs: null,
                   expr: null,
                   tz: '',
                 }
-              : {
-                  kind: 'cron',
-                  at: null,
-                  everyMs: null,
-                  expr: task.cron_expr || null,
-                  tz: '',
-                },
-          action: {
-            kind: 'agent_turn',
-            message: task.prompt,
-          },
-          delivery: {
-            kind: 'channel',
-            channel: 'session',
-            to: task.channel_id,
-            webhookUrl: '',
-          },
-          lastRun: task.last_run,
-          lastStatus,
-          nextRunAt: getScheduledTaskNextRunAt(task, nowMs),
-          disabled: !task.enabled,
-          consecutiveErrors: Math.max(0, task.consecutive_errors || 0),
-          createdAt:
-            createdAtMs == null
-              ? task.created_at || null
-              : new Date(createdAtMs).toISOString(),
-          sessionId: task.session_id,
-          channelId: task.channel_id,
-          taskId: task.id,
-        } satisfies GatewayAdminSchedulerJob;
-      }),
-    ].sort(compareGatewayAdminSchedulerJobs),
+              : task.every_ms
+                ? {
+                    kind: 'every',
+                    at: null,
+                    everyMs: task.every_ms,
+                    expr: null,
+                    tz: '',
+                  }
+                : {
+                    kind: 'cron',
+                    at: null,
+                    everyMs: null,
+                    expr: task.cron_expr || null,
+                    tz: '',
+                  },
+            action: {
+              kind: 'agent_turn',
+              message: task.prompt,
+            },
+            delivery: {
+              kind: 'channel',
+              channel: 'session',
+              to: task.channel_id,
+              webhookUrl: '',
+            },
+            lastRun: task.last_run,
+            lastStatus,
+            nextRunAt: getScheduledTaskNextRunAt(task, nowMs),
+            disabled: !task.enabled,
+            consecutiveErrors: Math.max(0, task.consecutive_errors || 0),
+            createdAt:
+              createdAtMs == null
+                ? task.created_at || null
+                : new Date(createdAtMs).toISOString(),
+            sessionId: task.session_id,
+            channelId: task.channel_id,
+            taskId: task.id,
+          } satisfies GatewayAdminSchedulerJob;
+        })
+        .sort(compareGatewayAdminSchedulerJobs),
+    ],
   };
 }
 
@@ -3072,6 +3105,54 @@ export function setGatewayAdminSchedulerJobPaused(params: {
   if (!ok) {
     throw new Error(`Scheduler job \`${normalizedJobId}\` was not found.`);
   }
+  return getGatewayAdminScheduler();
+}
+
+export function moveGatewayAdminSchedulerJob(params: {
+  jobId: string;
+  beforeJobId?: string | null;
+  boardStatus?:
+    | 'backlog'
+    | 'in_progress'
+    | 'review'
+    | 'done'
+    | 'cancelled'
+    | null;
+}): GatewayAdminSchedulerResponse {
+  const normalizedJobId = params.jobId.trim();
+  if (!normalizedJobId) {
+    throw new Error('Expected non-empty scheduler `jobId`.');
+  }
+  const normalizedBeforeJobId = String(params.beforeJobId || '').trim() || null;
+  let found = false;
+
+  updateRuntimeConfig((draft) => {
+    const fromIndex = draft.scheduler.jobs.findIndex(
+      (job) => job.id === normalizedJobId,
+    );
+    if (fromIndex < 0) return;
+    found = true;
+    const [job] = draft.scheduler.jobs.splice(fromIndex, 1);
+    if (params.boardStatus) {
+      job.boardStatus = params.boardStatus;
+    }
+    let insertIndex = draft.scheduler.jobs.length;
+    if (normalizedBeforeJobId && normalizedBeforeJobId !== normalizedJobId) {
+      const beforeIndex = draft.scheduler.jobs.findIndex(
+        (candidate) => candidate.id === normalizedBeforeJobId,
+      );
+      if (beforeIndex >= 0) {
+        insertIndex = beforeIndex;
+      }
+    }
+    draft.scheduler.jobs.splice(insertIndex, 0, job);
+  });
+
+  if (!found) {
+    throw new Error(`Scheduler job \`${normalizedJobId}\` was not found.`);
+  }
+
+  rearmScheduler();
   return getGatewayAdminScheduler();
 }
 
@@ -5022,6 +5103,7 @@ export async function runGatewayScheduledTask(
   onResult: (result: ProactiveMessagePayload) => Promise<void>,
   onError: (error: unknown) => void,
   runKey?: string,
+  preferredAgentId?: string,
 ): Promise<void> {
   let currentSessionId = origSessionId;
   const sessionResetPolicy = {
@@ -5047,9 +5129,15 @@ export async function runGatewayScheduledTask(
     currentSessionId,
     null,
     channelId,
-    undefined,
+    preferredAgentId,
   );
-  const { agentId, chatbotId, model } = resolveAgentForRequest({ session });
+  if (preferredAgentId && session.agent_id !== preferredAgentId) {
+    updateSessionAgent(session.id, preferredAgentId);
+  }
+  const { agentId, chatbotId, model } = resolveAgentForRequest({
+    session,
+    agentId: preferredAgentId,
+  });
   if (modelRequiresChatbotId(model) && !chatbotId) {
     logger.warn(
       {

@@ -82,6 +82,7 @@ import {
   getGatewayStatus,
   handleGatewayCommand,
   handleGatewayMessage,
+  moveGatewayAdminSchedulerJob,
   removeGatewayAdminChannel,
   removeGatewayAdminMcpServer,
   removeGatewayAdminSchedulerJob,
@@ -165,6 +166,18 @@ const ALLOWED_MEDIA_UPLOAD_MIME_TYPES = new Set([
 type ApiChatRequestBody = GatewayChatRequestBody & { stream?: boolean };
 type ApiChatBranchRequestBody = Partial<GatewayChatBranchRequestBody>;
 type ApiMessageActionRequestBody = Partial<DiscordToolActionRequest>;
+
+function normalizeStringListInput(value: unknown): string[] | undefined {
+  if (typeof value === 'string') {
+    const normalized = value.trim();
+    return normalized ? [normalized] : undefined;
+  }
+  if (!Array.isArray(value)) return undefined;
+  const normalized = value
+    .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+    .filter((entry) => entry.length > 0);
+  return normalized.length > 0 ? normalized : undefined;
+}
 type ApiPluginToolRequestBody = {
   toolName?: unknown;
   args?: unknown;
@@ -1232,6 +1245,9 @@ async function handleApiMessageAction(
     after: typeof body.after === 'string' ? body.after : undefined,
     around: typeof body.around === 'string' ? body.around : undefined,
     content: typeof body.content === 'string' ? body.content : undefined,
+    subject: typeof body.subject === 'string' ? body.subject : undefined,
+    cc: normalizeStringListInput(body.cc),
+    bcc: normalizeStringListInput(body.bcc),
     filePath: typeof body.filePath === 'string' ? body.filePath : undefined,
     components:
       Array.isArray(body.components) ||
@@ -1630,6 +1646,8 @@ async function handleApiAdminScheduler(
       taskId?: unknown;
       source?: unknown;
       action?: unknown;
+      beforeJobId?: unknown;
+      boardStatus?: unknown;
     };
     const source =
       String(body.source || '')
@@ -1643,9 +1661,32 @@ async function handleApiAdminScheduler(
     const action = String(body.action || '')
       .trim()
       .toLowerCase();
+    if (action === 'move') {
+      const boardStatusRaw = String(body.boardStatus || '')
+        .trim()
+        .toLowerCase();
+      const boardStatus =
+        boardStatusRaw === 'backlog' ||
+        boardStatusRaw === 'in_progress' ||
+        boardStatusRaw === 'review' ||
+        boardStatusRaw === 'done' ||
+        boardStatusRaw === 'cancelled'
+          ? boardStatusRaw
+          : null;
+      sendJson(
+        res,
+        200,
+        moveGatewayAdminSchedulerJob({
+          jobId,
+          beforeJobId: String(body.beforeJobId || '').trim() || null,
+          boardStatus,
+        }),
+      );
+      return;
+    }
     if (action !== 'pause' && action !== 'resume') {
       sendJson(res, 400, {
-        error: 'Expected scheduler action `pause` or `resume`.',
+        error: 'Expected scheduler action `pause`, `resume`, or `move`.',
       });
       return;
     }

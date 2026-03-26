@@ -557,6 +557,14 @@ export interface GatewayAdminSchedulerJob {
   source: 'config' | 'task';
   name: string;
   description: string | null;
+  agentId: string | null;
+  boardStatus:
+    | 'backlog'
+    | 'in_progress'
+    | 'review'
+    | 'done'
+    | 'cancelled'
+    | null;
   enabled: boolean;
   schedule: RuntimeSchedulerJob['schedule'];
   action: RuntimeSchedulerJob['action'];

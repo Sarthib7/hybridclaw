@@ -17,6 +17,7 @@ import type {
   AdminSession,
   AdminSkillsResponse,
   AdminToolsResponse,
+  AgentsOverview,
   DeleteSessionResult,
   GatewayStatus,
 } from './types';
@@ -115,6 +116,10 @@ export function fetchHealth(): Promise<GatewayStatus> {
 
 export function fetchOverview(token: string): Promise<AdminOverview> {
   return requestJson<AdminOverview>('/api/admin/overview', { token });
+}
+
+export function fetchAgentsOverview(token: string): Promise<AgentsOverview> {
+  return requestJson<AgentsOverview>('/api/agents', { token });
 }
 
 export async function fetchSessions(token: string): Promise<AdminSession[]> {
@@ -257,6 +262,30 @@ export function setSchedulerJobPaused(
     token,
     method: 'POST',
     body: payload,
+  });
+}
+
+export function moveSchedulerJob(
+  token: string,
+  payload: {
+    jobId: string;
+    beforeJobId?: string | null;
+    boardStatus?:
+      | 'backlog'
+      | 'in_progress'
+      | 'review'
+      | 'done'
+      | 'cancelled'
+      | null;
+  },
+): Promise<AdminSchedulerResponse> {
+  return requestJson<AdminSchedulerResponse>('/api/admin/scheduler', {
+    token,
+    method: 'POST',
+    body: {
+      action: 'move',
+      ...payload,
+    },
   });
 }
 

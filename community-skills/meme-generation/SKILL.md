@@ -150,7 +150,8 @@ python3 scripts/generate_meme.py --list --pack classic --show-source
 - Match the number of text arguments to the template's field count.
 - Pick the template that fits the joke structure, not just the topic.
 - Do not generate hateful, abusive, or personally targeted content.
-- Template downloads and imgflip API data are cached under `/tmp/.meme-cache`.
+- Do not use the skill to target a real private individual. For public figures or celebrities, avoid harassment, defamation, or demeaning personal attacks.
+- Template downloads and imgflip API data are cached in a per-user temp cache directory.
 - Write output files into the current workspace, not `/tmp`, when you want HybridClaw to return the image automatically.
 
 ## Verification

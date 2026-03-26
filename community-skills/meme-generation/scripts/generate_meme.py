@@ -8,6 +8,7 @@ import argparse
 import json
 import os
 import sys
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -20,11 +21,13 @@ from PIL import Image, ImageDraw, ImageFont
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 TEMPLATES_FILE = SCRIPT_DIR / 'templates.json'
-CACHE_DIR = Path('/tmp/.meme-cache')
+USER_CACHE_SUFFIX = str(os.getuid()) if hasattr(os, 'getuid') else 'default'
+CACHE_DIR = Path(tempfile.gettempdir()) / f'.meme-cache-{USER_CACHE_SUFFIX}'
 IMGFLIP_API = 'https://api.imgflip.com/get_memes'
 IMGFLIP_CACHE_FILE = CACHE_DIR / 'imgflip_memes.json'
 IMGFLIP_CACHE_MAX_AGE = 86_400
 DEFAULT_TIMEOUT_SECONDS = 15
+MAX_DOWNLOAD_BYTES = 15 * 1024 * 1024
 HTTP_HEADERS = {
     'User-Agent': 'HybridClaw Meme Skill/2.0',
     'Accept': '*/*',
@@ -77,8 +80,28 @@ def _fetch_url(url: str, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> bytes:
     try:
         request = urllib.request.Request(url, headers=HTTP_HEADERS)
         with urllib.request.urlopen(request, timeout=timeout) as response:
-            return response.read()
-    except (urllib.error.URLError, OSError) as exc:
+            content_length = response.headers.get('Content-Length')
+            if content_length is not None:
+                size = int(content_length)
+                if size > MAX_DOWNLOAD_BYTES:
+                    raise RuntimeError(
+                        f'Failed to fetch {url}: response exceeds {MAX_DOWNLOAD_BYTES} bytes'
+                    )
+
+            chunks: list[bytes] = []
+            total = 0
+            while True:
+                chunk = response.read(64 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > MAX_DOWNLOAD_BYTES:
+                    raise RuntimeError(
+                        f'Failed to fetch {url}: response exceeds {MAX_DOWNLOAD_BYTES} bytes'
+                    )
+                chunks.append(chunk)
+            return b''.join(chunks)
+    except (urllib.error.URLError, OSError, ValueError) as exc:
         raise RuntimeError(f'Failed to fetch {url}') from exc
 
 
@@ -488,7 +511,15 @@ def _add_bars(image: Image.Image, texts: list[str]) -> Image.Image:
 
 
 def _prepare_output_path(output_path: str) -> Path:
-    output = Path(output_path)
+    workspace_root = Path.cwd().resolve()
+    requested = Path(output_path)
+    output = requested.resolve() if requested.is_absolute() else (workspace_root / requested).resolve()
+    try:
+        output.relative_to(workspace_root)
+    except ValueError as exc:
+        raise RuntimeError(
+            f'Output path must stay inside the current workspace: {workspace_root}'
+        ) from exc
     output.parent.mkdir(parents=True, exist_ok=True)
     return output
 
@@ -546,9 +577,9 @@ def generate_meme(
         f"Using template: {template['name']} ({template['source']}, pack={template['pack']}, {len(template['fields'])} fields)",
         file=sys.stderr,
     )
+    output = _prepare_output_path(output_path)
     image = generate_template_art(template)
     result = _overlay_on_image(image, texts, template['fields'])
-    output = _prepare_output_path(output_path)
     return _save_image(result, output)
 
 
@@ -563,8 +594,8 @@ def generate_from_image(
         f"Custom image: {image.size[0]}x{image.size[1]}, {len(texts)} text(s), mode={'bars' if use_bars else 'overlay'}",
         file=sys.stderr,
     )
-    result = _add_bars(image, texts) if use_bars else _overlay_on_image(image, texts, _default_fields(len(texts)))
     output = _prepare_output_path(output_path)
+    result = _add_bars(image, texts) if use_bars else _overlay_on_image(image, texts, _default_fields(len(texts)))
     return _save_image(result, output)
 
 
@@ -728,65 +759,69 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
 
-    if args.info:
-        return show_template_info(args.info)
+    try:
+        if args.info:
+            return show_template_info(args.info)
 
-    if args.list:
-        list_templates(
-            pack=args.pack,
-            tag=args.tag,
-            person=args.person,
-            show_source=args.show_source,
-        )
-        return 0
+        if args.list:
+            list_templates(
+                pack=args.pack,
+                tag=args.tag,
+                person=args.person,
+                show_source=args.show_source,
+            )
+            return 0
 
-    if args.search:
-        search_templates(
-            args.search,
-            pack=args.pack,
-            tag=args.tag,
-            person=args.person,
-            curated_only=args.curated_only,
-            show_source=args.show_source,
-        )
-        return 0
+        if args.search:
+            search_templates(
+                args.search,
+                pack=args.pack,
+                tag=args.tag,
+                person=args.person,
+                curated_only=args.curated_only,
+                show_source=args.show_source,
+            )
+            return 0
 
-    if args.image:
-        if len(args.args) < 2:
+        if args.image:
+            if len(args.args) < 2:
+                print(
+                    'Usage: generate_meme.py --image <image_path> [--bars] <output_path> <text1> [text2] ...',
+                    file=sys.stderr,
+                )
+                return 1
+            output_path = args.args[0]
+            texts = args.args[1:]
+            result = generate_from_image(args.image, texts, output_path, use_bars=args.bars)
+            print(f'Meme saved to: {result}')
+            return 0
+
+        if len(args.args) < 3:
             print(
-                'Usage: generate_meme.py --image <image_path> [--bars] <output_path> <text1> [text2] ...',
+                'Usage: generate_meme.py <template_id_or_name> <output_path> <text1> [text2] [text3] [text4]',
+                file=sys.stderr,
+            )
+            print('       generate_meme.py --list [--pack PACK]', file=sys.stderr)
+            print('       generate_meme.py --search <query> [--pack PACK] [--curated-only]', file=sys.stderr)
+            print(
+                '       generate_meme.py --image <path> [--bars] <output_path> <text1> [text2] ...',
                 file=sys.stderr,
             )
             return 1
-        output_path = args.args[0]
-        texts = args.args[1:]
-        result = generate_from_image(args.image, texts, output_path, use_bars=args.bars)
+
+        template_id = args.args[0]
+        output_path = args.args[1]
+        texts = args.args[2:]
+        result = generate_meme(
+            template_id,
+            texts,
+            output_path,
+        )
         print(f'Meme saved to: {result}')
         return 0
-
-    if len(args.args) < 3:
-        print(
-            'Usage: generate_meme.py <template_id_or_name> <output_path> <text1> [text2] [text3] [text4]',
-            file=sys.stderr,
-        )
-        print('       generate_meme.py --list [--pack PACK]', file=sys.stderr)
-        print('       generate_meme.py --search <query> [--pack PACK] [--curated-only]', file=sys.stderr)
-        print(
-            '       generate_meme.py --image <path> [--bars] <output_path> <text1> [text2] ...',
-            file=sys.stderr,
-        )
+    except RuntimeError as exc:
+        print(f'Error: {exc}', file=sys.stderr)
         return 1
-
-    template_id = args.args[0]
-    output_path = args.args[1]
-    texts = args.args[2:]
-    result = generate_meme(
-        template_id,
-        texts,
-        output_path,
-    )
-    print(f'Meme saved to: {result}')
-    return 0
 
 
 if __name__ == '__main__':

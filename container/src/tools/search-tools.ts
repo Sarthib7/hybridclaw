@@ -179,7 +179,8 @@ export const SEARCH_TOOL_DEFINITIONS: ToolDefinition[] = [
           },
           path: {
             type: 'string',
-            description: 'Directory or file to search in (default: workspace root)',
+            description:
+              'Directory or file to search in (default: workspace root)',
           },
           include: {
             type: 'string',
@@ -425,7 +426,9 @@ function validateGrepRegexPattern(pattern: string): string | null {
       if (frame.hasComplexSubpattern && groupStack.length > 0) {
         groupStack[groupStack.length - 1].hasComplexSubpattern = true;
       }
-      lastTokenKind = frame.hasComplexSubpattern ? 'group_complex' : 'group_simple';
+      lastTokenKind = frame.hasComplexSubpattern
+        ? 'group_complex'
+        : 'group_simple';
       continue;
     }
 
@@ -441,10 +444,7 @@ function validateGrepRegexPattern(pattern: string): string | null {
     const isQuantifier =
       ch === '*' || ch === '+' || ch === '?' || quantifierMatch != null;
     if (isQuantifier) {
-      if (
-        lastTokenKind === 'quantified' ||
-        lastTokenKind === 'group_complex'
-      ) {
+      if (lastTokenKind === 'quantified' || lastTokenKind === 'group_complex') {
         return 'nested quantifiers are not supported';
       }
       if (groupStack.length > 0) {
@@ -651,7 +651,8 @@ function walkWorkspaceFiles(
 
       const fullPath = path.join(currentDir, entry.name);
       if (entry.isDirectory()) {
-        if (!SEARCH_SKIP_DIRS.has(entry.name)) directoriesToVisit.push(fullPath);
+        if (!SEARCH_SKIP_DIRS.has(entry.name))
+          directoriesToVisit.push(fullPath);
         continue;
       }
       if (!entry.isFile()) continue;

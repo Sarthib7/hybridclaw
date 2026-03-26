@@ -73,4 +73,46 @@ describe('skill install metadata', () => {
     expect(selection.spec.kind).toBe('brew');
     expect(selection.spec.formula).toBe('poppler');
   });
+
+  test('reads install metadata and requires from metadata.openclaw', async () => {
+    const { DEFAULT_RUNTIME_HOME_DIR } = await import(
+      '../src/config/runtime-config.ts'
+    );
+    const { findSkillCatalogEntry } = await import(
+      '../src/skills/skills-install.ts'
+    );
+
+    const skillDir = path.join(DEFAULT_RUNTIME_HOME_DIR, 'skills', 'openhue');
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, 'SKILL.md'),
+      [
+        '---',
+        'name: openhue',
+        'description: Control Philips Hue lights and scenes.',
+        'metadata: {"openclaw":{"requires":{"bins":["openhue"]},"install":[{"id":"brew","kind":"brew","formula":"openhue/cli/openhue-cli","bins":["openhue"],"label":"Install OpenHue CLI (brew)"}]}}',
+        '---',
+        '',
+        '# OpenHue',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const skill = findSkillCatalogEntry('openhue');
+
+    expect(skill).not.toBeNull();
+    expect(skill?.requires).toEqual({
+      bins: ['openhue'],
+      env: [],
+    });
+    expect(skill?.metadata.hybridclaw.install).toEqual([
+      {
+        id: 'brew',
+        kind: 'brew',
+        formula: 'openhue/cli/openhue-cli',
+        bins: ['openhue'],
+        label: 'Install OpenHue CLI (brew)',
+      },
+    ]);
+  });
 });

@@ -446,6 +446,80 @@ function parseSectionObjectList(
   return values;
 }
 
+function mergeUniqueStrings(values: string[][]): string[] {
+  const merged: string[] = [];
+  const seen = new Set<string>();
+  for (const group of values) {
+    for (const value of group) {
+      if (!value || seen.has(value)) continue;
+      seen.add(value);
+      merged.push(value);
+    }
+  }
+  return merged;
+}
+
+function mergeUniqueInstallSpecs(groups: SkillInstallSpec[][]): SkillInstallSpec[] {
+  const merged: SkillInstallSpec[] = [];
+  const seen = new Set<string>();
+  for (const group of groups) {
+    for (const spec of group) {
+      const fingerprint = JSON.stringify(spec);
+      if (seen.has(fingerprint)) continue;
+      seen.add(fingerprint);
+      merged.push(spec);
+    }
+  }
+  return merged;
+}
+
+function resolveCompatibleMetadataRecords(
+  raw: Record<string, unknown>,
+): Record<string, unknown>[] {
+  const records: Record<string, unknown>[] = [];
+  if (isRecord(raw.hybridclaw)) records.push(raw.hybridclaw);
+  if (isRecord(raw.openclaw)) records.push(raw.openclaw);
+  return records.length > 0 ? records : [raw];
+}
+
+function normalizeCompatibleMetadata(raw: Record<string, unknown>): {
+  tags: string[];
+  relatedSkills: string[];
+  install: SkillInstallSpec[];
+} {
+  const records = resolveCompatibleMetadataRecords(raw);
+  return {
+    tags: mergeUniqueStrings(records.map((record) => normalizeStringList(record.tags))),
+    relatedSkills: mergeUniqueStrings(
+      records.map((record) =>
+        normalizeStringList(record.related_skills ?? record.relatedSkills),
+      ),
+    ),
+    install: mergeUniqueInstallSpecs(
+      records.map((record) => normalizeInstallSpecs(record.install)),
+    ),
+  };
+}
+
+function parseRequiresFromMetadataRecord(raw: Record<string, unknown>): {
+  bins: string[];
+  env: string[];
+} {
+  const records = resolveCompatibleMetadataRecords(raw);
+  return {
+    bins: mergeUniqueStrings(
+      records.map((record) =>
+        isRecord(record.requires) ? normalizeStringList(record.requires.bins) : [],
+      ),
+    ),
+    env: mergeUniqueStrings(
+      records.map((record) =>
+        isRecord(record.requires) ? normalizeStringList(record.requires.env) : [],
+      ),
+    ),
+  };
+}
+
 function parseRequiresFromFrontmatter(frontmatter: FrontmatterParseResult): {
   bins: string[];
   env: string[];
@@ -461,20 +535,65 @@ function parseRequiresFromFrontmatter(frontmatter: FrontmatterParseResult): {
   }
 
   const section = extractTopLevelSection(frontmatter.block, 'requires');
-  if (!section) return { bins: [], env: [] };
+  let requires: { bins: string[]; env: string[] } = { bins: [], env: [] };
+  if (section) {
+    const inlineJson = tryParseJsonObject(section.inline);
+    if (inlineJson) {
+      return {
+        bins: normalizeStringList(inlineJson.bins),
+        env: normalizeStringList(inlineJson.env),
+      };
+    }
 
-  const inlineJson = tryParseJsonObject(section.inline);
-  if (inlineJson) {
-    return {
-      bins: normalizeStringList(inlineJson.bins),
-      env: normalizeStringList(inlineJson.env),
+    const fields = parseSectionChildren(section.children);
+    requires = {
+      bins: parseSectionStringList(fields.get('bins')),
+      env: parseSectionStringList(fields.get('env')),
     };
   }
+  if (requires.bins.length > 0 || requires.env.length > 0) {
+    return requires;
+  }
 
-  const fields = parseSectionChildren(section.children);
+  const metadataInlineJson = frontmatter.meta.metadata
+    ? tryParseJsonObject(frontmatter.meta.metadata)
+    : null;
+  if (metadataInlineJson) {
+    return parseRequiresFromMetadataRecord(metadataInlineJson);
+  }
+
+  const metadataSection = extractTopLevelSection(frontmatter.block, 'metadata');
+  if (!metadataSection) return requires;
+
+  const metadataSectionInlineJson = tryParseJsonObject(metadataSection.inline);
+  if (metadataSectionInlineJson) {
+    return parseRequiresFromMetadataRecord(metadataSectionInlineJson);
+  }
+
+  const metadataFields = parseSectionChildren(metadataSection.children);
+  const hybridSection =
+    metadataFields.get('hybridclaw') || metadataFields.get('openclaw');
+  if (!hybridSection) return requires;
+
+  const hybridInlineJson = tryParseJsonObject(hybridSection.inline);
+  if (hybridInlineJson) {
+    return parseRequiresFromMetadataRecord(hybridInlineJson);
+  }
+
+  const hybridFields = parseSectionChildren(hybridSection.children);
+  const nestedRequires = hybridFields.get('requires');
+  if (!nestedRequires) return requires;
+  const nestedRequiresInlineJson = tryParseJsonObject(nestedRequires.inline);
+  if (nestedRequiresInlineJson) {
+    return {
+      bins: normalizeStringList(nestedRequiresInlineJson.bins),
+      env: normalizeStringList(nestedRequiresInlineJson.env),
+    };
+  }
+  const nestedRequiresFields = parseSectionChildren(nestedRequires.children);
   return {
-    bins: parseSectionStringList(fields.get('bins')),
-    env: parseSectionStringList(fields.get('env')),
+    bins: parseSectionStringList(nestedRequiresFields.get('bins')),
+    env: parseSectionStringList(nestedRequiresFields.get('env')),
   };
 }
 
@@ -483,40 +602,24 @@ function parseHybridClawMetadata(frontmatter: FrontmatterParseResult): {
   relatedSkills: string[];
   install: SkillInstallSpec[];
 } {
-  const normalizeMetadata = (
-    raw: Record<string, unknown>,
-  ): {
-    tags: string[];
-    relatedSkills: string[];
-    install: SkillInstallSpec[];
-  } => {
-    const hybridRaw = isRecord(raw.hybridclaw) ? raw.hybridclaw : raw;
-    return {
-      tags: normalizeStringList(hybridRaw.tags),
-      relatedSkills: normalizeStringList(
-        hybridRaw.related_skills ?? hybridRaw.relatedSkills,
-      ),
-      install: normalizeInstallSpecs(hybridRaw.install),
-    };
-  };
-
   const fromInlineJson = frontmatter.meta.metadata
     ? tryParseJsonObject(frontmatter.meta.metadata)
     : null;
-  if (fromInlineJson) return normalizeMetadata(fromInlineJson);
+  if (fromInlineJson) return normalizeCompatibleMetadata(fromInlineJson);
 
   const metadataSection = extractTopLevelSection(frontmatter.block, 'metadata');
   if (!metadataSection) return { tags: [], relatedSkills: [], install: [] };
 
   const metadataInlineJson = tryParseJsonObject(metadataSection.inline);
-  if (metadataInlineJson) return normalizeMetadata(metadataInlineJson);
+  if (metadataInlineJson) return normalizeCompatibleMetadata(metadataInlineJson);
 
   const metadataFields = parseSectionChildren(metadataSection.children);
-  const hybridSection = metadataFields.get('hybridclaw');
+  const hybridSection =
+    metadataFields.get('hybridclaw') || metadataFields.get('openclaw');
   if (!hybridSection) return { tags: [], relatedSkills: [], install: [] };
 
   const hybridInlineJson = tryParseJsonObject(hybridSection.inline);
-  if (hybridInlineJson) return normalizeMetadata(hybridInlineJson);
+  if (hybridInlineJson) return normalizeCompatibleMetadata(hybridInlineJson);
 
   const hybridFields = parseSectionChildren(hybridSection.children);
   const installSection = hybridFields.get('install');
@@ -525,7 +628,10 @@ function parseHybridClawMetadata(frontmatter: FrontmatterParseResult): {
     : null;
   return {
     tags: parseSectionStringList(hybridFields.get('tags')),
-    relatedSkills: parseSectionStringList(hybridFields.get('related_skills')),
+    relatedSkills: mergeUniqueStrings([
+      parseSectionStringList(hybridFields.get('related_skills')),
+      parseSectionStringList(hybridFields.get('relatedSkills')),
+    ]),
     install: normalizeInstallSpecs(
       installInlineJson ?? parseSectionObjectList(installSection),
     ),
@@ -720,12 +826,6 @@ function sanitizeSkillDirName(name: string): string {
   return normalized || 'skill';
 }
 
-function stableSkillDirName(name: string): string {
-  const base = sanitizeSkillDirName(name);
-  const hash = createHash('sha1').update(name).digest('hex').slice(0, 8);
-  return `${base}-${hash}`;
-}
-
 function buildDirectoryContentSignature(rootDir: string): string {
   const resolvedRoot = path.resolve(rootDir);
   const entries: string[] = [];
@@ -810,8 +910,11 @@ function resolveSyncedSkillTarget(
     }
   }
 
-  const rootDir = path.join(workspaceDir, SYNCED_SKILLS_DIR);
-  const dirName = stableSkillDirName(skill.name);
+  // Imported/personal/community skills also live under /workspace/skills so
+  // the model can reuse the same stable "skills/<name>/..." paths it already
+  // sees for bundled skills.
+  const rootDir = path.join(workspaceDir, 'skills');
+  const dirName = sanitizeSkillDirName(skill.name);
   const targetDir = path.join(rootDir, dirName);
   return {
     rootDir,
@@ -910,6 +1013,13 @@ function pruneStaleSyncedSkills(
     }
     desiredByRoot.get(resolvedRoot)?.add(resolvedTarget);
   }
+
+  // Clean up legacy synced skills left behind from older releases that used a
+  // hidden .synced-skills root.
+  desiredByRoot.set(
+    path.resolve(path.join(workspaceDir, SYNCED_SKILLS_DIR)),
+    new Set(),
+  );
 
   for (const [rootDir, desiredDirs] of desiredByRoot) {
     for (const skillDir of collectSyncedSkillDirs(rootDir)) {

@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-## [0.9.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.9.1)
+## [0.9.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.9.2)
 
 ### Added
 

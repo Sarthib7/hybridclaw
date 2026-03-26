@@ -9,6 +9,7 @@ import json
 import os
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from functools import lru_cache
 from io import BytesIO
@@ -156,7 +157,7 @@ def fetch_imgflip_templates() -> list[dict[str, Any]]:
         with IMGFLIP_CACHE_FILE.open('w', encoding='utf-8') as handle:
             json.dump(memes, handle)
         return memes
-    except Exception as exc:
+    except (OSError, ValueError, RuntimeError) as exc:
         if IMGFLIP_CACHE_FILE.exists():
             with IMGFLIP_CACHE_FILE.open(encoding='utf-8') as handle:
                 return cast(list[dict[str, Any]], json.load(handle))
@@ -293,7 +294,9 @@ def generate_template_art(template: ResolvedTemplate) -> Image.Image:
 
 def get_template_image(url: str) -> Image.Image:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    cache_path = (CACHE_DIR / url.split('/')[-1]).with_suffix('.png')
+    parsed = urllib.parse.urlparse(url)
+    filename = Path(parsed.path).name or 'template'
+    cache_path = (CACHE_DIR / filename).with_suffix('.png')
     if cache_path.exists():
         return Image.open(cache_path).convert('RGBA')
 

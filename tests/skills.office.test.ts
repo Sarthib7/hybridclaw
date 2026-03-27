@@ -355,6 +355,9 @@ describe('office bundled skills', () => {
 
     expect(firstSkill).toBeDefined();
     expect(secondSkill).toBeDefined();
+    if (!firstSkill || !secondSkill) {
+      throw new Error('Expected both colliding skills to load');
+    }
     expect(firstSkill?.location).toMatch(
       /^skills\/foo-bar-[0-9a-f]{8}\/SKILL\.md$/,
     );
@@ -363,10 +366,10 @@ describe('office bundled skills', () => {
     );
     expect(firstSkill?.location).not.toBe(secondSkill?.location);
     expect(
-      fs.readFileSync(path.join(workspaceDir, firstSkill!.location), 'utf8'),
+      fs.readFileSync(path.join(workspaceDir, firstSkill.location), 'utf8'),
     ).toContain('first-body');
     expect(
-      fs.readFileSync(path.join(workspaceDir, secondSkill!.location), 'utf8'),
+      fs.readFileSync(path.join(workspaceDir, secondSkill.location), 'utf8'),
     ).toContain('second-body');
   });
 

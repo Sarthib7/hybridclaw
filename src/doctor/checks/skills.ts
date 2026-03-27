@@ -3,6 +3,7 @@ import {
   setRuntimeSkillScopeEnabled,
   updateRuntimeConfig,
 } from '../../config/runtime-config.js';
+import { getSkillObservationSummary } from '../../memory/db.js';
 import {
   loadSkillCatalog,
   type SkillCatalogEntry,
@@ -19,9 +20,20 @@ interface FlaggedSkill {
   result: SkillGuardScanResult;
 }
 
+const UNUSED_WINDOW_DAYS = 30;
+
 function formatFlaggedSkill(flagged: FlaggedSkill): string {
   const count = flagged.result.findings.length;
   return `${flagged.skill.name} (${count} finding${count === 1 ? '' : 's'})`;
+}
+
+function buildUnusedWindowStart(days = UNUSED_WINDOW_DAYS): string {
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+function formatLastObservedAt(lastObservedAt: string | null): string {
+  if (!lastObservedAt) return 'never';
+  return lastObservedAt.slice(0, 10);
 }
 
 function scanGuardedSkill(skill: SkillCatalogEntry): FlaggedSkill | null {
@@ -35,6 +47,69 @@ function scanGuardedSkill(skill: SkillCatalogEntry): FlaggedSkill | null {
     skill,
     result,
   };
+}
+
+function buildUnusedSkillsResult(
+  catalog: SkillCatalogEntry[],
+): DiagResult | null {
+  const summaries = getSkillObservationSummary();
+  if (summaries.length === 0) return null;
+
+  const cutoff = buildUnusedWindowStart();
+  const usageBySkill = new Map(
+    summaries.map((summary) => [summary.skill_name, summary]),
+  );
+  const unused = catalog
+    .filter((skill) => skill.enabled)
+    .filter(
+      (skill) =>
+        (usageBySkill.get(skill.name)?.last_observed_at || '') < cutoff,
+    )
+    .map((skill) => ({
+      name: skill.name,
+      lastObservedAt: usageBySkill.get(skill.name)?.last_observed_at || null,
+    }));
+
+  if (unused.length === 0) return null;
+
+  const previousDisabled = new Set(
+    (getRuntimeConfig().skills?.disabled ?? [])
+      .map((name) => String(name).trim())
+      .filter(Boolean),
+  );
+  const skillNames = unused.map((entry) => entry.name);
+  return makeResult(
+    'skills',
+    'Unused skills',
+    'warn',
+    `${unused.length} enabled skill${unused.length === 1 ? '' : 's'} unused in the last ${UNUSED_WINDOW_DAYS} days: ${unused
+      .map(
+        (entry) =>
+          `${entry.name} (last used ${formatLastObservedAt(entry.lastObservedAt)})`,
+      )
+      .join(', ')}. Re-enable with \`hybridclaw skill enable <name>\`.`,
+    {
+      summary: `Disable unused skills: ${skillNames.join(', ')}`,
+      apply: async () => {
+        updateRuntimeConfig((draft) => {
+          for (const skillName of skillNames) {
+            setRuntimeSkillScopeEnabled(draft, skillName, false);
+          }
+        });
+      },
+      rollback: async () => {
+        updateRuntimeConfig((draft) => {
+          for (const skillName of skillNames) {
+            setRuntimeSkillScopeEnabled(
+              draft,
+              skillName,
+              !previousDisabled.has(skillName),
+            );
+          }
+        });
+      },
+    },
+  );
 }
 
 export async function checkSkills(): Promise<DiagResult[]> {
@@ -65,7 +140,7 @@ export async function checkSkills(): Promise<DiagResult[]> {
         ? `; ${disabledFlagged.length} flagged skill${disabledFlagged.length === 1 ? '' : 's'} already disabled`
         : '';
 
-    return [
+    const results = [
       makeResult(
         'skills',
         'Skills',
@@ -94,10 +169,13 @@ export async function checkSkills(): Promise<DiagResult[]> {
         },
       ),
     ];
+    const unusedSkills = buildUnusedSkillsResult(catalog);
+    if (unusedSkills) results.push(unusedSkills);
+    return results;
   }
 
   if (disabledFlagged.length > 0) {
-    return [
+    const results = [
       makeResult(
         'skills',
         'Skills',
@@ -105,9 +183,12 @@ export async function checkSkills(): Promise<DiagResult[]> {
         `${catalog.length} skill${catalog.length === 1 ? '' : 's'} checked; ${disabledFlagged.length} flagged skill${disabledFlagged.length === 1 ? '' : 's'} already disabled`,
       ),
     ];
+    const unusedSkills = buildUnusedSkillsResult(catalog);
+    if (unusedSkills) results.push(unusedSkills);
+    return results;
   }
 
-  return [
+  const results = [
     makeResult(
       'skills',
       'Skills',
@@ -115,4 +196,7 @@ export async function checkSkills(): Promise<DiagResult[]> {
       `${catalog.length} skill${catalog.length === 1 ? '' : 's'} checked${disabledCount > 0 ? `, ${disabledCount} disabled` : ''}; all loadable skills passed guard checks`,
     ),
   ];
+  const unusedSkills = buildUnusedSkillsResult(catalog);
+  if (unusedSkills) results.push(unusedSkills);
+  return results;
 }

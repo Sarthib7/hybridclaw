@@ -1600,6 +1600,11 @@ export function isDatabaseInitialized(): boolean {
   return databaseInitialized;
 }
 
+function ensureDatabaseReady(): void {
+  if (databaseInitialized) return;
+  initDatabase({ quiet: true });
+}
+
 function serializeAgentModelConfig(
   model: AgentModelConfig | undefined,
 ): string | null {
@@ -2476,6 +2481,61 @@ export function getSessionToolCallBreakdown(
       (left, right) =>
         right.count - left.count || left.toolName.localeCompare(right.toolName),
     );
+}
+
+export interface ToolUsageSummary {
+  toolName: string;
+  totalCalls: number;
+  callsSinceCutoff: number;
+  lastUsedAt: string | null;
+}
+
+export function getToolUsageSummary(params?: {
+  sinceTimestamp?: string | null;
+}): ToolUsageSummary[] {
+  ensureDatabaseReady();
+  const normalizedSince =
+    typeof params?.sinceTimestamp === 'string' && params.sinceTimestamp.trim()
+      ? params.sinceTimestamp.trim()
+      : null;
+  const rows = queryAll<{ payload: string; timestamp: string }>(
+    db,
+    `SELECT payload, timestamp
+     FROM audit_events
+     WHERE event_type = 'tool.call'
+     ORDER BY id ASC`,
+  );
+
+  const usageByTool = new Map<string, ToolUsageSummary>();
+  for (const row of rows) {
+    try {
+      const payload = JSON.parse(row.payload) as { toolName?: unknown };
+      const toolName = String(payload.toolName || '').trim();
+      if (!toolName) continue;
+      const current = usageByTool.get(toolName) || {
+        toolName,
+        totalCalls: 0,
+        callsSinceCutoff: 0,
+        lastUsedAt: null,
+      };
+      current.totalCalls += 1;
+      if (!current.lastUsedAt || row.timestamp > current.lastUsedAt) {
+        current.lastUsedAt = row.timestamp;
+      }
+      if (!normalizedSince || row.timestamp >= normalizedSince) {
+        current.callsSinceCutoff += 1;
+      }
+      usageByTool.set(toolName, current);
+    } catch {
+      // Best effort only. Skip malformed audit payloads.
+    }
+  }
+
+  return [...usageByTool.values()].sort(
+    (left, right) =>
+      right.totalCalls - left.totalCalls ||
+      left.toolName.localeCompare(right.toolName),
+  );
 }
 
 function extractToolFilePath(argumentsValue: unknown): string | null {
@@ -5421,6 +5481,7 @@ export function getSkillObservationSummary(params?: {
   skillName?: string;
   createdAfter?: string | null;
 }): SkillObservationSummary[] {
+  ensureDatabaseReady();
   const clauses: string[] = [];
   const args: Array<string | number> = [];
   const skillName = params?.skillName?.trim() || '';

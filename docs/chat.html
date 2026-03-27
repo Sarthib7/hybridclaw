@@ -735,26 +735,24 @@
       display: flex;
       flex-wrap: wrap;
       align-items: center;
-      gap: 8px;
-      padding: 6px 6px 6px 12px;
+      gap: 0;
+      padding: 10px;
       border: 1px solid var(--line);
-      border-radius: 999px;
+      border-radius: 28px;
       background: #ffffff;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-      transition: border-radius 0.25s ease, padding 0.25s ease, box-shadow 0.25s ease;
+      transition: border-radius 0.2s ease, padding 0.2s ease;
     }
 
     /* ── Prompt wrap: expanded card ── */
     .prompt-wrap.is-expanded {
-      border-radius: 20px;
-      padding: 14px;
       align-items: flex-end;
     }
 
     .prompt-wrap.is-expanded textarea {
       flex-basis: 100%;
       order: -1;
-      margin-bottom: 4px;
+      margin-bottom: 6px;
     }
 
     .prompt-wrap.is-expanded #attach {
@@ -832,10 +830,10 @@
       border: none;
       background: transparent;
       color: var(--text);
-      padding: 4px 0;
+      padding: 6px 8px;
       font: inherit;
       font-size: 16px;
-      line-height: 1.4;
+      line-height: 24px;
       outline: none;
     }
 

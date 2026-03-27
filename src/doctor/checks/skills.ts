@@ -3,7 +3,10 @@ import {
   setRuntimeSkillScopeEnabled,
   updateRuntimeConfig,
 } from '../../config/runtime-config.js';
-import { getSkillObservationSummary } from '../../memory/db.js';
+import {
+  getSessionCount,
+  getSkillObservationSummary,
+} from '../../memory/db.js';
 import {
   loadSkillCatalog,
   type SkillCatalogEntry,
@@ -13,27 +16,21 @@ import {
   type SkillGuardScanResult,
 } from '../../skills/skills-guard.js';
 import type { DiagResult } from '../types.js';
-import { makeResult } from '../utils.js';
+import {
+  buildUnusedWindowStart,
+  DEFAULT_UNUSED_WINDOW_DAYS,
+  formatDateOrNever,
+  makeResult,
+} from '../utils.js';
 
 interface FlaggedSkill {
   skill: SkillCatalogEntry;
   result: SkillGuardScanResult;
 }
 
-const UNUSED_WINDOW_DAYS = 30;
-
 function formatFlaggedSkill(flagged: FlaggedSkill): string {
   const count = flagged.result.findings.length;
   return `${flagged.skill.name} (${count} finding${count === 1 ? '' : 's'})`;
-}
-
-function buildUnusedWindowStart(days = UNUSED_WINDOW_DAYS): string {
-  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-}
-
-function formatLastObservedAt(lastObservedAt: string | null): string {
-  if (!lastObservedAt) return 'never';
-  return lastObservedAt.slice(0, 10);
 }
 
 function scanGuardedSkill(skill: SkillCatalogEntry): FlaggedSkill | null {
@@ -52,15 +49,17 @@ function scanGuardedSkill(skill: SkillCatalogEntry): FlaggedSkill | null {
 function buildUnusedSkillsResult(
   catalog: SkillCatalogEntry[],
 ): DiagResult | null {
+  const enabledSkills = catalog.filter((skill) => skill.enabled);
+  if (enabledSkills.length === 0) return null;
+
   const summaries = getSkillObservationSummary();
-  if (summaries.length === 0) return null;
+  if (summaries.length === 0 && getSessionCount() === 0) return null;
 
   const cutoff = buildUnusedWindowStart();
   const usageBySkill = new Map(
     summaries.map((summary) => [summary.skill_name, summary]),
   );
-  const unused = catalog
-    .filter((skill) => skill.enabled)
+  const unused = enabledSkills
     .filter(
       (skill) =>
         (usageBySkill.get(skill.name)?.last_observed_at || '') < cutoff,
@@ -82,10 +81,10 @@ function buildUnusedSkillsResult(
     'skills',
     'Unused skills',
     'warn',
-    `${unused.length} enabled skill${unused.length === 1 ? '' : 's'} unused in the last ${UNUSED_WINDOW_DAYS} days: ${unused
+    `${unused.length} enabled skill${unused.length === 1 ? '' : 's'} unused in the last ${DEFAULT_UNUSED_WINDOW_DAYS} days: ${unused
       .map(
         (entry) =>
-          `${entry.name} (last used ${formatLastObservedAt(entry.lastObservedAt)})`,
+          `${entry.name} (last used ${formatDateOrNever(entry.lastObservedAt)})`,
       )
       .join(', ')}. Re-enable with \`hybridclaw skill enable <name>\`.`,
     {

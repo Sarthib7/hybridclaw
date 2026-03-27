@@ -2485,7 +2485,6 @@ export function getSessionToolCallBreakdown(
 
 export interface ToolUsageSummary {
   toolName: string;
-  totalCalls: number;
   callsSinceCutoff: number;
   lastUsedAt: string | null;
 }
@@ -2498,43 +2497,30 @@ export function getToolUsageSummary(params?: {
     typeof params?.sinceTimestamp === 'string' && params.sinceTimestamp.trim()
       ? params.sinceTimestamp.trim()
       : null;
-  const rows = queryAll<{ payload: string; timestamp: string }>(
+  return queryAll<
+    {
+      toolName: string;
+      callsSinceCutoff: number;
+      lastUsedAt: string | null;
+    },
+    [string | null, string | null]
+  >(
     db,
-    `SELECT payload, timestamp
-     FROM audit_events
-     WHERE event_type = 'tool.call'
-     ORDER BY id ASC`,
-  );
-
-  const usageByTool = new Map<string, ToolUsageSummary>();
-  for (const row of rows) {
-    try {
-      const payload = JSON.parse(row.payload) as { toolName?: unknown };
-      const toolName = String(payload.toolName || '').trim();
-      if (!toolName) continue;
-      const current = usageByTool.get(toolName) || {
-        toolName,
-        totalCalls: 0,
-        callsSinceCutoff: 0,
-        lastUsedAt: null,
-      };
-      current.totalCalls += 1;
-      if (!current.lastUsedAt || row.timestamp > current.lastUsedAt) {
-        current.lastUsedAt = row.timestamp;
-      }
-      if (!normalizedSince || row.timestamp >= normalizedSince) {
-        current.callsSinceCutoff += 1;
-      }
-      usageByTool.set(toolName, current);
-    } catch {
-      // Best effort only. Skip malformed audit payloads.
-    }
-  }
-
-  return [...usageByTool.values()].sort(
-    (left, right) =>
-      right.totalCalls - left.totalCalls ||
-      left.toolName.localeCompare(right.toolName),
+    `SELECT toolName, callsSinceCutoff, lastUsedAt
+     FROM (
+       SELECT
+         TRIM(CAST(JSON_EXTRACT(payload, '$.toolName') AS TEXT)) AS toolName,
+         SUM(CASE WHEN ? IS NULL OR timestamp >= ? THEN 1 ELSE 0 END) AS callsSinceCutoff,
+         MAX(timestamp) AS lastUsedAt
+       FROM audit_events
+       WHERE event_type = 'tool.call'
+         AND json_valid(payload)
+       GROUP BY TRIM(CAST(JSON_EXTRACT(payload, '$.toolName') AS TEXT))
+     )
+     WHERE toolName != ''
+     ORDER BY toolName ASC`,
+    normalizedSince,
+    normalizedSince,
   );
 }
 

@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
 import fs from 'node:fs';
+import { buildMcpServerNamespaces } from '../../../container/shared/mcp-tool-namespaces.js';
 import { listKnownToolNames } from '../../agent/tool-summary.js';
 import {
   CONFIG_VERSION,
@@ -14,6 +14,9 @@ import { getToolUsageSummary, type ToolUsageSummary } from '../../memory/db.js';
 import type { DiagResult } from '../types.js';
 import {
   buildChmodFix,
+  buildUnusedWindowStart,
+  DEFAULT_UNUSED_WINDOW_DAYS,
+  formatDateOrNever,
   formatMode,
   isGroupOrWorldWritable,
   makeResult,
@@ -22,76 +25,18 @@ import {
   toErrorMessage,
 } from '../utils.js';
 
-const UNUSED_WINDOW_DAYS = 30;
-
 type UsageEntry = {
   name: string;
   lastUsedAt: string | null;
 };
 
-function buildUnusedWindowStart(days = UNUSED_WINDOW_DAYS): string {
-  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-}
-
-function formatLastUsedAt(lastUsedAt: string | null): string {
-  if (!lastUsedAt) return 'never';
-  return lastUsedAt.slice(0, 10);
-}
-
 function formatUnusedEntries(entries: UsageEntry[]): string {
   return entries
     .map(
       (entry) =>
-        `${entry.name} (last used ${formatLastUsedAt(entry.lastUsedAt)})`,
+        `${entry.name} (last used ${formatDateOrNever(entry.lastUsedAt)})`,
     )
     .join(', ');
-}
-
-function stableHash(input: string): string {
-  return createHash('sha256').update(input).digest('hex').slice(0, 8);
-}
-
-function sanitizeToolSegment(value: string): string {
-  const sanitized = value
-    .trim()
-    .replace(/[^a-zA-Z0-9_-]+/g, '_')
-    .replace(/^_+|_+$/g, '');
-  return sanitized || 'tool';
-}
-
-function buildServerNamespaces(
-  serverNames: Iterable<string>,
-): Map<string, string> {
-  const names = [...serverNames].sort((left, right) =>
-    left.localeCompare(right),
-  );
-  const counts = new Map<string, number>();
-
-  for (const name of names) {
-    const sanitized = sanitizeToolSegment(name);
-    counts.set(sanitized, (counts.get(sanitized) || 0) + 1);
-  }
-
-  const namespaces = new Map<string, string>();
-  const used = new Set<string>();
-  for (const name of names) {
-    const sanitized = sanitizeToolSegment(name);
-    const trimmed = name.trim();
-    const needsHash = sanitized !== trimmed || (counts.get(sanitized) || 0) > 1;
-    const base = needsHash ? `${sanitized}_${stableHash(name)}` : sanitized;
-
-    let candidate = base;
-    let suffix = 1;
-    while (used.has(candidate)) {
-      candidate = `${base}_${stableHash(`${name}:${suffix}`)}`;
-      suffix += 1;
-    }
-
-    used.add(candidate);
-    namespaces.set(name, candidate);
-  }
-
-  return namespaces;
 }
 
 function buildUnusedToolsResult(usage: ToolUsageSummary[]): DiagResult | null {
@@ -118,7 +63,7 @@ function buildUnusedToolsResult(usage: ToolUsageSummary[]): DiagResult | null {
     'config',
     'Unused tools',
     'warn',
-    `${unused.length} enabled tool${unused.length === 1 ? '' : 's'} unused in the last ${UNUSED_WINDOW_DAYS} days: ${formatUnusedEntries(unused)}. Re-enable with \`hybridclaw tool enable <name>\`.`,
+    `${unused.length} enabled tool${unused.length === 1 ? '' : 's'} unused in the last ${DEFAULT_UNUSED_WINDOW_DAYS} days: ${formatUnusedEntries(unused)}. Re-enable with \`hybridclaw tool enable <name>\`.`,
     {
       summary: `Disable unused tools: ${toolNames.join(', ')}`,
       apply: async () => {
@@ -168,7 +113,7 @@ function buildUnusedMcpServersResult(
   );
   if (enabledServers.length === 0) return null;
 
-  const namespaces = buildServerNamespaces(
+  const namespaces = buildMcpServerNamespaces(
     enabledServers.map(([name]) => name),
   );
   const unused = enabledServers
@@ -199,7 +144,7 @@ function buildUnusedMcpServersResult(
     'config',
     'Unused MCP servers',
     'warn',
-    `${unused.length} enabled MCP server${unused.length === 1 ? '' : 's'} unused in the last ${UNUSED_WINDOW_DAYS} days: ${formatUnusedEntries(unused)}. Re-enable with \`hybridclaw gateway mcp toggle <name>\`.`,
+    `${unused.length} enabled MCP server${unused.length === 1 ? '' : 's'} unused in the last ${DEFAULT_UNUSED_WINDOW_DAYS} days: ${formatUnusedEntries(unused)}. Re-enable with \`hybridclaw gateway mcp toggle <name>\`.`,
     {
       summary: `Disable unused MCP servers: ${serverNames.join(', ')}`,
       apply: async () => {

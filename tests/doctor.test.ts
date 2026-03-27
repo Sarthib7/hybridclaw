@@ -199,13 +199,11 @@ test('checkConfig warns on unused tools and MCP servers and disables them with f
     getToolUsageSummary: () => [
       {
         toolName: 'read',
-        totalCalls: 5,
         callsSinceCutoff: 2,
         lastUsedAt: '2026-03-20T10:00:00.000Z',
       },
       {
         toolName: 'github__search',
-        totalCalls: 4,
         callsSinceCutoff: 1,
         lastUsedAt: '2026-03-21T10:00:00.000Z',
       },
@@ -587,6 +585,7 @@ test('checkSkills warns on enabled caution skills and disables them with fix', a
     ],
   }));
   vi.doMock('../src/memory/db.js', () => ({
+    getSessionCount: () => 0,
     getSkillObservationSummary: () => [],
   }));
   vi.doMock('../src/skills/skills-guard.js', () => ({
@@ -676,6 +675,7 @@ test('checkSkills warns on enabled skills unused in the last 30 days', async () 
     },
   }));
   vi.doMock('../src/memory/db.js', () => ({
+    getSessionCount: () => 1,
     getSkillObservationSummary: () => [
       {
         skill_name: 'fresh-skill',
@@ -780,6 +780,102 @@ test('checkSkills warns on enabled skills unused in the last 30 days', async () 
 
   await unusedSkills?.fix?.apply();
   expect(disabledSkills).toEqual(new Set(['stale-skill']));
+});
+
+test('checkSkills warns on enabled skills with zero observations after sessions exist', async () => {
+  const disabledSkills = new Set<string>();
+
+  vi.doMock('../src/config/runtime-config.js', () => ({
+    getRuntimeConfig: () => ({
+      skills: {
+        disabled: [...disabledSkills],
+      },
+    }),
+    setRuntimeSkillScopeEnabled: (
+      draft: { skills: { disabled: string[] } },
+      skillName: string,
+      enabled: boolean,
+    ) => {
+      const nextDisabled = new Set(draft.skills.disabled);
+      if (enabled) {
+        nextDisabled.delete(skillName);
+      } else {
+        nextDisabled.add(skillName);
+      }
+      draft.skills.disabled = [...nextDisabled].sort((left, right) =>
+        left.localeCompare(right),
+      );
+    },
+    updateRuntimeConfig: (
+      mutate: (draft: { skills: { disabled: string[] } }) => void,
+    ) => {
+      const draft = {
+        skills: {
+          disabled: [...disabledSkills],
+        },
+      };
+      mutate(draft);
+      disabledSkills.clear();
+      for (const skillName of draft.skills.disabled) {
+        disabledSkills.add(skillName);
+      }
+      return draft;
+    },
+  }));
+  vi.doMock('../src/memory/db.js', () => ({
+    getSessionCount: () => 1,
+    getSkillObservationSummary: () => [],
+  }));
+  vi.doMock('../src/skills/skills.js', () => ({
+    loadSkillCatalog: () => [
+      {
+        name: 'never-observed',
+        description: 'Never observed',
+        userInvocable: false,
+        disableModelInvocation: false,
+        always: false,
+        requires: {
+          bins: [],
+          env: [],
+        },
+        metadata: {
+          hybridclaw: {
+            tags: [],
+            relatedSkills: [],
+            install: [],
+          },
+        },
+        filePath: '/tmp/never-observed/SKILL.md',
+        baseDir: '/tmp/never-observed',
+        source: 'workspace',
+        available: true,
+        enabled: true,
+        missing: [],
+      },
+    ],
+  }));
+  vi.doMock('../src/skills/skills-guard.js', () => ({
+    guardSkillDirectory: () => ({
+      allowed: true,
+      result: {
+        verdict: 'safe',
+        findings: [],
+      },
+    }),
+  }));
+
+  const { checkSkills } = await import('../src/doctor/checks/skills.ts');
+  const results = await checkSkills();
+  const unusedSkills = results.find(
+    (result) => result.label === 'Unused skills',
+  );
+
+  expect(unusedSkills?.severity).toBe('warn');
+  expect(unusedSkills?.message).toContain('never-observed');
+  expect(unusedSkills?.message).toContain('last used never');
+
+  await unusedSkills?.fix?.apply();
+  expect(disabledSkills).toEqual(new Set(['never-observed']));
 });
 
 test('checkChannels distinguishes intentionally disabled channels from missing setup', async () => {

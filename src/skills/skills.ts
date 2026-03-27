@@ -835,6 +835,53 @@ function sanitizeSkillDirName(name: string): string {
   return normalized || 'skill';
 }
 
+function stableSkillDirName(name: string): string {
+  const base = sanitizeSkillDirName(name);
+  const hash = createHash('sha1').update(name).digest('hex').slice(0, 8);
+  return `${base}-${hash}`;
+}
+
+function skillSyncTargetKey(skill: SkillCandidate): string {
+  return resolveComparablePath(skill.baseDir);
+}
+
+function shouldUseSharedSkillsRoot(skill: SkillCandidate): boolean {
+  return !(
+    skill.source === 'bundled' ||
+    skill.source === 'workspace' ||
+    skill.source === 'agents-project'
+  );
+}
+
+function buildSharedSkillsRootDirNames(
+  skills: SkillCandidate[],
+): ReadonlyMap<string, string> {
+  const grouped = new Map<string, SkillCandidate[]>();
+  for (const skill of skills) {
+    if (!shouldUseSharedSkillsRoot(skill)) continue;
+    const sanitizedName = sanitizeSkillDirName(skill.name);
+    const existing = grouped.get(sanitizedName);
+    if (existing) {
+      existing.push(skill);
+      continue;
+    }
+    grouped.set(sanitizedName, [skill]);
+  }
+
+  const dirNames = new Map<string, string>();
+  for (const [sanitizedName, group] of grouped) {
+    if (group.length === 1) {
+      dirNames.set(skillSyncTargetKey(group[0]), sanitizedName);
+      continue;
+    }
+    for (const skill of group) {
+      dirNames.set(skillSyncTargetKey(skill), stableSkillDirName(skill.name));
+    }
+  }
+
+  return dirNames;
+}
+
 function buildDirectoryContentSignature(rootDir: string): string {
   const resolvedRoot = path.resolve(rootDir);
   const entries: string[] = [];
@@ -872,6 +919,7 @@ function buildDirectoryContentSignature(rootDir: string): string {
 function resolveSyncedSkillTarget(
   skill: SkillCandidate,
   workspaceDir: string,
+  sharedSkillsRootDirNames: ReadonlyMap<string, string> = new Map(),
 ): { rootDir: string; targetDir: string; targetSkillFile: string } {
   // Keep bundled skills under /workspace/skills so bundled docs can refer to
   // skill-local scripts with stable paths like "skills/<skill>/scripts/...".
@@ -923,7 +971,9 @@ function resolveSyncedSkillTarget(
   // the model can reuse the same stable "skills/<name>/..." paths it already
   // sees for bundled skills.
   const rootDir = path.join(workspaceDir, 'skills');
-  const dirName = sanitizeSkillDirName(skill.name);
+  const dirName =
+    sharedSkillsRootDirNames.get(skillSyncTargetKey(skill)) ||
+    sanitizeSkillDirName(skill.name);
   const targetDir = path.join(rootDir, dirName);
   return {
     rootDir,
@@ -935,10 +985,12 @@ function resolveSyncedSkillTarget(
 function syncSkillIntoWorkspace(
   skill: SkillCandidate,
   workspaceDir: string,
+  sharedSkillsRootDirNames: ReadonlyMap<string, string> = new Map(),
 ): string {
   const { rootDir, targetDir, targetSkillFile } = resolveSyncedSkillTarget(
     skill,
     workspaceDir,
+    sharedSkillsRootDirNames,
   );
   fs.mkdirSync(rootDir, { recursive: true });
 
@@ -1009,11 +1061,13 @@ function pruneStaleSyncedSkills(
   workspaceDir: string,
 ): void {
   const desiredByRoot = new Map<string, Set<string>>();
+  const sharedSkillsRootDirNames = buildSharedSkillsRootDirNames(skills);
 
   for (const skill of skills) {
     const { rootDir, targetDir } = resolveSyncedSkillTarget(
       skill,
       workspaceDir,
+      sharedSkillsRootDirNames,
     );
     const resolvedRoot = path.resolve(rootDir);
     const resolvedTarget = path.resolve(targetDir);
@@ -1572,6 +1626,7 @@ export function loadSkills(
   ).filter(
     (skill) => checkEligibility(skill).available && !disabled.has(skill.name),
   );
+  const sharedSkillsRootDirNames = buildSharedSkillsRootDirNames(guarded);
   pruneStaleSyncedSkills(guarded, workspaceDir);
 
   const resolved: Skill[] = [];
@@ -1582,7 +1637,11 @@ export function loadSkills(
         path.resolve(skill.filePath),
       );
       if (!promptSkillPath) {
-        const syncedSkillFile = syncSkillIntoWorkspace(skill, workspaceDir);
+        const syncedSkillFile = syncSkillIntoWorkspace(
+          skill,
+          workspaceDir,
+          sharedSkillsRootDirNames,
+        );
         promptSkillPath = asPromptLocation(
           workspaceDir,
           path.resolve(syncedSkillFile),

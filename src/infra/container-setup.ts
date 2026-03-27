@@ -172,10 +172,9 @@ async function ensureDockerAvailable(
   const result = await runCommand('docker', ['--version']);
   if (result.code === 0) return true;
 
-  const detail = result.err?.trim() || '';
-  const dockerMissing =
-    result.code === null && /enoent|not found/i.test(detail);
-  if (!dockerMissing) return true;
+  const isDockerNotInstalled =
+    result.code === null && /enoent|not found/i.test(result.err?.trim() ?? '');
+  if (!isDockerNotInstalled) return true;
 
   const message = `${commandName}: Install docker to use sandbox. Or start with --sandbox host.`;
   if (required) {

@@ -159,15 +159,9 @@ jobs:
           cache-to: type=gha,mode=max,scope=agent-release
 
       - name: Verify published agent tags
-        shell: bash
-        env:
-          TAGS: ${{ steps.meta.outputs.tags }}
-        run: |
-          set -euo pipefail
-          while IFS= read -r tag; do
-            [[ -n "${tag}" ]] || continue
-            docker buildx imagetools inspect "${tag}" >/dev/null
-          done <<< "${TAGS}"
+        uses: ./.github/actions/verify-published-tags
+        with:
+          tags: ${{ steps.meta.outputs.tags }}
 
   # Gateway image — runs as a permanent claw sandbox (hybridclaw gateway start).
   publish-gateway:
@@ -238,12 +232,6 @@ jobs:
           cache-to: type=gha,mode=max,scope=gateway-release
 
       - name: Verify published gateway tags
-        shell: bash
-        env:
-          TAGS: ${{ steps.meta.outputs.tags }}
-        run: |
-          set -euo pipefail
-          while IFS= read -r tag; do
-            [[ -n "${tag}" ]] || continue
-            docker buildx imagetools inspect "${tag}" >/dev/null
-          done <<< "${TAGS}"
+        uses: ./.github/actions/verify-published-tags
+        with:
+          tags: ${{ steps.meta.outputs.tags }}

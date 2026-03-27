@@ -459,6 +459,22 @@ function mergeUniqueStrings(values: string[][]): string[] {
   return merged;
 }
 
+function stableSerialize(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableSerialize(entry)).join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    const keys = Object.keys(record).sort((a, b) => a.localeCompare(b));
+    return `{${keys
+      .map(
+        (key) => `${JSON.stringify(key)}:${stableSerialize(record[key])}`,
+      )
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
 function mergeUniqueInstallSpecs(
   groups: SkillInstallSpec[][],
 ): SkillInstallSpec[] {
@@ -466,7 +482,7 @@ function mergeUniqueInstallSpecs(
   const seen = new Set<string>();
   for (const group of groups) {
     for (const spec of group) {
-      const fingerprint = JSON.stringify(spec);
+      const fingerprint = stableSerialize(spec);
       if (seen.has(fingerprint)) continue;
       seen.add(fingerprint);
       merged.push(spec);

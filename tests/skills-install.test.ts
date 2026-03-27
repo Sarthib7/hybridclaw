@@ -115,4 +115,46 @@ describe('skill install metadata', () => {
       },
     ]);
   });
+
+  test('deduplicates install specs across metadata namespaces despite key order differences', async () => {
+    const { DEFAULT_RUNTIME_HOME_DIR } = await import(
+      '../src/config/runtime-config.ts'
+    );
+    const { findSkillCatalogEntry } = await import(
+      '../src/skills/skills-install.ts'
+    );
+
+    const skillDir = path.join(
+      DEFAULT_RUNTIME_HOME_DIR,
+      'skills',
+      'openhue-dedupe',
+    );
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, 'SKILL.md'),
+      [
+        '---',
+        'name: openhue-dedupe',
+        'description: Dedupe install metadata across namespaces.',
+        'metadata: {"hybridclaw":{"install":[{"id":"brew","kind":"brew","formula":"openhue/cli/openhue-cli","bins":["openhue"],"label":"Install OpenHue CLI (brew)"}]},"openclaw":{"install":[{"label":"Install OpenHue CLI (brew)","bins":["openhue"],"formula":"openhue/cli/openhue-cli","kind":"brew","id":"brew"}]}}',
+        '---',
+        '',
+        '# OpenHue Dedupe',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const skill = findSkillCatalogEntry('openhue-dedupe');
+
+    expect(skill).not.toBeNull();
+    expect(skill?.metadata.hybridclaw.install).toEqual([
+      {
+        id: 'brew',
+        kind: 'brew',
+        formula: 'openhue/cli/openhue-cli',
+        bins: ['openhue'],
+        label: 'Install OpenHue CLI (brew)',
+      },
+    ]);
+  });
 });

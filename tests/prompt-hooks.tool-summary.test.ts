@@ -236,6 +236,33 @@ test('buildSystemPromptFromHooks uses the provided workspace path in runtime met
   expect(prompt).toContain('Workspace: /tmp/hybridclaw-agent-workspace');
 });
 
+test('buildSystemPromptFromHooks combines model and provider in runtime metadata', () => {
+  const prompt = buildSystemPromptFromHooks({
+    agentId: 'test-agent',
+    skills: [],
+    runtimeInfo: {
+      model: 'openai-codex/gpt-5.4',
+      defaultModel: 'openrouter/anthropic/claude-sonnet-4',
+    },
+  });
+
+  expect(prompt).toContain('Model: gpt-5.4 served through openai-codex');
+});
+
+test('buildSystemPromptFromHooks preserves upstream vendor labels behind routed providers', () => {
+  const prompt = buildSystemPromptFromHooks({
+    agentId: 'test-agent',
+    skills: [],
+    runtimeInfo: {
+      model: 'openrouter/deepseek/deepseek-v3.2',
+    },
+  });
+
+  expect(prompt).toContain(
+    'Model: deepseek-v3.2 by deepseek served through openrouter',
+  );
+});
+
 test('buildSystemPromptFromHooks does not fall back to the repo cwd', () => {
   const prompt = buildSystemPromptFromHooks({
     agentId: 'test-agent',

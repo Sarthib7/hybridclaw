@@ -11,6 +11,8 @@ import {
   isSecurityTrustAccepted,
   SECURITY_POLICY_VERSION,
 } from '../config/runtime-config.js';
+import { resolveModelProvider } from '../providers/factory.js';
+import { formatModelForDisplay } from '../providers/model-names.js';
 import { readRuntimeInstructionFile } from '../security/instruction-integrity.js';
 import {
   buildSessionContextPrompt,
@@ -415,20 +417,20 @@ function buildProactivityHook(context: PromptHookContext): string {
 function buildRuntimeHook(context: PromptHookContext): string {
   const runtimeInfo = context.runtimeInfo || {};
   const model = runtimeInfo.model?.trim() || HYBRIDAI_MODEL;
-  const defaultModel = runtimeInfo.defaultModel?.trim() || HYBRIDAI_MODEL;
+  const provider = resolveModelProvider(model);
   const workspaceLabel =
     runtimeInfo.workspacePath?.trim() || 'current agent workspace';
   const guildLabel =
     runtimeInfo.guildId === null
       ? 'dm'
       : runtimeInfo.guildId?.trim() || 'unknown';
+  const modelSentence = formatRuntimeModelSentence(model, provider);
 
   const lines = [
     '## Runtime Metadata',
     `HybridClaw version: v${APP_VERSION}`,
     `Date (UTC): ${new Date().toISOString().slice(0, 10)}`,
-    `Model: ${model}`,
-    `Default model: ${defaultModel}`,
+    modelSentence,
     runtimeInfo.channelId?.trim()
       ? `Channel ID: ${runtimeInfo.channelId.trim()}`
       : '',
@@ -445,6 +447,41 @@ function buildRuntimeHook(context: PromptHookContext): string {
   ];
 
   return lines.filter(Boolean).join('\n');
+}
+
+function formatRuntimeModelForPrompt(model: string, provider: string): string {
+  const formatted = formatModelForDisplay(model);
+  if (provider === 'openai-codex') {
+    if (formatted.toLowerCase().startsWith('openai-codex/')) {
+      return formatted.slice('openai-codex/'.length);
+    }
+    return formatted;
+  }
+  if (provider === 'hybridai' && formatted.toLowerCase().startsWith('hybridai/')) {
+    return formatUpstreamModelLabel(formatted.slice('hybridai/'.length));
+  }
+  const providerPrefix = `${provider}/`;
+  if (formatted.toLowerCase().startsWith(providerPrefix)) {
+    return formatUpstreamModelLabel(formatted.slice(providerPrefix.length));
+  }
+  return formatUpstreamModelLabel(formatted);
+}
+
+function formatRuntimeModelSentence(model: string, provider: string): string {
+  const formattedModel = formatRuntimeModelForPrompt(model, provider);
+  return `Model: ${formattedModel} served through ${provider}`;
+}
+
+function formatUpstreamModelLabel(model: string): string {
+  const parts = String(model || '')
+    .trim()
+    .split('/')
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length < 2) return String(model || '').trim();
+  const name = parts.at(-1) || '';
+  const vendor = parts.slice(0, -1).join('/');
+  return `${name} by ${vendor}`;
 }
 
 const PROMPT_HOOKS: PromptHook[] = [

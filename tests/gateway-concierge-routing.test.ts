@@ -1,9 +1,11 @@
 import { expect, test } from 'vitest';
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
 import {
+  buildConciergeExecutionNotice,
   buildConciergeQuestion,
   buildConciergeResumePrompt,
   inferPromptUrgencyProfile,
+  normalizeConciergeProfileName,
   parseConciergeChoice,
   parseConciergeDecision,
   resolveConciergeProfileModel,
@@ -37,6 +39,14 @@ test('parseConciergeChoice maps numeric replies', () => {
   expect(parseConciergeChoice('later')).toBeNull();
 });
 
+test('normalizeConciergeProfileName accepts command-friendly aliases', () => {
+  expect(normalizeConciergeProfileName('asap')).toBe('asap');
+  expect(normalizeConciergeProfileName('balanced')).toBe('balanced');
+  expect(normalizeConciergeProfileName('no_hurry')).toBe('no_hurry');
+  expect(normalizeConciergeProfileName('no-hurry')).toBe('no_hurry');
+  expect(normalizeConciergeProfileName('later')).toBeNull();
+});
+
 test('inferPromptUrgencyProfile detects explicit urgency phrases', () => {
   expect(inferPromptUrgencyProfile('I need this ASAP')).toBe('asap');
   expect(inferPromptUrgencyProfile('No hurry on this one')).toBe('no_hurry');
@@ -51,6 +61,13 @@ test('buildConcierge helpers render stable question and resume prompt', () => {
   expect(buildConciergeResumePrompt('Create a deck', 'balanced')).toContain(
     'User selected: Can wait a bit',
   );
+  expect(buildConciergeExecutionNotice('asap', 'gpt-5')).toBeNull();
+  expect(buildConciergeExecutionNotice('balanced', 'gpt-5-mini')).toContain(
+    'Expected ready in about 2 to 5 minutes.',
+  );
+  expect(
+    buildConciergeExecutionNotice('no_hurry', 'ollama/qwen3:latest'),
+  ).toContain('Expected ready in about 10 to 20 minutes.');
 });
 
 test('resolveConciergeProfileModel reads the configured mapping', () => {

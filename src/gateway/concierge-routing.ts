@@ -4,6 +4,7 @@ import {
 } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
+import { formatModelForDisplay } from '../providers/model-names.js';
 import type { ChatMessage } from '../types/api.js';
 
 export type ConciergeProfile = 'asap' | 'balanced' | 'no_hurry';
@@ -28,6 +29,23 @@ const BALANCED_RE =
 
 function normalizeToken(value: string): string {
   return value.trim().toLowerCase();
+}
+
+export function normalizeConciergeProfileName(
+  value: string,
+): ConciergeProfile | null {
+  const normalized = normalizeToken(String(value || ''));
+  if (!normalized) return null;
+  if (normalized === 'asap') return 'asap';
+  if (normalized === 'balanced') return 'balanced';
+  if (
+    normalized === 'no_hurry' ||
+    normalized === 'no-hurry' ||
+    normalized === 'no hurry'
+  ) {
+    return 'no_hurry';
+  }
+  return null;
 }
 
 export function buildConciergeQuestion(opts?: {
@@ -78,7 +96,7 @@ export function parseConciergeChoice(content: string): ConciergeProfile | null {
   ) {
     return 'no_hurry';
   }
-  return null;
+  return normalizeConciergeProfileName(normalized);
 }
 
 export function shouldTriggerConcierge(
@@ -161,6 +179,16 @@ export function buildConciergeResumePrompt(
         ? 'Can wait a bit'
         : 'No hurry';
   return `${originalUserContent}\n\n[ExecutionPreference]\nUser selected: ${label}`;
+}
+
+export function buildConciergeExecutionNotice(
+  profile: ConciergeProfile,
+  model: string,
+): string | null {
+  if (profile === 'asap') return null;
+  const eta =
+    profile === 'balanced' ? 'about 2 to 5 minutes' : 'about 10 to 20 minutes';
+  return `Using \`${formatModelForDisplay(model)}\`. Expected ready in ${eta}.\n\n`;
 }
 
 export async function decideConciergeRouting(params: {

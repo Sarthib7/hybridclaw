@@ -38,6 +38,14 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
   expect(labels).toContain('/skill import --force <source>');
 });
 
+test('does not duplicate concierge slash menu entries', () => {
+  const labels = buildTuiSlashMenuEntries().map((entry) => entry.label);
+
+  expect(labels.filter((label) => label === '/concierge info')).toHaveLength(1);
+  expect(labels.filter((label) => label === '/concierge on')).toHaveLength(1);
+  expect(labels.filter((label) => label === '/concierge off')).toHaveLength(1);
+});
+
 test('keeps /skill import visible in the base skill query results', () => {
   const ranked = rankTuiSlashMenuEntries(buildTuiSlashMenuEntries(), 'skill');
 

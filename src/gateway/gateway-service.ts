@@ -290,10 +290,13 @@ import {
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
 import {
+  buildConciergeExecutionNotice,
   buildConciergeQuestion,
   buildConciergeResumePrompt,
+  type ConciergeProfile,
   decideConciergeRouting,
   inferPromptUrgencyProfile,
+  normalizeConciergeProfileName,
   type PendingConciergeState,
   parseConciergeChoice,
   resolveConciergeProfileModel,
@@ -2119,6 +2122,50 @@ function formatConfiguredAgentModel(
 ): string {
   const model = resolveAgentModel(agent);
   return model ? formatModelForDisplay(model) : '(none)';
+}
+
+function formatConciergeProfileLabel(profile: ConciergeProfile): string {
+  if (profile === 'asap') return 'asap';
+  if (profile === 'balanced') return 'balanced';
+  return 'no_hurry';
+}
+
+function buildConciergeInfoText(): string {
+  const concierge = getRuntimeConfig().routing.concierge;
+  return [
+    `Enabled: ${concierge.enabled ? 'on' : 'off'}`,
+    `Decision model: ${formatModelForDisplay(concierge.model)}`,
+    '',
+    'Profiles:',
+    `asap: ${formatModelForDisplay(concierge.profiles.asap)}`,
+    `balanced: ${formatModelForDisplay(concierge.profiles.balanced)}`,
+    `no_hurry: ${formatModelForDisplay(concierge.profiles.noHurry)}`,
+  ].join('\n');
+}
+
+function resolveConciergeExecutionModel(params: {
+  profile: ConciergeProfile;
+  currentModel: string;
+  chatbotId: string;
+}): string {
+  const configuredModel =
+    resolveConciergeProfileModel(getRuntimeConfig(), params.profile) ||
+    params.currentModel;
+  if (!modelRequiresChatbotId(configuredModel) || params.chatbotId) {
+    return configuredModel;
+  }
+  if (!modelRequiresChatbotId(params.currentModel)) {
+    logger.info(
+      {
+        currentModel: params.currentModel,
+        configuredModel,
+        profile: params.profile,
+      },
+      'Concierge routing kept the current model because the configured profile model requires a chatbot',
+    );
+    return params.currentModel;
+  }
+  return configuredModel;
 }
 
 const CONCIERGE_PENDING_STATE_KEY = 'gateway.concierge.pending';
@@ -5130,6 +5177,7 @@ export async function handleGatewayMessage(
   );
   const pendingConciergeState = getPendingConciergeState(req.sessionId);
   const routingConfig = getRuntimeConfig().routing.concierge;
+  let conciergeExecutionProfile: ConciergeProfile | null = null;
   if (isInteractiveSource && pendingConciergeState) {
     const chosenProfile = parseConciergeChoice(req.content);
     if (!chosenProfile) {
@@ -5160,8 +5208,12 @@ export async function handleGatewayMessage(
       });
     }
     clearPendingConciergeState(req.sessionId);
-    model =
-      resolveConciergeProfileModel(getRuntimeConfig(), chosenProfile) || model;
+    conciergeExecutionProfile = chosenProfile;
+    model = resolveConciergeExecutionModel({
+      profile: chosenProfile,
+      currentModel: model,
+      chatbotId,
+    });
     provider = resolveModelProvider(model);
     effectiveUserTurnContent = pendingConciergeState.originalUserContent;
     effectiveUserTurnContentExpanded = buildConciergeResumePrompt(
@@ -5179,9 +5231,12 @@ export async function handleGatewayMessage(
       effectiveUserTurnContentStripped,
     );
     if (inferredProfile) {
-      model =
-        resolveConciergeProfileModel(getRuntimeConfig(), inferredProfile) ||
-        model;
+      conciergeExecutionProfile = inferredProfile;
+      model = resolveConciergeExecutionModel({
+        profile: inferredProfile,
+        currentModel: model,
+        chatbotId,
+      });
       provider = resolveModelProvider(model);
       effectiveUserTurnContentExpanded = buildConciergeResumePrompt(
         effectiveUserTurnContentExpanded,
@@ -5199,9 +5254,12 @@ export async function handleGatewayMessage(
         chatbotId,
       });
       if (decision.kind === 'pick_profile') {
-        model =
-          resolveConciergeProfileModel(getRuntimeConfig(), decision.profile) ||
-          model;
+        conciergeExecutionProfile = decision.profile;
+        model = resolveConciergeExecutionModel({
+          profile: decision.profile,
+          currentModel: model,
+          chatbotId,
+        });
         provider = resolveModelProvider(model);
         effectiveUserTurnContentExpanded = buildConciergeResumePrompt(
           effectiveUserTurnContentExpanded,
@@ -5611,6 +5669,12 @@ export async function handleGatewayMessage(
       },
       'Gateway chat invoking agent',
     );
+    const conciergeExecutionNotice = conciergeExecutionProfile
+      ? buildConciergeExecutionNotice(conciergeExecutionProfile, model)
+      : null;
+    if (conciergeExecutionNotice) {
+      req.onTextDelta?.(conciergeExecutionNotice);
+    }
     recordAuditEvent({
       sessionId: req.sessionId,
       runId,
@@ -5851,7 +5915,10 @@ export async function handleGatewayMessage(
       });
     }
 
-    const resultText = output.result || 'No response from agent.';
+    const rawResultText = output.result || 'No response from agent.';
+    const resultText = conciergeExecutionNotice
+      ? `${conciergeExecutionNotice}${rawResultText}`
+      : rawResultText;
     const memoryCitations = extractMemoryCitations(
       resultText,
       memoryContext.citationIndex,
@@ -6349,6 +6416,21 @@ export async function handleGatewayCommand(
             command: 'bot info',
             description: 'Show current chatbot settings',
             scope: 'bare',
+          },
+          {
+            command: 'concierge [info|on|off]',
+            description: 'Show or toggle concierge routing defaults',
+            scope: 'both',
+          },
+          {
+            command: 'concierge model [name]',
+            description: 'Show or set the concierge decision model',
+            scope: 'both',
+          },
+          {
+            command: 'concierge profile <asap|balanced|no_hurry> [model]',
+            description: 'Show or set concierge profile model mappings',
+            scope: 'both',
           },
           {
             command: 'model list [provider]',
@@ -7180,6 +7262,96 @@ export async function handleGatewayCommand(
         return badCommand(
           'Usage',
           'Usage: `model list [provider] [more]|set <name>|clear|default [name]|info`',
+        );
+      }
+
+      case 'concierge': {
+        const sub = req.args[1]?.toLowerCase();
+        const concierge = getRuntimeConfig().routing.concierge;
+
+        if (!sub || sub === 'info') {
+          return infoCommand('Concierge Routing', buildConciergeInfoText());
+        }
+
+        if (sub === 'on' || sub === 'enable') {
+          updateRuntimeConfig((draft) => {
+            draft.routing.concierge.enabled = true;
+          });
+          return plainCommand(
+            `Concierge routing enabled. Decision model: \`${formatModelForDisplay(getRuntimeConfig().routing.concierge.model)}\`.`,
+          );
+        }
+
+        if (sub === 'off' || sub === 'disable') {
+          updateRuntimeConfig((draft) => {
+            draft.routing.concierge.enabled = false;
+          });
+          return plainCommand('Concierge routing disabled.');
+        }
+
+        if (sub === 'model') {
+          const modelName = String(req.args[2] || '').trim();
+          if (!modelName) {
+            return infoCommand(
+              'Concierge Model',
+              [
+                `Enabled: ${concierge.enabled ? 'on' : 'off'}`,
+                `Decision model: ${formatModelForDisplay(concierge.model)}`,
+              ].join('\n'),
+            );
+          }
+          const normalizedModelName =
+            normalizeHybridAIModelForRuntime(modelName);
+          updateRuntimeConfig((draft) => {
+            draft.routing.concierge.model = normalizedModelName;
+          });
+          return plainCommand(
+            `Concierge decision model set to \`${formatModelForDisplay(normalizedModelName)}\`.`,
+          );
+        }
+
+        if (sub === 'profile') {
+          const profile = normalizeConciergeProfileName(
+            String(req.args[2] || ''),
+          );
+          if (!profile) {
+            return badCommand(
+              'Usage',
+              'Usage: `concierge profile <asap|balanced|no_hurry> [model]`',
+            );
+          }
+          const configuredModel = resolveConciergeProfileModel(
+            getRuntimeConfig(),
+            profile,
+          );
+          const modelName = String(req.args[3] || '').trim();
+          if (!modelName) {
+            return infoCommand(
+              'Concierge Profile',
+              `${formatConciergeProfileLabel(profile)}: ${formatModelForDisplay(configuredModel)}`,
+            );
+          }
+          const normalizedModelName =
+            normalizeHybridAIModelForRuntime(modelName);
+          updateRuntimeConfig((draft) => {
+            if (profile === 'asap') {
+              draft.routing.concierge.profiles.asap = normalizedModelName;
+              return;
+            }
+            if (profile === 'balanced') {
+              draft.routing.concierge.profiles.balanced = normalizedModelName;
+              return;
+            }
+            draft.routing.concierge.profiles.noHurry = normalizedModelName;
+          });
+          return plainCommand(
+            `Concierge profile \`${formatConciergeProfileLabel(profile)}\` set to \`${formatModelForDisplay(normalizedModelName)}\`.`,
+          );
+        }
+
+        return badCommand(
+          'Usage',
+          'Usage: `concierge [info|on|off|model [name]|profile <asap|balanced|no_hurry> [model]]`',
         );
       }
 

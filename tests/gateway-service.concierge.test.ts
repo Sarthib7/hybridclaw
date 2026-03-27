@@ -4,14 +4,9 @@ import path from 'node:path';
 
 import { afterEach, expect, test, vi } from 'vitest';
 
-const {
-  runAgentMock,
-  callAuxiliaryModelMock,
-  fetchHybridAIAccountChatbotIdMock,
-} = vi.hoisted(() => ({
+const { runAgentMock, callAuxiliaryModelMock } = vi.hoisted(() => ({
   runAgentMock: vi.fn(),
   callAuxiliaryModelMock: vi.fn(),
-  fetchHybridAIAccountChatbotIdMock: vi.fn(async () => 'user-fallback'),
 }));
 
 vi.mock('../src/agent/agent.js', () => ({
@@ -20,12 +15,6 @@ vi.mock('../src/agent/agent.js', () => ({
 
 vi.mock('../src/providers/auxiliary.js', () => ({
   callAuxiliaryModel: callAuxiliaryModelMock,
-}));
-
-vi.mock('../src/providers/hybridai-bots.ts', () => ({
-  HybridAIBotFetchError: class HybridAIBotFetchError extends Error {},
-  fetchHybridAIAccountChatbotId: fetchHybridAIAccountChatbotIdMock,
-  fetchHybridAIBots: vi.fn(async () => []),
 }));
 
 const ORIGINAL_HOME = process.env.HOME;
@@ -63,9 +52,6 @@ async function createFixture() {
     '../src/memory/db.ts'
   );
   initDatabase({ quiet: true });
-  const { upsertRegisteredAgent } = await import(
-    '../src/agents/agent-registry.ts'
-  );
 
   const { updateRuntimeConfig } = await import(
     '../src/config/runtime-config.ts'
@@ -80,15 +66,12 @@ async function createFixture() {
     memoryService,
     updateRuntimeConfig,
     updateSessionModel,
-    upsertRegisteredAgent,
   };
 }
 
 afterEach(() => {
   runAgentMock.mockReset();
   callAuxiliaryModelMock.mockReset();
-  fetchHybridAIAccountChatbotIdMock.mockReset();
-  fetchHybridAIAccountChatbotIdMock.mockResolvedValue('user-fallback');
   vi.restoreAllMocks();
   vi.resetModules();
   restoreEnvVar('HOME', ORIGINAL_HOME);
@@ -169,6 +152,9 @@ test('numeric concierge reply selects the configured profile model', async () =>
   });
 
   expect(resumed.status).toBe('success');
+  expect(resumed.result).toContain('Using `ollama/qwen3:latest`.');
+  expect(resumed.result).toContain('Expected ready in about 10 to 20 minutes.');
+  expect(resumed.result).toContain('agent result');
   expect(runAgentMock).toHaveBeenCalledTimes(1);
   const request = runAgentMock.mock.calls[0]?.[0] as
     | { model?: string; messages?: Array<{ role: string; content: string }> }
@@ -180,42 +166,86 @@ test('numeric concierge reply selects the configured profile model', async () =>
   expect(request?.messages?.at(-1)?.content).toContain('marketing plan');
 });
 
-test('concierge profile changes still resolve a chatbot for HybridAI models', async () => {
+test('asap concierge replies continue without an execution notice', async () => {
   callAuxiliaryModelMock.mockResolvedValue({
     provider: 'hybridai',
     model: 'gemini-3-flash',
-    content: '{"decision":"pick_profile","profile":"asap"}',
+    content: '{"decision":"ask_user"}',
   });
 
   const fixture = await createFixture();
-  fixture.upsertRegisteredAgent({
-    id: 'research',
-    model: 'openai-codex/gpt-5.4',
-  });
   fixture.updateRuntimeConfig((draft) => {
     draft.routing.concierge.enabled = true;
     draft.routing.concierge.model = 'gemini-3-flash';
-    draft.routing.concierge.profiles.asap = 'gpt-5-nano';
+    draft.routing.concierge.profiles.asap = 'gpt-5';
   });
 
-  const result = await fixture.handleGatewayMessage({
-    sessionId: 'session-concierge-hybridai-fallback',
+  await fixture.handleGatewayMessage({
+    sessionId: 'session-concierge-asap',
     guildId: null,
     channelId: 'tui',
     userId: 'user-1',
     username: 'user',
-    content: 'I need a full launch plan ASAP.',
-    agentId: 'research',
+    content: 'Can you create a marketing plan as PDF for our Q3 launch?',
+    chatbotId: 'bot_123',
   });
 
-  expect(result.status).toBe('success');
-  expect(fetchHybridAIAccountChatbotIdMock).toHaveBeenCalledTimes(1);
+  const resumed = await fixture.handleGatewayMessage({
+    sessionId: 'session-concierge-asap',
+    guildId: null,
+    channelId: 'tui',
+    userId: 'user-1',
+    username: 'user',
+    content: '1',
+    chatbotId: 'bot_123',
+  });
+
+  expect(resumed.status).toBe('success');
+  expect(resumed.result).toBe('agent result');
+});
+
+test('concierge falls back to the current model when the profile model needs a chatbot', async () => {
+  callAuxiliaryModelMock.mockResolvedValue({
+    provider: 'hybridai',
+    model: 'gemini-3-flash',
+    content: '{"decision":"ask_user"}',
+  });
+
+  const fixture = await createFixture();
+  fixture.updateRuntimeConfig((draft) => {
+    draft.hybridai.defaultModel = 'openai-codex/gpt-5-codex';
+    draft.routing.concierge.enabled = true;
+    draft.routing.concierge.model = 'gemini-3-flash';
+    draft.routing.concierge.profiles.asap = 'gpt-5';
+  });
+
+  await fixture.handleGatewayMessage({
+    sessionId: 'session-concierge-chatbot-fallback',
+    guildId: null,
+    channelId: 'tui',
+    userId: 'user-1',
+    username: 'user',
+    content: 'Can you create a marketing plan as PDF for our Q3 launch?',
+    chatbotId: '',
+  });
+
+  const resumed = await fixture.handleGatewayMessage({
+    sessionId: 'session-concierge-chatbot-fallback',
+    guildId: null,
+    channelId: 'tui',
+    userId: 'user-1',
+    username: 'user',
+    content: '1',
+    chatbotId: '',
+  });
+
+  expect(resumed.status).toBe('success');
+  expect(resumed.result).toBe('agent result');
   expect(runAgentMock).toHaveBeenCalledTimes(1);
   const request = runAgentMock.mock.calls[0]?.[0] as
-    | { chatbotId?: string; model?: string }
+    | { model?: string }
     | undefined;
-  expect(request?.model).toBe('gpt-5-nano');
-  expect(request?.chatbotId).toBe('user-fallback');
+  expect(request?.model).toBe('openai-codex/gpt-5-codex');
 });
 
 test('invalid concierge replies re-ask instead of running the agent', async () => {

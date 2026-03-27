@@ -14,9 +14,35 @@ test('registers plugin as a slash/text command', async () => {
   const { buildCanonicalSlashCommandDefinitions, isRegisteredTextCommandName } =
     await importCommandRegistry();
   expect(isRegisteredTextCommandName('plugin')).toBe(true);
+  expect(isRegisteredTextCommandName('concierge')).toBe(true);
 
   expect(buildCanonicalSlashCommandDefinitions([])).toEqual(
     expect.arrayContaining([
+      expect.objectContaining({
+        name: 'concierge',
+        options: expect.arrayContaining([
+          expect.objectContaining({
+            kind: 'subcommand',
+            name: 'info',
+          }),
+          expect.objectContaining({
+            kind: 'subcommand',
+            name: 'on',
+          }),
+          expect.objectContaining({
+            kind: 'subcommand',
+            name: 'off',
+          }),
+          expect.objectContaining({
+            kind: 'subcommand',
+            name: 'model',
+          }),
+          expect.objectContaining({
+            kind: 'subcommand',
+            name: 'profile',
+          }),
+        ]),
+      }),
       expect.objectContaining({
         name: 'plugin',
         options: expect.arrayContaining([
@@ -187,6 +213,31 @@ test('registers config as a local slash/text command', async () => {
       '8192',
     ]),
   ).toEqual(['config', 'set', 'hybridai.maxTokens', '8192']);
+});
+
+test('parses /concierge profile into gateway args', async () => {
+  const { parseCanonicalSlashCommandArgs, mapCanonicalCommandToGatewayArgs } =
+    await importCommandRegistry();
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'concierge',
+      getString: (name) =>
+        name === 'profile'
+          ? 'no_hurry'
+          : name === 'model'
+            ? 'ollama/qwen3:latest'
+            : null,
+      getSubcommand: () => 'profile',
+    }),
+  ).toEqual(['concierge', 'profile', 'no_hurry', 'ollama/qwen3:latest']);
+  expect(
+    mapCanonicalCommandToGatewayArgs([
+      'concierge',
+      'profile',
+      'no_hurry',
+      'ollama/qwen3:latest',
+    ]),
+  ).toEqual(['concierge', 'profile', 'no_hurry', 'ollama/qwen3:latest']);
 });
 
 test('parses /plugin list into gateway args', async () => {

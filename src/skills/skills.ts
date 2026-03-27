@@ -586,9 +586,7 @@ function resolveMetadataSectionLookup(frontmatter: FrontmatterParseResult): {
   };
 }
 
-function parseRequiresSection(
-  sectionFields: Map<string, FrontmatterSection>,
-): {
+function parseRequiresSection(sectionFields: Map<string, FrontmatterSection>): {
   bins: string[];
   env: string[];
 } {
@@ -623,7 +621,9 @@ function parseRequiresFromFrontmatter(frontmatter: FrontmatterParseResult): {
     return parseRequiresFromMetadataRecord(metadataLookup.inlineObject);
   }
   if (metadataLookup.compatibleInlineObject) {
-    return parseRequiresFromMetadataRecord(metadataLookup.compatibleInlineObject);
+    return parseRequiresFromMetadataRecord(
+      metadataLookup.compatibleInlineObject,
+    );
   }
 
   const nestedRequires = metadataLookup.compatibleSectionFields.get('requires');
@@ -635,7 +635,9 @@ function parseRequiresFromFrontmatter(frontmatter: FrontmatterParseResult): {
       env: normalizeStringList(nestedRequiresInlineObject.env),
     };
   }
-  requires = parseRequiresSection(parseSectionChildren(nestedRequires.children));
+  requires = parseRequiresSection(
+    parseSectionChildren(nestedRequires.children),
+  );
   return requires;
 }
 
@@ -657,7 +659,9 @@ function parseHybridClawMetadata(frontmatter: FrontmatterParseResult): {
     ? tryParseJsonArray(installSection.inline)
     : null;
   return {
-    tags: parseSectionStringList(metadataLookup.compatibleSectionFields.get('tags')),
+    tags: parseSectionStringList(
+      metadataLookup.compatibleSectionFields.get('tags'),
+    ),
     relatedSkills: mergeUniqueStrings([
       parseSectionStringList(
         metadataLookup.compatibleSectionFields.get('related_skills'),

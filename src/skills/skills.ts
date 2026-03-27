@@ -446,20 +446,6 @@ function parseSectionObjectList(
   return values;
 }
 
-function mergeUnique<T>(groups: T[][], keyFn: (value: T) => string): T[] {
-  const merged: T[] = [];
-  const seen = new Set<string>();
-  for (const group of groups) {
-    for (const value of group) {
-      const key = keyFn(value);
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      merged.push(value);
-    }
-  }
-  return merged;
-}
-
 function stableSerialize(value: unknown): string {
   if (Array.isArray(value)) {
     return `[${value.map((entry) => stableSerialize(entry)).join(',')}]`;
@@ -477,16 +463,25 @@ function stableSerialize(value: unknown): string {
 function mergeUniqueInstallSpecs(
   groups: SkillInstallSpec[][],
 ): SkillInstallSpec[] {
-  return mergeUnique(groups, (spec) => stableSerialize(spec));
+  const merged: SkillInstallSpec[] = [];
+  const seen = new Set<string>();
+  for (const group of groups) {
+    for (const spec of group) {
+      const fingerprint = stableSerialize(spec);
+      if (seen.has(fingerprint)) continue;
+      seen.add(fingerprint);
+      merged.push(spec);
+    }
+  }
+  return merged;
 }
 
-function resolveCompatibleMetadataRecords(
+function resolveCompatibleMetadataRecord(
   raw: Record<string, unknown>,
-): Record<string, unknown>[] {
-  const records: Record<string, unknown>[] = [];
-  if (isRecord(raw.hybridclaw)) records.push(raw.hybridclaw);
-  if (isRecord(raw.openclaw)) records.push(raw.openclaw);
-  return records.length > 0 ? records : [raw];
+): Record<string, unknown> {
+  if (isRecord(raw.hybridclaw)) return raw.hybridclaw;
+  if (isRecord(raw.openclaw)) return raw.openclaw;
+  return raw;
 }
 
 function normalizeCompatibleMetadata(raw: Record<string, unknown>): {
@@ -494,21 +489,16 @@ function normalizeCompatibleMetadata(raw: Record<string, unknown>): {
   relatedSkills: string[];
   install: SkillInstallSpec[];
 } {
-  const records = resolveCompatibleMetadataRecords(raw);
+  const record = resolveCompatibleMetadataRecord(raw);
   return {
-    tags: mergeUnique(
-      records.map((record) => normalizeStringList(record.tags)),
-      (value) => value,
+    tags: normalizeStringList(record.tags),
+    relatedSkills: Array.from(
+      new Set([
+        ...normalizeStringList(record.related_skills),
+        ...normalizeStringList(record.relatedSkills),
+      ]),
     ),
-    relatedSkills: mergeUnique(
-      records.map((record) =>
-        normalizeStringList(record.related_skills ?? record.relatedSkills),
-      ),
-      (value) => value,
-    ),
-    install: mergeUniqueInstallSpecs(
-      records.map((record) => normalizeInstallSpecs(record.install)),
-    ),
+    install: mergeUniqueInstallSpecs([normalizeInstallSpecs(record.install)]),
   };
 }
 
@@ -516,24 +506,14 @@ function parseRequiresFromMetadataRecord(raw: Record<string, unknown>): {
   bins: string[];
   env: string[];
 } {
-  const records = resolveCompatibleMetadataRecords(raw);
+  const record = resolveCompatibleMetadataRecord(raw);
   return {
-    bins: mergeUnique(
-      records.map((record) =>
-        isRecord(record.requires)
-          ? normalizeStringList(record.requires.bins)
-          : [],
-      ),
-      (value) => value,
-    ),
-    env: mergeUnique(
-      records.map((record) =>
-        isRecord(record.requires)
-          ? normalizeStringList(record.requires.env)
-          : [],
-      ),
-      (value) => value,
-    ),
+    bins: isRecord(record.requires)
+      ? normalizeStringList(record.requires.bins)
+      : [],
+    env: isRecord(record.requires)
+      ? normalizeStringList(record.requires.env)
+      : [],
   };
 }
 
@@ -657,16 +637,15 @@ function parseHybridClawMetadata(frontmatter: FrontmatterParseResult): {
     tags: parseSectionStringList(
       metadataLookup.compatibleSectionFields.get('tags'),
     ),
-    relatedSkills: mergeUnique(
-      [
-        parseSectionStringList(
+    relatedSkills: Array.from(
+      new Set([
+        ...parseSectionStringList(
           metadataLookup.compatibleSectionFields.get('related_skills'),
         ),
-        parseSectionStringList(
+        ...parseSectionStringList(
           metadataLookup.compatibleSectionFields.get('relatedSkills'),
         ),
-      ],
-      (value) => value,
+      ]),
     ),
     install: normalizeInstallSpecs(
       installInlineJson ?? parseSectionObjectList(installSection),

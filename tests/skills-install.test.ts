@@ -116,7 +116,7 @@ describe('skill install metadata', () => {
     ]);
   });
 
-  test('deduplicates install specs across metadata namespaces despite key order differences', async () => {
+  test('prefers metadata.hybridclaw over metadata.openclaw when both exist', async () => {
     const { DEFAULT_RUNTIME_HOME_DIR } = await import(
       '../src/config/runtime-config.ts'
     );
@@ -135,8 +135,8 @@ describe('skill install metadata', () => {
       [
         '---',
         'name: openhue-dedupe',
-        'description: Dedupe install metadata across namespaces.',
-        'metadata: {"hybridclaw":{"install":[{"id":"brew","kind":"brew","formula":"openhue/cli/openhue-cli","bins":["openhue"],"label":"Install OpenHue CLI (brew)"}]},"openclaw":{"install":[{"label":"Install OpenHue CLI (brew)","bins":["openhue"],"formula":"openhue/cli/openhue-cli","kind":"brew","id":"brew"}]}}',
+        'description: Prefer hybridclaw metadata over openclaw metadata.',
+        'metadata: {"hybridclaw":{"requires":{"bins":["openhue"]},"install":[{"id":"brew","kind":"brew","formula":"openhue/cli/openhue-cli","bins":["openhue"],"label":"Install OpenHue CLI (brew)"}]},"openclaw":{"requires":{"bins":["ignored-openclaw-bin"]},"install":[{"id":"npm","kind":"npm","package":"ignored-openclaw-package","label":"Ignored OpenClaw install"}]}}',
         '---',
         '',
         '# OpenHue Dedupe',
@@ -147,6 +147,10 @@ describe('skill install metadata', () => {
     const skill = findSkillCatalogEntry('openhue-dedupe');
 
     expect(skill).not.toBeNull();
+    expect(skill?.requires).toEqual({
+      bins: ['openhue'],
+      env: [],
+    });
     expect(skill?.metadata.hybridclaw.install).toEqual([
       {
         id: 'brew',

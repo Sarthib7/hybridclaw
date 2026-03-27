@@ -730,38 +730,67 @@
       background: transparent;
     }
 
-    /* ── Prompt wrap: collapsed pill (default) ── */
+    /* ── Prompt wrap: always-expanded card ── */
     .prompt-wrap {
       display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 0;
-      padding: 10px;
+      flex-direction: column;
+      padding: 14px 16px 10px;
       border: 1px solid var(--line);
-      border-radius: 28px;
+      border-radius: 24px;
       background: #ffffff;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-      transition: border-radius 0.2s ease, padding 0.2s ease;
+      box-shadow: 0 1px 6px rgba(0, 0, 0, 0.04);
     }
 
-    /* ── Prompt wrap: expanded card ── */
-    .prompt-wrap.is-expanded {
-      align-items: flex-end;
+    .composer-bar {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding-top: 8px;
     }
 
-    .prompt-wrap.is-expanded textarea {
-      flex-basis: 100%;
-      order: -1;
-      margin-bottom: 6px;
-    }
-
-    .prompt-wrap.is-expanded #attach {
-      order: 0;
-    }
-
-    .prompt-wrap.is-expanded #send {
-      order: 1;
+    .composer-bar-right {
       margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* ── Dropdown selectors ── */
+    .composer-select {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      border: none;
+      background: transparent;
+      color: #5c6b81;
+      font: inherit;
+      font-size: 14px;
+      font-weight: 500;
+      padding: 6px 8px;
+      border-radius: 8px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .composer-select:hover {
+      background: #f0f4f8;
+      color: #23344e;
+    }
+
+    .composer-select svg {
+      width: 12px;
+      height: 12px;
+      flex-shrink: 0;
+    }
+
+    .composer-select .select-icon {
+      width: 16px;
+      height: 16px;
+    }
+
+    .composer-select[hidden],
+    .composer-action[hidden] {
+      display: none;
     }
 
     /* ── Pending media (attachments) ── */
@@ -769,8 +798,7 @@
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
-      width: 100%;
-      order: -2;
+      margin-bottom: 8px;
     }
 
     .pending-media[hidden] {
@@ -822,15 +850,14 @@
 
     /* ── Textarea ── */
     .composer textarea {
-      flex: 1;
-      min-width: 0;
+      width: 100%;
       min-height: 24px;
       max-height: 180px;
       resize: none;
       border: none;
       background: transparent;
       color: var(--text);
-      padding: 6px 8px;
+      padding: 2px 4px;
       font: inherit;
       font-size: 16px;
       line-height: 24px;
@@ -859,23 +886,23 @@
     }
 
     #attach {
-      color: #5c6b81;
-      font-size: 20px;
+      color: #8e95a4;
+      font-size: 22px;
       line-height: 1;
     }
 
     #attach:hover:not(:disabled) {
       background: #f0f4f8;
-      color: #23344e;
+      color: #5c6b81;
     }
 
     #send {
-      background: #23344e;
+      background: #d1d5db;
       color: #ffffff;
     }
 
     #send:hover:not(:disabled) {
-      background: #172034;
+      background: #9ca3af;
     }
 
     #send.is-stop {
@@ -1023,18 +1050,38 @@
         <section id="messages" class="messages"></section>
         <h1 class="empty-greeting">Ready to claw through your to-do list? 🦞</h1>
         <div class="composer">
-          <div class="prompt-wrap" id="promptWrap">
+          <div class="prompt-wrap">
             <div id="pendingMedia" class="pending-media" hidden></div>
-            <button id="attach" type="button" class="composer-action" aria-label="Attach files">
-              <span aria-hidden="true">+</span>
-            </button>
             <textarea id="message" rows="1" placeholder="Message HybridClaw"></textarea>
-            <button id="send" type="button" class="composer-action" aria-label="Send message">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M12 19V5"></path>
-                <path d="m5 12 7-7 7 7"></path>
-              </svg>
-            </button>
+            <div class="composer-bar">
+              <button id="attach" type="button" class="composer-action" aria-label="Attach files">
+                <span aria-hidden="true">+</span>
+              </button>
+              <button id="modelSelect" type="button" class="composer-select" aria-label="Select model" hidden>
+                <svg class="select-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                <span id="modelLabel">Auto</span>
+                <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg>
+              </button>
+              <button id="qualitySelect" type="button" class="composer-select" aria-label="Select quality" hidden>
+                <span id="qualityLabel">High</span>
+                <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg>
+              </button>
+              <div class="composer-bar-right">
+                <button id="mic" type="button" class="composer-action" aria-label="Voice input" hidden>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                    <line x1="12" y1="19" x2="12" y2="22"/>
+                  </svg>
+                </button>
+                <button id="send" type="button" class="composer-action" aria-label="Send message">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M12 19V5"></path>
+                    <path d="m5 12 7-7 7 7"></path>
+                  </svg>
+                </button>
+              </div>
+            </div>
             <input id="attachmentInput" type="file" hidden multiple>
           </div>
         </div>
@@ -1056,7 +1103,7 @@
     const attachEl = document.getElementById('attach');
     const attachmentInputEl = document.getElementById('attachmentInput');
     const pendingMediaEl = document.getElementById('pendingMedia');
-    const promptWrapEl = document.getElementById('promptWrap');
+
     const urlParams = new URLSearchParams(window.location.search);
     const queryToken = urlParams.get('token') || '';
     const MAX_RECENT_SESSIONS = 10;
@@ -1445,10 +1492,6 @@
     function autoResizeTextarea() {
       messageEl.style.height = 'auto';
       messageEl.style.height = messageEl.scrollHeight + 'px';
-      const lineHeight = parseFloat(getComputedStyle(messageEl).lineHeight) || 22;
-      const isMultiLine = messageEl.scrollHeight > lineHeight * 1.5;
-      const hasMedia = pendingMedia.length > 0;
-      promptWrapEl.classList.toggle('is-expanded', isMultiLine || hasMedia);
     }
 
     function updateComposerState() {
@@ -2365,9 +2408,18 @@
           headers: apiHeaders(),
         });
         setAppVersion(payload.version || '');
+        applyWebFeatures(payload.webFeatures);
       } catch {
         setAppVersion('');
       }
+    }
+
+    function applyWebFeatures(features) {
+      if (!features) return;
+      const setHidden = (id, hide) => { const el = document.getElementById(id); if (el) el.hidden = hide; };
+      setHidden('modelSelect', !features.modelPicker);
+      setHidden('qualitySelect', !features.modelPicker); // coupled: quality only relevant with model picker
+      setHidden('mic', !features.voiceInput);
     }
 
     async function submitPrompt(rawContent, media, options = {}) {

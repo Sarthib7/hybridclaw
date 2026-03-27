@@ -272,6 +272,10 @@ export interface GatewayStatus {
   activeContainers: number;
   defaultModel: string;
   ragDefault: boolean;
+  webFeatures?: {
+    modelPicker: boolean;
+    voiceInput: boolean;
+  };
   fullAuto?: {
     activeSessions: number;
   };

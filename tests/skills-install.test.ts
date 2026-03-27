@@ -19,6 +19,7 @@ describe('skill install metadata', () => {
 
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.doUnmock('../src/logger.js');
     vi.resetModules();
     if (originalHome === undefined) {
       delete process.env.HOME;
@@ -160,5 +161,58 @@ describe('skill install metadata', () => {
         label: 'Install OpenHue CLI (brew)',
       },
     ]);
+  });
+
+  test('warns when an explicit requires declaration is malformed', async () => {
+    const logger = {
+      debug: vi.fn(),
+      error: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+    };
+    vi.doMock('../src/logger.js', () => ({ logger }));
+
+    const { DEFAULT_RUNTIME_HOME_DIR } = await import(
+      '../src/config/runtime-config.ts'
+    );
+    const { findSkillCatalogEntry } = await import(
+      '../src/skills/skills-install.ts'
+    );
+
+    const skillDir = path.join(
+      DEFAULT_RUNTIME_HOME_DIR,
+      'skills',
+      'malformed-requires',
+    );
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, 'SKILL.md'),
+      [
+        '---',
+        'name: malformed-requires',
+        'description: Has an invalid requires declaration.',
+        'requires:',
+        '  unexpected: true',
+        '---',
+        '',
+        '# Malformed Requires',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const skill = findSkillCatalogEntry('malformed-requires');
+
+    expect(skill).not.toBeNull();
+    expect(skill?.requires).toEqual({
+      bins: [],
+      env: [],
+    });
+    expect(logger.warn).toHaveBeenCalledWith(
+      {
+        path: path.join(skillDir, 'SKILL.md'),
+        source: 'requires',
+      },
+      'Ignoring malformed skill requires declaration',
+    );
   });
 });

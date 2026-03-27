@@ -507,13 +507,15 @@ function parseRequiresFromMetadataRecord(raw: Record<string, unknown>): {
   env: string[];
 } {
   const record = resolveCompatibleMetadataRecord(raw);
+  if (!Object.hasOwn(record, 'requires')) {
+    return { bins: [], env: [] };
+  }
+  if (!isRecord(record.requires)) {
+    return { bins: [], env: [] };
+  }
   return {
-    bins: isRecord(record.requires)
-      ? normalizeStringList(record.requires.bins)
-      : [],
-    env: isRecord(record.requires)
-      ? normalizeStringList(record.requires.env)
-      : [],
+    bins: normalizeStringList(record.requires.bins),
+    env: normalizeStringList(record.requires.env),
   };
 }
 
@@ -522,6 +524,7 @@ function resolveTopLevelSectionLookup(
   key: string,
 ): {
   inlineObject: Record<string, unknown> | null;
+  section: FrontmatterSection | null;
   sectionFields: Map<string, FrontmatterSection>;
 } {
   const inlineObject = frontmatter.meta[key]
@@ -534,6 +537,7 @@ function resolveTopLevelSectionLookup(
 
   return {
     inlineObject: inlineObject || sectionInlineObject,
+    section,
     sectionFields: section ? parseSectionChildren(section.children) : new Map(),
   };
 }
@@ -571,7 +575,26 @@ function parseRequiresSection(sectionFields: Map<string, FrontmatterSection>): {
   };
 }
 
-function parseRequiresFromFrontmatter(frontmatter: FrontmatterParseResult): {
+function hasSectionContent(section: FrontmatterSection | null | undefined): boolean {
+  if (!section) return false;
+  if (section.inline.trim()) return true;
+  return section.children.some((line) => line.trim().length > 0);
+}
+
+function warnMalformedRequiresDeclaration(
+  skillFilePath: string,
+  source: string,
+): void {
+  logger.warn(
+    { path: skillFilePath, source },
+    'Ignoring malformed skill requires declaration',
+  );
+}
+
+function parseRequiresFromFrontmatter(
+  frontmatter: FrontmatterParseResult,
+  skillFilePath: string,
+): {
   bins: string[];
   env: string[];
 } {
@@ -590,15 +613,40 @@ function parseRequiresFromFrontmatter(frontmatter: FrontmatterParseResult): {
   if (requires.bins.length > 0 || requires.env.length > 0) {
     return requires;
   }
+  if (
+    Object.hasOwn(frontmatter.meta, 'requires') ||
+    hasSectionContent(directRequiresLookup.section)
+  ) {
+    warnMalformedRequiresDeclaration(skillFilePath, 'requires');
+  }
 
   const metadataLookup = resolveMetadataSectionLookup(frontmatter);
   if (metadataLookup.inlineObject) {
-    return parseRequiresFromMetadataRecord(metadataLookup.inlineObject);
+    const parsed = parseRequiresFromMetadataRecord(metadataLookup.inlineObject);
+    if (
+      parsed.bins.length === 0 &&
+      parsed.env.length === 0 &&
+      Object.hasOwn(
+        resolveCompatibleMetadataRecord(metadataLookup.inlineObject),
+        'requires',
+      )
+    ) {
+      warnMalformedRequiresDeclaration(skillFilePath, 'metadata');
+    }
+    return parsed;
   }
   if (metadataLookup.compatibleInlineObject) {
-    return parseRequiresFromMetadataRecord(
+    const parsed = parseRequiresFromMetadataRecord(
       metadataLookup.compatibleInlineObject,
     );
+    if (
+      parsed.bins.length === 0 &&
+      parsed.env.length === 0 &&
+      Object.hasOwn(metadataLookup.compatibleInlineObject, 'requires')
+    ) {
+      warnMalformedRequiresDeclaration(skillFilePath, 'metadata.requires');
+    }
+    return parsed;
   }
 
   const nestedRequires = metadataLookup.compatibleSectionFields.get('requires');
@@ -613,6 +661,9 @@ function parseRequiresFromFrontmatter(frontmatter: FrontmatterParseResult): {
   requires = parseRequiresSection(
     parseSectionChildren(nestedRequires.children),
   );
+  if (requires.bins.length === 0 && requires.env.length === 0) {
+    warnMalformedRequiresDeclaration(skillFilePath, 'metadata.requires');
+  }
   return requires;
 }
 
@@ -800,7 +851,7 @@ function scanSkillsDir(dir: string, source: SkillSource): SkillCandidate[] {
         const name = (meta.name || entry.name).trim();
         if (!name) continue;
         const always = parseBool(meta.always, false);
-        const requires = parseRequiresFromFrontmatter(frontmatter);
+        const requires = parseRequiresFromFrontmatter(frontmatter, skillFile);
         const metadataHybridClaw = parseHybridClawMetadata(frontmatter);
 
         skills.push({

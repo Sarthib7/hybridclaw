@@ -467,9 +467,7 @@ function stableSerialize(value: unknown): string {
     const record = value as Record<string, unknown>;
     const keys = Object.keys(record).sort((a, b) => a.localeCompare(b));
     return `{${keys
-      .map(
-        (key) => `${JSON.stringify(key)}:${stableSerialize(record[key])}`,
-      )
+      .map((key) => `${JSON.stringify(key)}:${stableSerialize(record[key])}`)
       .join(',')}}`;
   }
   return JSON.stringify(value);

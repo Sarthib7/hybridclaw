@@ -219,6 +219,7 @@ npm run tui                          # tsx src/cli.ts tui
 ### Git Discipline
 
 - Treat existing uncommitted changes as user work unless you created them.
+- Run `npm run format` before creating commits that will be pushed to GitHub.
 - Conventional Commits preferred: `feat:`, `fix:`, `test:`, `refactor:`,
   `chore:`, `docs:`.
 - Group related changes; avoid bundling unrelated refactors.

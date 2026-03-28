@@ -163,7 +163,10 @@ test('ensureGatewayBootstrapAutostart also kicks off from OPENING.md once per se
 
   expect(runAgentMock).toHaveBeenCalledTimes(1);
   const request = runAgentMock.mock.calls[0]?.[0] as
-    | { messages?: Array<{ role: string; content: string }>; chatbotId?: string }
+    | {
+        messages?: Array<{ role: string; content: string }>;
+        chatbotId?: string;
+      }
     | undefined;
   expect(request?.chatbotId).toBe('user-bootstrap');
   expect(

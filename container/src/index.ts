@@ -26,6 +26,7 @@ import {
 } from './native-media.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
 import { callRoutedModel, callRoutedModelStream } from './providers/router.js';
+import { HybridAIRequestError } from './providers/shared.js';
 import {
   buildRalphPrompt,
   normalizeMessageContentToText,
@@ -975,7 +976,10 @@ async function processRequest(
         ...(artifacts.length > 0 ? { artifacts } : {}),
         toolExecutions,
         tokenUsage: finalizeTokenUsage(tokenUsage),
-        error: `API error: ${err instanceof Error ? err.message : String(err)}`,
+        error:
+          err instanceof HybridAIRequestError
+            ? err.message
+            : `API error: ${err instanceof Error ? err.message : String(err)}`,
       };
       await emitRuntimeEvent({
         event: 'turn_end',

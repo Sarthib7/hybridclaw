@@ -381,6 +381,21 @@ async function importFreshCli(options?: {
       entry: null,
     }),
   );
+  const setPluginEnabled = vi.fn(
+    async (pluginId: string, enabled: boolean) => ({
+      pluginId,
+      enabled,
+      changed: true,
+      configPath: '/tmp/config.json',
+      entry: enabled
+        ? null
+        : {
+            id: pluginId,
+            enabled: false,
+            config: {},
+          },
+    }),
+  );
   const writePluginConfigValue = vi.fn(
     async (pluginId: string, key: string, rawValue: string) => ({
       pluginId,
@@ -761,6 +776,7 @@ async function importFreshCli(options?: {
   vi.doMock('../src/plugins/plugin-config.js', () => ({
     readPluginConfigEntry,
     readPluginConfigValue,
+    setPluginEnabled,
     unsetPluginConfigValue,
     writePluginConfigValue,
   }));
@@ -799,6 +815,7 @@ async function importFreshCli(options?: {
     importSkill,
     readPluginConfigEntry,
     readPluginConfigValue,
+    setPluginEnabled,
     unsetPluginConfigValue,
     writePluginConfigValue,
     listPluginSummary,
@@ -1141,6 +1158,19 @@ describe('CLI hybridai commands', () => {
     expect(logSpy).toHaveBeenCalledWith(
       'Set plugin config qmd-memory.searchMode = "query".',
     );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Updated runtime config at /tmp/config.json.',
+    );
+  });
+
+  it('disables a plugin', async () => {
+    const { cli, setPluginEnabled } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['plugin', 'disable', 'qmd-memory']);
+
+    expect(setPluginEnabled).toHaveBeenCalledWith('qmd-memory', false);
+    expect(logSpy).toHaveBeenCalledWith('Disabled plugin qmd-memory.');
     expect(logSpy).toHaveBeenCalledWith(
       'Updated runtime config at /tmp/config.json.',
     );

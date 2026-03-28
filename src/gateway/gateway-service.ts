@@ -38,6 +38,7 @@ import {
 } from '../audit/audit-events.js';
 import { getObservabilityIngestState } from '../audit/observability-ingest.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
+import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
 import {
   getChannel,
   getChannelByContextId,
@@ -126,6 +127,7 @@ import { memoryService } from '../memory/memory-service.js';
 import {
   readPluginConfigEntry,
   readPluginConfigValue,
+  setPluginEnabled,
   unsetPluginConfigValue,
   writePluginConfigValue,
 } from '../plugins/plugin-config.js';
@@ -1409,6 +1411,7 @@ async function resolveGatewayChatbotId(params: {
     const fallbackChatbotId = await fetchHybridAIAccountChatbotId({
       cacheTtlMs: BOT_CACHE_TTL,
     });
+    updateSessionChatbot(params.sessionId, fallbackChatbotId);
     logger.info(
       {
         sessionId: params.sessionId,
@@ -1541,6 +1544,22 @@ function extractUsageCostUsd(tokenUsage?: TokenUsageStats): number {
   ]);
   if (value == null) return 0;
   return Math.max(0, value);
+}
+
+function buildHybridAIAuthStatusLines(): string[] {
+  const config = getRuntimeConfig();
+  const status = getHybridAIAuthStatus();
+  return [
+    `Path: ${status.path}`,
+    `Authenticated: ${status.authenticated ? 'yes' : 'no'}`,
+    ...(status.authenticated
+      ? [`Source: ${status.source}`, `API key: ${status.maskedApiKey}`]
+      : []),
+    `Config: ${runtimeConfigPath()}`,
+    `Base URL: ${config.hybridai.baseUrl}`,
+    `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
+    'Billing: unavailable from this status command',
+  ];
 }
 
 function formatCanonicalContextPrompt(params: {
@@ -5954,10 +5973,13 @@ export async function handleGatewayCommand(
           '`mcp reconnect <name>` — Restart current session runtime so the server reconnects next turn',
           '`plugin list` — List discovered plugins, descriptions, commands, and load status',
           '`plugin config <plugin-id> [key] [value|--unset]` — Show or change a plugin config override',
+          '`plugin enable <plugin-id>` — Enable a discovered plugin for future turns',
+          '`plugin disable <plugin-id>` — Disable a discovered plugin for future turns',
           '`plugin install <path|npm-spec>` — Install a plugin from a local TUI/web session',
           '`plugin reinstall <path|npm-spec>` — Replace an installed plugin from a local TUI/web session',
           '`plugin reload` — Reload all plugins (picks up code changes without gateway restart)',
           '`plugin uninstall <plugin-id>` — Remove a home-installed plugin and matching runtime config overrides',
+          '`auth status hybridai` — Show local HybridAI auth/config state',
           '`clear` — Clear session history',
           '`reset [yes|no]` — Clear history, reset session settings, and remove the current agent workspace',
           '`/compact` — Archive older history, summarize it, and retain recent context',
@@ -5974,10 +5996,13 @@ export async function handleGatewayCommand(
           '`/model default [name]` — Show or set the default model for new sessions',
           '`/plugin list` — List discovered plugins, descriptions, commands, and load status',
           '`/plugin config <plugin-id> [key] [value|--unset]` — Show or change a plugin config override',
+          '`/plugin enable <plugin-id>` — Enable a discovered plugin for future turns',
+          '`/plugin disable <plugin-id>` — Disable a discovered plugin for future turns',
           '`/plugin install <path|npm-spec>` — Install a plugin from a local TUI/web session',
           '`/plugin reinstall <path|npm-spec>` — Replace an installed plugin from a local TUI/web session',
           '`/plugin reload` — Reload all plugins (picks up code changes without gateway restart)',
           '`/plugin uninstall <plugin-id>` — Remove a home-installed plugin and matching runtime config overrides',
+          '`/auth status hybridai` — Show local HybridAI auth/config state',
           '`sessions` — List active sessions',
           '`usage [summary|daily|monthly|model [daily|monthly] [agentId]]` — Usage/cost aggregates',
           '`export session [sessionId]` — Export session JSONL snapshot for debugging',
@@ -6743,6 +6768,27 @@ export async function handleGatewayCommand(
         );
       }
 
+      case 'auth': {
+        const sub = (req.args[1] || '').trim().toLowerCase();
+        const provider = (req.args[2] || '').trim().toLowerCase();
+        if (sub === 'status' && provider === 'hybridai') {
+          if (
+            req.guildId !== null ||
+            (req.channelId !== 'web' && req.channelId !== 'tui')
+          ) {
+            return badCommand(
+              'Auth Status Restricted',
+              '`auth status hybridai` reads local credential state and is only available from local TUI/web sessions.',
+            );
+          }
+          return infoCommand(
+            'HybridAI Auth Status',
+            buildHybridAIAuthStatusLines().join('\n'),
+          );
+        }
+        return badCommand('Usage', 'Usage: `auth status hybridai`');
+      }
+
       case 'stop':
       case 'abort': {
         await disableFullAutoSession({ sessionId: session.id });
@@ -6982,6 +7028,59 @@ export async function handleGatewayCommand(
             );
           }
         }
+        if (sub === 'enable' || sub === 'disable') {
+          const pluginId = String(req.args[2] || '').trim();
+          if (!pluginId) {
+            return badCommand('Usage', `Usage: \`plugin ${sub} <plugin-id>\``);
+          }
+          if (
+            req.guildId !== null ||
+            (req.channelId !== 'web' && req.channelId !== 'tui')
+          ) {
+            return badCommand(
+              `Plugin ${sub === 'enable' ? 'Enable' : 'Disable'} Restricted`,
+              `\`plugin ${sub}\` writes runtime config and is only available from local TUI/web sessions.`,
+            );
+          }
+
+          const enabled = sub === 'enable';
+          const previousConfig = getRuntimeConfig();
+          try {
+            const result = await setPluginEnabled(pluginId, enabled);
+            const reloadResult = await reloadPluginRuntime();
+            if (!reloadResult.ok) {
+              saveRuntimeConfig(previousConfig);
+              await reloadPluginRuntime();
+              return badCommand(
+                `Plugin ${enabled ? 'Enable' : 'Disable'} Failed`,
+                [
+                  `Plugin: ${result.pluginId}`,
+                  `Updated runtime config at \`${result.configPath}\`, but plugin reload failed.`,
+                  'Previous runtime config was restored.',
+                ].join('\n'),
+              );
+            }
+            return infoCommand(
+              result.changed
+                ? `Plugin ${enabled ? 'Enabled' : 'Disabled'}`
+                : 'Plugin Unchanged',
+              [
+                `Plugin: ${result.pluginId}`,
+                `Status: ${enabled ? 'enabled' : 'disabled'}`,
+                result.changed
+                  ? `Updated runtime config at \`${result.configPath}\`.`
+                  : 'Status was already set.',
+                reloadResult.message,
+              ].join('\n'),
+            );
+          } catch (error) {
+            saveRuntimeConfig(previousConfig);
+            return badCommand(
+              `Plugin ${enabled ? 'Enable' : 'Disable'} Failed`,
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+        }
         if (sub === 'install') {
           const source = String(req.args[2] || '').trim();
           if (!source) {
@@ -7075,7 +7174,7 @@ export async function handleGatewayCommand(
           if (!pluginId) {
             return badCommand(
               'Usage',
-              'Usage: `plugin list|install <path|npm-spec>|reinstall <path|npm-spec>|uninstall <plugin-id>`',
+              'Usage: `plugin list|enable <plugin-id>|disable <plugin-id>|install <path|npm-spec>|reinstall <path|npm-spec>|uninstall <plugin-id>`',
             );
           }
           try {
@@ -7107,7 +7206,7 @@ export async function handleGatewayCommand(
         }
         return badCommand(
           'Usage',
-          'Usage: `plugin list|config <plugin-id> [key] [value|--unset]|install <path|npm-spec>|reinstall <path|npm-spec>|reload|uninstall <plugin-id>`',
+          'Usage: `plugin list|config <plugin-id> [key] [value|--unset]|enable <plugin-id>|disable <plugin-id>|install <path|npm-spec>|reinstall <path|npm-spec>|reload|uninstall <plugin-id>`',
         );
       }
 

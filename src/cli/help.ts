@@ -355,6 +355,8 @@ export function printPluginUsage(): void {
 Commands:
   hybridclaw plugin list
   hybridclaw plugin config <plugin-id> [key] [value|--unset]
+  hybridclaw plugin enable <plugin-id>
+  hybridclaw plugin disable <plugin-id>
   hybridclaw plugin install <path|npm-spec>
   hybridclaw plugin reinstall <path|npm-spec>
   hybridclaw plugin uninstall <plugin-id>
@@ -362,6 +364,8 @@ Commands:
 Examples:
   hybridclaw plugin list
   hybridclaw plugin config qmd-memory searchMode query
+  hybridclaw plugin disable qmd-memory
+  hybridclaw plugin enable qmd-memory
   hybridclaw plugin install ./plugins/example-plugin
   hybridclaw plugin install @scope/hybridclaw-plugin-example
   hybridclaw plugin reinstall ./plugins/example-plugin
@@ -372,6 +376,7 @@ Notes:
   - Valid plugins in \`~/.hybridclaw/plugins/\` or \`./.hybridclaw/plugins/\` auto-discover at runtime.
   - \`list\` shows discovered plugin status, source, description, commands, tools, hooks, and load errors.
   - \`config\` edits top-level \`plugins.list[].config\` keys in ${runtimeConfigPath()}.
+  - \`enable\` and \`disable\` manage the top-level \`plugins.list[].enabled\` override in ${runtimeConfigPath()}.
   - \`install\` validates \`hybridclaw.plugin.yaml\` and installs npm dependencies when needed.
   - \`reinstall\` replaces the home-installed plugin tree and preserves existing \`plugins.list[]\` overrides.
   - \`uninstall\` removes the home-installed plugin directory and matching \`plugins.list[]\` overrides.

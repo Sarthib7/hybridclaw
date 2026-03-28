@@ -58,6 +58,7 @@ export interface PluginSlashCommandCatalogEntry {
 
 const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'agent',
+  'auth',
   'bot',
   'rag',
   'model',
@@ -234,6 +235,16 @@ export function mapCanonicalCommandToGatewayArgs(
     case 'status':
       return ['status'];
 
+    case 'auth': {
+      const sub = (parts[1] || '').trim().toLowerCase();
+      if (!sub) return ['auth'];
+      if (sub === 'status') {
+        const provider = (parts[2] || '').trim().toLowerCase();
+        return provider ? ['auth', 'status', provider] : ['auth', 'status'];
+      }
+      return ['auth', ...parts.slice(1)];
+    }
+
     case 'show':
       return parts.length > 1 ? ['show', ...parts.slice(1)] : ['show'];
 
@@ -257,6 +268,10 @@ export function mapCanonicalCommandToGatewayArgs(
     case 'plugin': {
       const sub = (parts[1] || '').trim().toLowerCase();
       if (!sub || sub === 'list') return ['plugin', 'list'];
+      if (sub === 'enable' || sub === 'disable') {
+        const pluginId = (parts[2] || '').trim();
+        return pluginId ? ['plugin', sub, pluginId] : ['plugin', sub];
+      }
       if (sub === 'config') {
         const pluginId = (parts[2] || '').trim();
         const key = (parts[3] || '').trim();
@@ -623,15 +638,74 @@ function buildSlashCommandCatalogDefinitions(
       },
     },
     {
+      name: 'auth',
+      description: 'Show local provider auth and config status',
+      tuiOnly: true,
+      options: [
+        {
+          kind: 'subcommand',
+          name: 'status',
+          description: 'Show local HybridAI auth status',
+          tuiMenu: {
+            label: '/auth status hybridai',
+            insertText: '/auth status hybridai',
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'provider',
+              description: 'Provider name',
+              required: true,
+              choices: [{ name: 'hybridai', value: 'hybridai' }],
+            },
+          ],
+        },
+      ],
+    },
+    {
       name: 'plugin',
       description:
-        'List, configure, install, reinstall, reload, or uninstall HybridClaw plugins',
+        'List, configure, enable, disable, install, reinstall, reload, or uninstall HybridClaw plugins',
       options: [
         {
           kind: 'subcommand',
           name: 'list',
           description:
             'List discovered plugins, descriptions, commands, tools, hooks, and load errors',
+        },
+        {
+          kind: 'subcommand',
+          name: 'enable',
+          description: 'Enable a discovered plugin',
+          tuiMenu: {
+            label: '/plugin enable <id>',
+            insertText: '/plugin enable ',
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'id',
+              description: 'Plugin id',
+              required: true,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'disable',
+          description: 'Disable a discovered plugin',
+          tuiMenu: {
+            label: '/plugin disable <id>',
+            insertText: '/plugin disable ',
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'id',
+              description: 'Plugin id',
+              required: true,
+            },
+          ],
         },
         {
           kind: 'subcommand',
@@ -1319,6 +1393,13 @@ export function parseCanonicalSlashCommandArgs(
     case 'status':
       return ['status'];
 
+    case 'auth': {
+      const subcommand = normalizeSubcommand(interaction);
+      if (subcommand !== 'status') return null;
+      const provider = normalizeStringOption(interaction, 'provider', true);
+      return provider ? ['auth', 'status', provider] : null;
+    }
+
     case 'show': {
       const subcommand = normalizeSubcommand(interaction);
       if (
@@ -1479,6 +1560,10 @@ export function parseCanonicalSlashCommandArgs(
     case 'plugin': {
       const subcommand = normalizeSubcommand(interaction);
       if (subcommand === 'list') return ['plugin', 'list'];
+      if (subcommand === 'enable' || subcommand === 'disable') {
+        const pluginId = normalizeStringOption(interaction, 'id', true);
+        return pluginId ? ['plugin', subcommand, pluginId] : null;
+      }
       if (subcommand === 'config') {
         const pluginId = normalizeStringOption(interaction, 'id', true);
         const key = normalizeStringOption(interaction, 'key');

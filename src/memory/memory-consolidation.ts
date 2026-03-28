@@ -4,6 +4,7 @@ import path from 'node:path';
 import { listAgents } from '../agents/agent-registry.js';
 import { resolveInstallPath } from '../infra/install-root.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
+import { logger } from '../logger.js';
 import type { MemoryBackend } from './memory-service.js';
 
 export interface MemoryConsolidationConfig {
@@ -22,11 +23,19 @@ export interface MemoryConsolidationReport {
 const DAILY_MEMORY_BLOCK_START = '<!-- BEGIN DAILY MEMORY DIGEST -->';
 const DAILY_MEMORY_BLOCK_END = '<!-- END DAILY MEMORY DIGEST -->';
 const DAILY_MEMORY_FILE_RE = /^(\d{4}-\d{2}-\d{2})\.md$/;
+// Size budget hierarchy:
+// - Each daily source file is truncated before summarization so one oversized
+//   note cannot dominate the digest.
+// - The digest itself is capped below the full MEMORY.md budget so existing
+//   curated sections still have room to survive prompt injection.
+// - Individual bullet lines and item counts keep the auto-generated digest
+//   scannable and deterministic across reruns.
 const DAILY_MEMORY_DIGEST_MAX_CHARS = 6_000;
 const DAILY_MEMORY_FILE_MAX_CHARS = 4_000;
 const DAILY_MEMORY_SUMMARY_MAX_ITEMS = 6;
 const DAILY_MEMORY_LINE_MAX_CHARS = 220;
 const MEMORY_FILE_MAX_CHARS = 12_000;
+// Keep this aligned with DEFAULT_MEMORY_TEMPLATE and templates/MEMORY.md.
 const MEMORY_SECTION_NAMES = new Set(['Facts', 'Decisions', 'Patterns']);
 const DEFAULT_MEMORY_TEMPLATE = `# MEMORY.md - Session Memory
 
@@ -54,17 +63,28 @@ interface DailyMemoryEntry {
   summary: string;
 }
 
+const DAILY_DIGEST_PREFIX = [
+  DAILY_MEMORY_BLOCK_START,
+  '## Daily Memory Digest',
+  '',
+  '_Auto-compiled from older `memory/YYYY-MM-DD.md` files._',
+  '',
+].join('\n');
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+const DAILY_DIGEST_BLOCK_RE = new RegExp(
+  `${escapeRegExp(DAILY_MEMORY_BLOCK_START)}[\\s\\S]*?${escapeRegExp(DAILY_MEMORY_BLOCK_END)}\\n*`,
+  'g',
+);
+
 export function currentDateStamp(now = new Date()): string {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(now);
-  const year = parts.find((part) => part.type === 'year')?.value;
-  const month = parts.find((part) => part.type === 'month')?.value;
-  const day = parts.find((part) => part.type === 'day')?.value;
-  if (year && month && day) return `${year}-${month}-${day}`;
-  return now.toISOString().slice(0, 10);
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 function readMemoryTemplate(): string {
@@ -106,14 +126,6 @@ function normalizeBullet(line: string): string {
     .trim();
 }
 
-function splitParagraphs(raw: string): string[] {
-  return raw
-    .replace(/\r/g, '')
-    .split(/\n\s*\n/)
-    .map((paragraph) => compactWhitespace(paragraph))
-    .filter(Boolean);
-}
-
 function summarizeDailyMemory(rawContent: string): string {
   const trimmed = rawContent.trim();
   if (!trimmed) return '';
@@ -138,16 +150,6 @@ function summarizeDailyMemory(rawContent: string): string {
     if (items.length >= DAILY_MEMORY_SUMMARY_MAX_ITEMS) break;
   }
 
-  if (items.length === 0) {
-    const paragraphs = splitParagraphs(trimmed);
-    for (const paragraph of paragraphs) {
-      const dedupeKey = paragraph.toLowerCase();
-      if (!addUniqueKey(seen, dedupeKey)) continue;
-      items.push(`- ${truncateLine(paragraph)}`);
-      if (items.length >= DAILY_MEMORY_SUMMARY_MAX_ITEMS) break;
-    }
-  }
-
   return items.join('\n');
 }
 
@@ -157,35 +159,21 @@ function buildDailyDigest(entries: DailyMemoryEntry[]): string {
   const body = entries
     .map((entry) => `### ${entry.date}\n${entry.summary}`)
     .join('\n\n');
-  return [
-    DAILY_MEMORY_BLOCK_START,
-    '## Daily Memory Digest',
-    '',
-    '_Auto-compiled from older `memory/YYYY-MM-DD.md` files._',
-    '',
-    body,
-    DAILY_MEMORY_BLOCK_END,
-  ].join('\n');
+  return `${DAILY_DIGEST_PREFIX}\n${body}\n${DAILY_MEMORY_BLOCK_END}`;
 }
 
-function replaceDailyDigestBlock(memoryContent: string, block: string): string {
-  const normalized = memoryContent.replace(/\r\n/g, '\n').trimEnd();
-  const escapedStart = DAILY_MEMORY_BLOCK_START.replace(
-    /[.*+?^${}()|[\]\\]/g,
-    '\\$&',
-  );
-  const escapedEnd = DAILY_MEMORY_BLOCK_END.replace(
-    /[.*+?^${}()|[\]\\]/g,
-    '\\$&',
-  );
-  const blockPattern = new RegExp(
-    `${escapedStart}[\\s\\S]*?${escapedEnd}\\n*`,
-    'm',
-  );
-  const stripped = normalized.replace(blockPattern, '').trimEnd();
-  if (!block) return stripped ? `${stripped}\n` : '';
-  if (!stripped) return `${block}\n`;
-  return `${stripped}\n\n${block}\n`;
+function stripDailyDigestBlock(memoryContent: string): string {
+  return memoryContent
+    .replace(/\r\n/g, '\n')
+    .trimEnd()
+    .replace(DAILY_DIGEST_BLOCK_RE, '')
+    .trimEnd();
+}
+
+function renderMemoryContent(strippedContent: string, block: string): string {
+  if (!block) return strippedContent ? `${strippedContent}\n` : '';
+  if (!strippedContent) return `${block}\n`;
+  return `${strippedContent}\n\n${block}\n`;
 }
 
 function dedupeMemorySections(memoryContent: string): string {
@@ -229,15 +217,72 @@ function buildMemoryContent(params: {
   entries: DailyMemoryEntry[];
 }): string {
   const normalized = dedupeMemorySections(params.existing);
-  const candidateEntries = [...params.entries];
+  if (normalized.length > MEMORY_FILE_MAX_CHARS) {
+    throw new Error(
+      `MEMORY.md exceeds ${MEMORY_FILE_MAX_CHARS} chars before adding the daily digest.`,
+    );
+  }
+  const stripped = stripDailyDigestBlock(normalized);
+  const baseContent = renderMemoryContent(stripped, '');
+  if (params.entries.length === 0) {
+    return baseContent;
+  }
+  const digestBudget =
+    MEMORY_FILE_MAX_CHARS - baseContent.length - (stripped ? 2 : 1);
+  if (digestBudget <= 0) {
+    return baseContent;
+  }
 
-  for (;;) {
-    const digest = buildDailyDigest(candidateEntries);
-    const next = replaceDailyDigestBlock(normalized, digest);
-    if (next.length <= MEMORY_FILE_MAX_CHARS || candidateEntries.length === 0) {
-      return next;
+  const formattedEntries = params.entries.map(
+    (entry) => `### ${entry.date}\n${entry.summary}`,
+  );
+  let bodyLength = formattedEntries.reduce(
+    (total, entry, index) => total + entry.length + (index > 0 ? 2 : 0),
+    0,
+  );
+  const fixedDigestLength =
+    DAILY_DIGEST_PREFIX.length + DAILY_MEMORY_BLOCK_END.length + 2;
+  let firstEntryIndex = 0;
+
+  while (
+    firstEntryIndex < formattedEntries.length &&
+    fixedDigestLength + bodyLength > digestBudget
+  ) {
+    bodyLength -= formattedEntries[firstEntryIndex]?.length || 0;
+    if (firstEntryIndex < formattedEntries.length - 1) {
+      bodyLength -= 2;
     }
-    candidateEntries.shift();
+    firstEntryIndex += 1;
+  }
+
+  if (firstEntryIndex >= params.entries.length) {
+    return baseContent;
+  }
+
+  return renderMemoryContent(
+    stripped,
+    buildDailyDigest(params.entries.slice(firstEntryIndex)),
+  );
+}
+
+function readDailyMemoryFile(filePath: string): string | null {
+  try {
+    const stats = fs.statSync(filePath);
+    if (stats.size <= 0) return '';
+    if (stats.size <= DAILY_MEMORY_FILE_MAX_CHARS) {
+      return fs.readFileSync(filePath, 'utf-8');
+    }
+
+    const fd = fs.openSync(filePath, 'r');
+    try {
+      const buffer = Buffer.alloc(DAILY_MEMORY_FILE_MAX_CHARS);
+      const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, 0);
+      return `${buffer.toString('utf8', 0, bytesRead)}\n...[truncated]`;
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return null;
   }
 }
 
@@ -246,7 +291,8 @@ function collectDailyMemoryEntries(workspaceDir: string): DailyMemoryEntry[] {
   if (!fs.existsSync(dailyDir)) return [];
 
   const today = currentDateStamp();
-  const entries: DailyMemoryEntry[] = [];
+  const selected: DailyMemoryEntry[] = [];
+  let usedChars = 0;
   for (const name of fs
     .readdirSync(dailyDir)
     .sort((left, right) => right.localeCompare(left))) {
@@ -255,25 +301,12 @@ function collectDailyMemoryEntries(workspaceDir: string): DailyMemoryEntry[] {
     const date = match[1];
     if (!date || date >= today) continue;
     const filePath = path.join(dailyDir, name);
-    let content = '';
-    try {
-      content = fs.readFileSync(filePath, 'utf-8');
-    } catch {
-      continue;
-    }
+    const content = readDailyMemoryFile(filePath);
+    if (content == null) continue;
     if (!content.trim()) continue;
-    const limitedContent =
-      content.length > DAILY_MEMORY_FILE_MAX_CHARS
-        ? `${content.slice(0, DAILY_MEMORY_FILE_MAX_CHARS)}\n...[truncated]`
-        : content;
-    const summary = summarizeDailyMemory(limitedContent);
+    const summary = summarizeDailyMemory(content);
     if (!summary) continue;
-    entries.push({ date, summary });
-  }
-
-  const selected: DailyMemoryEntry[] = [];
-  let usedChars = 0;
-  for (const entry of entries) {
+    const entry = { date, summary };
     const candidate = `### ${entry.date}\n${entry.summary}`;
     const nextSize = candidate.length + (selected.length > 0 ? 2 : 0);
     if (
@@ -284,48 +317,59 @@ function collectDailyMemoryEntries(workspaceDir: string): DailyMemoryEntry[] {
     }
     selected.push(entry);
     usedChars += nextSize;
+    if (usedChars >= DAILY_MEMORY_DIGEST_MAX_CHARS) {
+      break;
+    }
   }
   return selected.reverse();
 }
 
 export class MemoryConsolidationEngine {
   private readonly backend: MemoryBackend;
-  private readonly config: MemoryConsolidationConfig;
+  private config: MemoryConsolidationConfig;
 
   constructor(backend: MemoryBackend, config: MemoryConsolidationConfig) {
     this.backend = backend;
-    this.config = config;
+    this.config = { ...config };
   }
 
-  consolidate(
-    overrides?: Partial<MemoryConsolidationConfig>,
-  ): MemoryConsolidationReport {
-    const start = Date.now();
-    const config = {
+  setDecayRate(decayRate: number): void {
+    this.config = {
       ...this.config,
-      ...(overrides || {}),
+      decayRate,
     };
+  }
+
+  consolidate(): MemoryConsolidationReport {
+    const start = Date.now();
     const memoriesDecayed = this.backend.decaySemanticMemories({
-      decayRate: config.decayRate,
-      staleAfterDays: config.staleAfterDays,
-      minConfidence: config.minConfidence,
+      decayRate: this.config.decayRate,
+      staleAfterDays: this.config.staleAfterDays,
+      minConfidence: this.config.minConfidence,
     });
     let dailyFilesCompiled = 0;
     let workspacesUpdated = 0;
     for (const agent of listAgents()) {
       const workspaceDir = agentWorkspaceDir(agent.id);
       if (!fs.existsSync(workspaceDir)) continue;
-      const entries = collectDailyMemoryEntries(workspaceDir);
-      dailyFilesCompiled += entries.length;
-      const memoryPath = path.join(workspaceDir, 'MEMORY.md');
-      const existing = fs.existsSync(memoryPath)
-        ? fs.readFileSync(memoryPath, 'utf-8')
-        : readMemoryTemplate();
-      const next = buildMemoryContent({ existing, entries });
-      if (next === existing) continue;
-      fs.mkdirSync(path.dirname(memoryPath), { recursive: true });
-      fs.writeFileSync(memoryPath, next, 'utf-8');
-      workspacesUpdated += 1;
+      try {
+        const entries = collectDailyMemoryEntries(workspaceDir);
+        const memoryPath = path.join(workspaceDir, 'MEMORY.md');
+        const existing = fs.existsSync(memoryPath)
+          ? fs.readFileSync(memoryPath, 'utf-8')
+          : readMemoryTemplate();
+        const next = buildMemoryContent({ existing, entries });
+        dailyFilesCompiled += entries.length;
+        if (next === existing) continue;
+        fs.mkdirSync(path.dirname(memoryPath), { recursive: true });
+        fs.writeFileSync(memoryPath, next, 'utf-8');
+        workspacesUpdated += 1;
+      } catch (err) {
+        logger.warn(
+          { agentId: agent.id, workspaceDir, err },
+          'Memory consolidation skipped a workspace after a file error',
+        );
+      }
     }
     return {
       memoriesDecayed,

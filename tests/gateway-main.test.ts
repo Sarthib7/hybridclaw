@@ -99,6 +99,7 @@ function createGatewayMainTestState(options?: {
       memoriesDecayed: 0,
       durationMs: 1,
     })),
+    memoryServiceSetDecayRate: vi.fn(),
     onConfigChange: vi.fn(),
     processOn: vi.spyOn(process, 'on'),
     rearmScheduler: vi.fn(),
@@ -306,6 +307,7 @@ async function importFreshGatewayMain(options?: {
     memoryService: {
       consolidateMemories: state.memoryServiceConsolidate,
       getSessionById: vi.fn(() => state.currentSession),
+      setConsolidationDecayRate: state.memoryServiceSetDecayRate,
     },
   }));
   vi.doMock('../src/agents/agent-registry.js', () => ({

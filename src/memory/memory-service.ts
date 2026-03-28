@@ -61,7 +61,6 @@ import {
   type SemanticRecallFilter,
 } from './db.js';
 import {
-  type MemoryConsolidationConfig,
   MemoryConsolidationEngine,
   type MemoryConsolidationReport,
 } from './memory-consolidation.js';
@@ -527,10 +526,12 @@ export class MemoryService {
     return this.backend.queryKnowledgeGraph(pattern);
   }
 
-  consolidateMemories(
-    overrides?: Partial<MemoryConsolidationConfig>,
-  ): MemoryConsolidationReport {
-    return this.consolidationEngine.consolidate(overrides);
+  consolidateMemories(): MemoryConsolidationReport {
+    return this.consolidationEngine.consolidate();
+  }
+
+  setConsolidationDecayRate(decayRate: number): void {
+    this.consolidationEngine.setDecayRate(decayRate);
   }
 
   async compactSession(sessionId: string): Promise<CompactionResult> {

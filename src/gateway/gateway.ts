@@ -1423,7 +1423,8 @@ function startOrRestartMemoryConsolidationScheduler(): void {
   memoryConsolidationTimer = setInterval(() => {
     const { decayRate } = getConfigSnapshot().memory;
     try {
-      const report = memoryService.consolidateMemories({ decayRate });
+      memoryService.setConsolidationDecayRate(decayRate);
+      const report = memoryService.consolidateMemories();
       if (report.memoriesDecayed > 0) {
         logger.info(
           {

@@ -6,7 +6,9 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import type { MemoryBackend } from '../src/memory/memory-service.js';
 
-async function loadConsolidationModule(workspaces: string | Record<string, string>) {
+async function loadConsolidationModule(
+  workspaces: string | Record<string, string>,
+) {
   const workspaceMap =
     typeof workspaces === 'string' ? { main: workspaces } : workspaces;
   vi.doMock('../src/agents/agent-registry.js', () => ({
@@ -350,7 +352,9 @@ describe.sequential('memory consolidation', () => {
     const statSync = fs.statSync.bind(fs);
     const statSpy = vi.spyOn(fs, 'statSync').mockImplementation((filePath) => {
       if (String(filePath) === oldestEntry?.filePath) {
-        throw new Error('Oldest file should not be touched after digest budget is full');
+        throw new Error(
+          'Oldest file should not be touched after digest budget is full',
+        );
       }
       return statSync(filePath);
     });
@@ -420,7 +424,9 @@ describe.sequential('memory consolidation', () => {
 
       expect(report.dailyFilesCompiled).toBe(1);
       expect(memoryContent).toContain('Oversized daily memory');
-      expect(memoryContent).not.toContain('Large daily file should not be fully read');
+      expect(memoryContent).not.toContain(
+        'Large daily file should not be fully read',
+      );
     } finally {
       readSpy.mockRestore();
     }

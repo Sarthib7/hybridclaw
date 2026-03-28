@@ -526,8 +526,7 @@ export class MemoryService {
     return this.backend.queryKnowledgeGraph(pattern);
   }
 
-  consolidateMemories(
-  ): MemoryConsolidationReport {
+  consolidateMemories(): MemoryConsolidationReport {
     return this.consolidationEngine.consolidate();
   }
 

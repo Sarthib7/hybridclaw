@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 import { CronExpressionParser } from 'cron-parser';
 import { runAgent } from '../agent/agent.js';
@@ -69,6 +70,7 @@ import {
   getRuntimeConfig,
   parseSchedulerBoardStatus,
   type RuntimeConfig,
+  resolveDefaultAgentId,
   runtimeConfigPath,
   type SchedulerBoardStatus,
   saveRuntimeConfig,
@@ -307,6 +309,7 @@ import {
   type GatewayAdminToolsResponse,
   type GatewayAdminUsageSummary,
   type GatewayAgentsResponse,
+  type GatewayAssistantPresentation,
   type GatewayChatRequestBody,
   type GatewayChatResult,
   type GatewayCommandRequest,
@@ -1366,7 +1369,65 @@ function formatUsd(value: number | null): string {
 function resolveSessionAgentId(session: { agent_id: string }): string {
   const sessionAgent = session.agent_id?.trim();
   if (sessionAgent) return sessionAgent;
-  return DEFAULT_AGENT_ID;
+  return resolveDefaultAgentId(getRuntimeConfig());
+}
+
+function resolveAgentImageAssetPath(
+  agentId: string,
+  imageAsset: string | null | undefined,
+): string | null {
+  const normalized = String(imageAsset || '').trim();
+  if (
+    !normalized ||
+    path.isAbsolute(normalized) ||
+    normalized.includes('\\') ||
+    normalized.split('/').some((segment) => segment === '..' || !segment)
+  ) {
+    return null;
+  }
+
+  const workspacePath = path.resolve(agentWorkspaceDir(agentId));
+  const filePath = path.resolve(workspacePath, normalized);
+  const relative = path.relative(workspacePath, filePath);
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+    return null;
+  }
+  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+    return null;
+  }
+  return filePath;
+}
+
+export function getGatewayAssistantPresentationForAgent(
+  agentId?: string | null,
+): GatewayAssistantPresentation {
+  const resolvedAgentId = String(agentId || '').trim() || DEFAULT_AGENT_ID;
+  const agent =
+    getAgentById(resolvedAgentId) ?? resolveAgentConfig(resolvedAgentId);
+  const displayName =
+    agent.displayName?.trim() || agent.name?.trim() || resolvedAgentId;
+  const imagePath = resolveAgentImageAssetPath(
+    resolvedAgentId,
+    agent.imageAsset,
+  );
+  return {
+    agentId: resolvedAgentId,
+    displayName,
+    ...(imagePath
+      ? {
+          imageUrl: `/api/agent-avatar?agentId=${encodeURIComponent(resolvedAgentId)}`,
+        }
+      : {}),
+  };
+}
+
+export function getGatewayAssistantPresentationForSession(
+  sessionId: string,
+): GatewayAssistantPresentation {
+  const session = memoryService.getSessionById(sessionId);
+  return getGatewayAssistantPresentationForAgent(
+    session ? resolveSessionAgentId(session) : DEFAULT_AGENT_ID,
+  );
 }
 
 function extractUsageCostUsd(tokenUsage?: TokenUsageStats): number {
@@ -4179,6 +4240,7 @@ export async function handleGatewayMessage(
     sessionId: req.sessionId,
     sessionKey: session.session_key,
     mainSessionKey: session.main_session_key,
+    assistantPresentation: getGatewayAssistantPresentationForAgent(agentId),
   });
   if (source !== 'fullauto') {
     preemptRunningFullAutoTurn(req.sessionId, source);

@@ -385,6 +385,28 @@ async function importFreshHealth(options?: {
       deletedCount: 1,
     },
   }));
+  const getGatewayAssistantPresentationForSession = vi.fn(() => ({
+    agentId: 'charly',
+    displayName: 'Charly',
+    imageUrl: '/api/agent-avatar?agentId=charly',
+  }));
+  const getAgentById = vi.fn((agentId: string) =>
+    agentId === 'charly'
+      ? {
+          id: 'charly',
+          name: 'Charly Agent',
+          displayName: 'Charly',
+          imageAsset: 'avatars/charly.png',
+        }
+      : null,
+  );
+  const resolveAgentConfig = vi.fn((agentId?: string | null) => ({
+    id: agentId?.trim() || 'main',
+    name: 'Main Agent',
+  }));
+  const resolveAgentWorkspaceId = vi.fn((agentId?: string | null) =>
+    agentId?.trim() || 'main',
+  );
   const getSessionById = vi.fn(() => ({ show_mode: 'all' }));
   const forkSessionBranch = vi.fn(() => ({
     session: {
@@ -834,6 +856,11 @@ async function importFreshHealth(options?: {
       forkSessionBranch,
     },
   }));
+  vi.doMock('../src/agents/agent-registry.js', () => ({
+    getAgentById,
+    resolveAgentConfig,
+    resolveAgentWorkspaceId,
+  }));
   vi.doMock('../src/gateway/gateway-service.js', () => ({
     createGatewayAdminAgent,
     deleteGatewayAdminAgent,
@@ -853,6 +880,7 @@ async function importFreshHealth(options?: {
     getGatewayAdminSessions,
     getGatewayAdminSkills,
     getGatewayAdminTools,
+    getGatewayAssistantPresentationForSession,
     getGatewayHistory,
     getGatewayRecentChatSessions,
     getGatewayHistorySummary,
@@ -901,6 +929,7 @@ async function importFreshHealth(options?: {
     handler,
     listenArgs,
     getGatewayStatus,
+    getGatewayAssistantPresentationForSession,
     getGatewayHistory,
     getGatewayRecentChatSessions,
     getGatewayHistorySummary,
@@ -927,6 +956,7 @@ async function importFreshHealth(options?: {
     handleGatewayCommand,
     renderGatewayCommand,
     getSessionById,
+    getAgentById,
     loggerDebug,
     runMessageToolAction,
     normalizeDiscordToolAction,
@@ -1600,6 +1630,11 @@ describe('gateway HTTP server', () => {
       sessionId: 's1',
       sessionKey: undefined,
       mainSessionKey: undefined,
+      assistantPresentation: {
+        agentId: 'charly',
+        displayName: 'Charly',
+        imageUrl: '/api/agent-avatar?agentId=charly',
+      },
       history: [
         { role: 'user', content: 'hello' },
         { role: 'assistant', content: 'world' },
@@ -1624,6 +1659,31 @@ describe('gateway HTTP server', () => {
         },
       },
     });
+  });
+
+  test('streams installed agent avatar assets', async () => {
+    const state = await importFreshHealth();
+    const avatarPath = path.join(
+      state.dataDir,
+      'agents',
+      'charly',
+      'workspace',
+      'avatars',
+      'charly.png',
+    );
+    fs.mkdirSync(path.dirname(avatarPath), { recursive: true });
+    fs.writeFileSync(avatarPath, Buffer.from('89504e470d0a1a0a', 'hex'));
+
+    const req = makeRequest({ url: '/api/agent-avatar?agentId=charly' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(state.getAgentById).toHaveBeenCalledWith('charly');
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['Content-Type']).toBe('image/png');
+    expect(res.body.length).toBeGreaterThan(0);
   });
 
   test('forks a web chat branch from a message cutoff', async () => {

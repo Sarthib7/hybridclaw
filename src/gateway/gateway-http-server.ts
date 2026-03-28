@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
 import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
+import { getAgentById, resolveAgentConfig } from '../agents/agent-registry.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
   type DiscordToolActionRequest,
@@ -26,8 +27,13 @@ import type {
   RuntimeDiscordChannelConfig,
   RuntimeMSTeamsChannelConfig,
 } from '../config/runtime-config.js';
-import { parseSchedulerBoardStatus } from '../config/runtime-config.js';
+import {
+  getRuntimeConfig,
+  parseSchedulerBoardStatus,
+  resolveDefaultAgentId,
+} from '../config/runtime-config.js';
 import { resolveInstallPath } from '../infra/install-root.js';
+import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { summarizeMediaFilenames } from '../media/media-summary.js';
 import { normalizeMimeType } from '../media/mime-utils.js';
@@ -79,6 +85,7 @@ import {
   getGatewayAdminSkills,
   getGatewayAdminTools,
   getGatewayAgents,
+  getGatewayAssistantPresentationForSession,
   getGatewayHistory,
   getGatewayHistorySummary,
   getGatewayRecentChatSessions,
@@ -227,7 +234,7 @@ function parsePositiveInteger(value: unknown): number | null {
 
 function generateDefaultWebSessionId(agentId?: string | null): string {
   return buildSessionKey(
-    String(agentId || '').trim() || DEFAULT_AGENT_ID,
+    String(agentId || '').trim() || resolveDefaultAgentId(getRuntimeConfig()),
     'web',
     'dm',
     randomUUID().replace(/-/g, '').slice(0, 16),
@@ -755,6 +762,109 @@ function resolveArtifactFile(url: URL): string | null {
   if (!fs.existsSync(realFilePath) || !fs.statSync(realFilePath).isFile())
     return null;
   return realFilePath;
+}
+
+function resolveAgentAvatarFile(url: URL): string | null {
+  const agentId =
+    (url.searchParams.get('agentId') || '').trim() || DEFAULT_AGENT_ID;
+  const agent = getAgentById(agentId) ?? resolveAgentConfig(agentId);
+  const imageAsset = String(agent.imageAsset || '').trim();
+  if (
+    !imageAsset ||
+    path.isAbsolute(imageAsset) ||
+    imageAsset.includes('\\') ||
+    imageAsset.split('/').some((segment) => segment === '..' || !segment)
+  ) {
+    return null;
+  }
+
+  const workspacePath = path.resolve(agentWorkspaceDir(agentId));
+  const filePath = path.resolve(workspacePath, imageAsset);
+  const relative = path.relative(workspacePath, filePath);
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+    return null;
+  }
+  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+    return null;
+  }
+  return filePath;
+}
+
+function streamStaticFile(
+  res: ServerResponse,
+  filePath: string,
+  options?: {
+    cacheControl?: string;
+    dispositionType?: 'inline' | 'attachment';
+    fallbackMimeType?: string;
+  },
+): void {
+  fs.stat(filePath, (statError, stats) => {
+    if (statError) {
+      const code = (statError as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') {
+        sendJson(res, 404, { error: 'Artifact not found.' });
+        return;
+      }
+      logger.warn(
+        { filePath, error: statError },
+        'Failed to stat file before streaming',
+      );
+      sendJson(res, 500, { error: 'Failed to read artifact.' });
+      return;
+    }
+
+    if (!stats.isFile()) {
+      sendJson(res, 404, { error: 'Artifact not found.' });
+      return;
+    }
+
+    const ext = path.extname(filePath).toLowerCase();
+    const inlineMimeType =
+      SAFE_INLINE_ARTIFACT_MIME_TYPES[ext] ||
+      SITE_MIME_TYPES[ext]?.split(';')[0]?.trim();
+    const mimeType =
+      inlineMimeType || options?.fallbackMimeType || 'application/octet-stream';
+    const dispositionType = options?.dispositionType || 'inline';
+    const filename = path.basename(filePath);
+    const stream = fs.createReadStream(filePath);
+
+    stream.on('open', () => {
+      res.writeHead(200, {
+        'Content-Type': mimeType,
+        'Content-Disposition': `${dispositionType}; filename="${filename.replace(/"/g, '')}"`,
+        'Cache-Control': options?.cacheControl || 'no-store',
+        'Content-Length': String(stats.size),
+        'X-Content-Type-Options': 'nosniff',
+        ...(dispositionType === 'attachment'
+          ? {
+              'Content-Security-Policy': "sandbox; default-src 'none'",
+            }
+          : {}),
+      });
+    });
+
+    stream.on('data', (chunk) => {
+      res.write(chunk);
+    });
+
+    stream.on('end', () => {
+      if (!res.writableEnded) res.end();
+    });
+
+    stream.on('error', (error) => {
+      logger.warn({ filePath, error }, 'Failed to stream file');
+      if (!res.headersSent) {
+        sendJson(res, 500, { error: 'Failed to read artifact.' });
+        return;
+      }
+      if (typeof res.destroy === 'function') {
+        res.destroy(error);
+        return;
+      }
+      if (!res.writableEnded) res.end();
+    });
+  });
 }
 
 async function readRequestBody(
@@ -1369,10 +1479,35 @@ function handleApiHistory(res: ServerResponse, url: URL): void {
     sessionKey: historyPage.sessionKey || undefined,
     mainSessionKey: historyPage.mainSessionKey || undefined,
     history: historyPage.history,
+    assistantPresentation: getGatewayAssistantPresentationForSession(sessionId),
     ...(historyPage.branchFamilies.length > 0
       ? { branchFamilies: historyPage.branchFamilies }
       : {}),
     summary,
+  });
+}
+
+function handleApiAgentAvatar(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): void {
+  if (!hasApiAuth(req, url, { allowQueryToken: true })) {
+    sendJson(res, 401, {
+      error:
+        'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>` or pass `?token=<WEB_API_TOKEN>`.',
+    });
+    return;
+  }
+
+  const filePath = resolveAgentAvatarFile(url);
+  if (!filePath) {
+    sendJson(res, 404, { error: 'Agent avatar not found.' });
+    return;
+  }
+  streamStaticFile(res, filePath, {
+    cacheControl: 'private, max-age=300',
+    dispositionType: 'inline',
   });
 }
 
@@ -2168,6 +2303,20 @@ export function startGatewayHttpServer(): void {
       if (pathname === '/api/artifact' && method === 'GET') {
         try {
           handleApiArtifact(req, res, url);
+        } catch (err) {
+          const errorText = err instanceof Error ? err.message : String(err);
+          const statusCode =
+            err instanceof HttpRequestError ||
+            err instanceof GatewayRequestError
+              ? err.statusCode
+              : 500;
+          sendJson(res, statusCode, { error: errorText });
+        }
+        return;
+      }
+      if (pathname === '/api/agent-avatar' && method === 'GET') {
+        try {
+          handleApiAgentAvatar(req, res, url);
         } catch (err) {
           const errorText = err instanceof Error ? err.message : String(err);
           const statusCode =

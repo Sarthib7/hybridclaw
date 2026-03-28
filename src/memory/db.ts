@@ -6,7 +6,10 @@ import type { AgentConfig, AgentModelConfig } from '../agents/agent-types.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import type { WireRecord } from '../audit/audit-trail.js';
 import { DB_PATH } from '../config/config.js';
-import { getRuntimeConfig } from '../config/runtime-config.js';
+import {
+  getRuntimeConfig,
+  resolveDefaultAgentId,
+} from '../config/runtime-config.js';
 import { logger } from '../logger.js';
 import {
   buildSessionKey,
@@ -77,7 +80,7 @@ import type {
 let db: Database.Database;
 let databaseInitialized = false;
 
-export const DATABASE_SCHEMA_VERSION = 16;
+export const DATABASE_SCHEMA_VERSION = 17;
 
 interface InitDatabaseOptions {
   quiet?: boolean;
@@ -91,6 +94,8 @@ interface TableInfoRow {
 type AgentRow = {
   id: AgentConfig['id'];
   name: string | null;
+  display_name: string | null;
+  image_asset: string | null;
   model: string | null;
   chatbot_id: string | null;
   enable_rag: number | null;
@@ -950,6 +955,8 @@ function migrateV6(
       CREATE TABLE IF NOT EXISTS agents (
         id TEXT PRIMARY KEY,
         name TEXT,
+        display_name TEXT,
+        image_asset TEXT,
         model TEXT,
         chatbot_id TEXT,
         enable_rag INTEGER DEFAULT 1,
@@ -1537,6 +1544,33 @@ function migrateV16(database: Database.Database): void {
   );
 }
 
+function migrateV17(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  const quiet = opts?.quiet === true;
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'display_name',
+    ddl: 'display_name TEXT',
+    quiet,
+  });
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'image_asset',
+    ddl: 'image_asset TEXT',
+    quiet,
+  });
+
+  recordMigration(
+    database,
+    17,
+    'Persist installed agent display metadata for chat presentation',
+  );
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -1574,6 +1608,7 @@ function runMigrations(
   if (currentVersion < 14) migrateV14(database);
   if (currentVersion < 15) migrateV15(database);
   if (currentVersion < 16) migrateV16(database);
+  if (currentVersion < 17) migrateV17(database, opts);
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
@@ -1670,12 +1705,16 @@ function parseAgentModelConfig(
 
 function mapAgentRow(row: AgentRow): AgentConfig {
   const name = row.name?.trim() || '';
+  const displayName = row.display_name?.trim() || '';
+  const imageAsset = row.image_asset?.trim() || '';
   const model = parseAgentModelConfig(row.model);
   const chatbotId = row.chatbot_id?.trim() || '';
   const workspace = row.workspace?.trim() || '';
   return {
     id: row.id,
     ...(name ? { name } : {}),
+    ...(displayName ? { displayName } : {}),
+    ...(imageAsset ? { imageAsset } : {}),
     ...(model ? { model } : {}),
     ...(chatbotId ? { chatbotId } : {}),
     ...(workspace ? { workspace } : {}),
@@ -1690,7 +1729,7 @@ export function getAgentById(agentId: string): AgentConfig | null {
   if (!normalizedAgentId) return null;
   const row = queryOne<AgentRow, [string]>(
     db,
-    `SELECT id, name, model, chatbot_id, enable_rag, workspace, created_at, updated_at
+    `SELECT id, name, display_name, image_asset, model, chatbot_id, enable_rag, workspace, created_at, updated_at
      FROM agents
      WHERE id = ?`,
     normalizedAgentId,
@@ -1701,7 +1740,7 @@ export function getAgentById(agentId: string): AgentConfig | null {
 export function listAgents(): AgentConfig[] {
   const rows = queryAll<AgentRow, [string]>(
     db,
-    `SELECT id, name, model, chatbot_id, enable_rag, workspace, created_at, updated_at
+    `SELECT id, name, display_name, image_asset, model, chatbot_id, enable_rag, workspace, created_at, updated_at
      FROM agents
      ORDER BY CASE WHEN id = ? THEN 0 ELSE 1 END, id ASC`,
     DEFAULT_AGENT_ID,
@@ -1715,6 +1754,8 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
     throw new Error('Agent id is required.');
   }
   const normalizedName = agent.name?.trim() || null;
+  const normalizedDisplayName = agent.displayName?.trim() || null;
+  const normalizedImageAsset = agent.imageAsset?.trim() || null;
   const normalizedModel = serializeAgentModelConfig(agent.model);
   const normalizedChatbotId = agent.chatbotId?.trim() || null;
   const normalizedWorkspace = agent.workspace?.trim() || null;
@@ -1724,15 +1765,19 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
     `INSERT INTO agents (
        id,
        name,
+       display_name,
+       image_asset,
        model,
        chatbot_id,
        enable_rag,
        workspace,
        created_at,
        updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
      ON CONFLICT(id) DO UPDATE SET
        name = excluded.name,
+       display_name = excluded.display_name,
+       image_asset = excluded.image_asset,
        model = excluded.model,
        chatbot_id = excluded.chatbot_id,
        enable_rag = excluded.enable_rag,
@@ -1741,6 +1786,8 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
   ).run(
     normalizedId,
     normalizedName,
+    normalizedDisplayName,
+    normalizedImageAsset,
     normalizedModel,
     normalizedChatbotId,
     enableRag,
@@ -3433,12 +3480,13 @@ export function getOrCreateSession(
 ): Session {
   const requestedSessionId = String(sessionId || '').trim();
   const requestedAgentId = agentId?.trim() || '';
+  const defaultAgentId = resolveDefaultAgentId(getRuntimeConfig());
   const forceNewCurrent = options?.forceNewCurrent === true;
   const canonicalSessionKey = resolveCanonicalSessionKey({
     requestedSessionId,
     guildId,
     channelId,
-    agentId: requestedAgentId || DEFAULT_AGENT_ID,
+    agentId: requestedAgentId || defaultAgentId,
   });
   const mainSessionKey = resolveMainSessionKey(canonicalSessionKey);
   const exactSession = requestedSessionId
@@ -3447,7 +3495,7 @@ export function getOrCreateSession(
 
   if (exactSession) {
     const nextAgentId =
-      requestedAgentId || exactSession.agent_id || DEFAULT_AGENT_ID;
+      requestedAgentId || exactSession.agent_id || defaultAgentId;
     db.prepare(
       `UPDATE sessions
        SET last_active = datetime('now'),
@@ -3479,8 +3527,7 @@ export function getOrCreateSession(
         nextSessionId: resolveNewSessionInstanceId({ requestedSessionId }),
       }).session;
     }
-    const nextAgentId =
-      requestedAgentId || existing.agent_id || DEFAULT_AGENT_ID;
+    const nextAgentId = requestedAgentId || existing.agent_id || defaultAgentId;
     db.prepare(
       `UPDATE sessions
        SET last_active = datetime('now'),
@@ -3528,7 +3575,7 @@ export function getOrCreateSession(
     mainSessionKey || canonicalSessionKey || nextSessionId,
     guildId,
     channelId,
-    requestedAgentId || DEFAULT_AGENT_ID,
+    requestedAgentId || defaultAgentId,
     requestedSessionId !== canonicalSessionKey &&
       isLegacySessionKey(requestedSessionId)
       ? requestedSessionId
@@ -3822,7 +3869,8 @@ export function updateSessionChatbot(
 }
 
 export function updateSessionAgent(sessionId: string, agentId: string): void {
-  const normalizedAgentId = agentId.trim() || DEFAULT_AGENT_ID;
+  const normalizedAgentId =
+    agentId.trim() || resolveDefaultAgentId(getRuntimeConfig());
   const resolvedSessionId = resolveSessionIdCompat(sessionId);
   db.prepare('UPDATE sessions SET agent_id = ? WHERE id = ?').run(
     normalizedAgentId,

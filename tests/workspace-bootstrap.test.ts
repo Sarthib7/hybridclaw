@@ -128,7 +128,7 @@ describe('workspace bootstrap lifecycle', () => {
       (file) => file.name === 'AGENTS.md',
     );
     expect(postHatchAgents?.content).not.toContain('## First Run');
-    expect(postHatchAgents?.content).not.toContain('birth certificate');
+    expect(postHatchAgents?.content).not.toContain('hatching script');
     expect(postHatchAgents?.content).toContain('## Every Session');
   });
 

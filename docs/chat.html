@@ -647,6 +647,41 @@
       background: #ffffff;
     }
 
+    .msg-agent {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+      color: #5f6f88;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+    }
+
+    .msg-agent-avatar {
+      width: 30px;
+      height: 30px;
+      border-radius: 999px;
+      object-fit: cover;
+      border: 1px solid rgba(95, 111, 136, 0.12);
+      background: #eef3ff;
+      flex: 0 0 auto;
+    }
+
+    .msg-agent-fallback {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, rgba(80, 103, 255, 0.14), rgba(108, 127, 255, 0.22));
+      color: #3750c7;
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+
+    .msg-content {
+      min-width: 0;
+    }
+
     .msg.system {
       background: #f8faff;
       color: #4e6285;
@@ -1119,6 +1154,7 @@
     let pendingUploadCount = 0;
     let activeChatRequest = null;
     let activeEditState = null;
+    let activeAssistantPresentation = null;
     const messageMetaByBlock = new WeakMap();
     const sessionBranchAnchors = new Map();
     const branchFamilies = new Map();
@@ -1192,6 +1228,83 @@
     function cloneMediaList(media) {
       if (!Array.isArray(media) || media.length === 0) return [];
       return media.map((item) => ({ ...item }));
+    }
+
+    function normalizeAssistantPresentation(value) {
+      if (!value || typeof value !== 'object') return null;
+      const displayName = String(value.displayName || '').trim();
+      if (!displayName) return null;
+      const agentId = String(value.agentId || '').trim();
+      const imageUrl = String(value.imageUrl || '').trim();
+      return {
+        agentId,
+        displayName,
+        imageUrl: imageUrl || '',
+      };
+    }
+
+    function buildAssistantImageUrl(rawUrl) {
+      const base = String(rawUrl || '').trim();
+      if (!base) return '';
+      if (!apiToken) return base;
+      try {
+        const resolved = new URL(base, window.location.origin);
+        if (!resolved.searchParams.has('token')) {
+          resolved.searchParams.set('token', apiToken);
+        }
+        return resolved.toString();
+      } catch {
+        const joiner = base.includes('?') ? '&' : '?';
+        return `${base}${joiner}token=${encodeURIComponent(apiToken)}`;
+      }
+    }
+
+    function buildAssistantInitials(label) {
+      const words = String(label || '')
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean);
+      if (words.length === 0) return 'AI';
+      const initials = words
+        .slice(0, 2)
+        .map((word) => word.charAt(0))
+        .join('');
+      return initials.toUpperCase() || 'AI';
+    }
+
+    function appendAssistantPresentation(item, presentation) {
+      const normalized = normalizeAssistantPresentation(presentation);
+      if (!normalized) return;
+
+      const header = document.createElement('div');
+      header.className = 'msg-agent';
+
+      const imageUrl = buildAssistantImageUrl(normalized.imageUrl);
+      if (imageUrl) {
+        const avatar = document.createElement('img');
+        avatar.className = 'msg-agent-avatar';
+        avatar.alt = normalized.displayName;
+        avatar.src = imageUrl;
+        avatar.loading = 'lazy';
+        avatar.addEventListener('error', () => {
+          if (!avatar.parentElement) return;
+          const fallback = document.createElement('span');
+          fallback.className = 'msg-agent-avatar msg-agent-fallback';
+          fallback.textContent = buildAssistantInitials(normalized.displayName);
+          avatar.replaceWith(fallback);
+        }, { once: true });
+        header.appendChild(avatar);
+      } else {
+        const fallback = document.createElement('span');
+        fallback.className = 'msg-agent-avatar msg-agent-fallback';
+        fallback.textContent = buildAssistantInitials(normalized.displayName);
+        header.appendChild(fallback);
+      }
+
+      const label = document.createElement('span');
+      label.textContent = normalized.displayName;
+      header.appendChild(label);
+      item.appendChild(header);
     }
 
     function normalizeMessageId(value) {
@@ -2003,7 +2116,14 @@
       item.className = `msg ${role}`;
       if (role === 'assistant') {
         item.classList.add('markdown');
-        item.innerHTML = renderMarkdown(content || '');
+        appendAssistantPresentation(
+          item,
+          options.assistantPresentation || activeAssistantPresentation,
+        );
+        const contentEl = document.createElement('div');
+        contentEl.className = 'msg-content';
+        contentEl.innerHTML = renderMarkdown(content || '');
+        item.appendChild(contentEl);
       } else {
         item.textContent = content || '';
       }
@@ -2290,6 +2410,7 @@
 
     async function loadHistory() {
       activeEditState = null;
+      activeAssistantPresentation = null;
       savePrefs();
       setError('');
       pruneBranchStateForSession(activeSessionId);
@@ -2306,6 +2427,7 @@
           activeSessionId = nextSessionId;
           savePrefs();
         }
+        activeAssistantPresentation = normalizeAssistantPresentation(payload.assistantPresentation);
         hydrateBranchFamilies(payload.branchFamilies);
         let lastUserPrompt = null;
         for (const msg of payload.history || []) {
@@ -2331,6 +2453,7 @@
               sessionId: activeSessionId,
               messageId,
               replayRequest: lastUserPrompt,
+              assistantPresentation: activeAssistantPresentation,
             });
             continue;
           }
@@ -2411,6 +2534,8 @@
         if (payload.status === 'error') {
           throw new Error(payload.error || 'Unknown error');
         }
+        const nextAssistantPresentation = normalizeAssistantPresentation(payload.assistantPresentation);
+        activeAssistantPresentation = nextAssistantPresentation;
         if (payload.sessionId) {
           activeSessionId = String(payload.sessionId);
           savePrefs();
@@ -2430,6 +2555,7 @@
             content,
             media: queuedMedia,
           },
+          assistantPresentation: nextAssistantPresentation,
         });
         void refreshRecentSessions();
         return {

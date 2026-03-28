@@ -172,6 +172,7 @@ async function importFreshCli(options?: {
     removedAgentRoot: boolean;
     removedRegistration: boolean;
   };
+  fetchMock?: (input: string | URL | Request, init?: RequestInit) => unknown;
   agentListResult?: Array<{
     id: string;
     name: string;
@@ -192,6 +193,14 @@ async function importFreshCli(options?: {
     value: true,
   });
   const promptResponses = [...(options?.promptResponses || [])];
+  if (options?.fetchMock) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) =>
+        options.fetchMock?.(input, init),
+      ),
+    );
+  }
 
   const clearHybridAICredentials = vi.fn(() => '/tmp/credentials.json');
   const getHybridAIAuthStatus = vi.fn(
@@ -831,6 +840,7 @@ async function importFreshCli(options?: {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   vi.doUnmock('../src/auth/hybridai-auth.ts');
   vi.doUnmock('../src/auth/codex-auth.ts');
   vi.doUnmock('../src/config/cli-flags.ts');
@@ -2786,6 +2796,92 @@ describe('CLI hybridai commands', () => {
     );
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('Updated runtime config at'),
+    );
+  });
+
+  it('downloads official claws from GitHub before install', async () => {
+    const { cli, unpackAgent } = await importFreshCli({
+      fetchMock: async (input) => {
+        const url = String(input);
+        if (
+          url ===
+          'https://api.github.com/repos/HybridAIOne/claws/contents/src?ref=main'
+        ) {
+          return new Response(
+            JSON.stringify([
+              {
+                type: 'dir',
+                name: 'charly-neumann-executive-briefing-chief-of-staff',
+              },
+            ]),
+            { status: 200 },
+          );
+        }
+        if (
+          url ===
+          'https://raw.githubusercontent.com/HybridAIOne/claws/main/src/charly-neumann-executive-briefing-chief-of-staff/manifest.json'
+        ) {
+          return new Response(
+            JSON.stringify({ id: 'charly', name: 'Charly' }),
+            { status: 200 },
+          );
+        }
+        if (
+          url ===
+          'https://raw.githubusercontent.com/HybridAIOne/claws/main/dist/charly-neumann-executive-briefing-chief-of-staff.claw'
+        ) {
+          return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
+        }
+        throw new Error(`Unexpected fetch URL: ${url}`);
+      },
+    });
+
+    await cli.main(['agent', 'install', 'official:charly', '--yes']);
+
+    expect(unpackAgent).toHaveBeenCalledTimes(1);
+    expect(String(unpackAgent.mock.calls[0]?.[0] || '')).toMatch(
+      /charly-neumann-executive-briefing-chief-of-staff\.claw$/,
+    );
+  });
+
+  it('passes skipExternals through agent install', async () => {
+    const { cli, unpackAgent } = await importFreshCli();
+
+    await cli.main([
+      'agent',
+      'install',
+      '/tmp/demo.claw',
+      '--yes',
+      '--skip-externals',
+    ]);
+
+    expect(unpackAgent).toHaveBeenCalledWith(
+      path.resolve('/tmp/demo.claw'),
+      expect.objectContaining({
+        yes: true,
+        skipExternals: true,
+      }),
+    );
+  });
+
+  it('activates an installed agent as the default runtime agent', async () => {
+    const { cli, updateRuntimeConfig } = await importFreshCli({
+      agentListResult: [
+        { id: 'main', name: 'Main Agent', model: 'gpt-5-mini' },
+        { id: 'charly', name: 'Charly Agent', model: 'gpt-5-mini' },
+      ],
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['agent', 'activate', 'charly']);
+
+    expect(updateRuntimeConfig).toHaveBeenCalled();
+    const nextConfig = updateRuntimeConfig.mock.results[0]?.value as {
+      agents: { defaultAgentId: string };
+    };
+    expect(nextConfig.agents.defaultAgentId).toBe('charly');
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Activated agent charly as the default'),
     );
   });
 

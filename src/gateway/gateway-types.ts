@@ -35,6 +35,12 @@ export interface GatewayCommandResult {
   modelCatalog?: GatewayModelCatalogEntry[];
 }
 
+export interface GatewayAssistantPresentation {
+  agentId: string;
+  displayName: string;
+  imageUrl?: string;
+}
+
 export interface GatewayChatResult {
   status: 'success' | 'error';
   result: string | null;
@@ -83,6 +89,7 @@ export interface GatewayChatResult {
   effectiveUserPrompt?: string;
   userMessageId?: number;
   assistantMessageId?: number;
+  assistantPresentation?: GatewayAssistantPresentation;
 }
 
 export interface GatewayChatToolProgressEvent {
@@ -210,6 +217,7 @@ export interface GatewayHistoryResponse {
   sessionKey?: string;
   mainSessionKey?: string;
   history: GatewayHistoryMessage[];
+  assistantPresentation?: GatewayAssistantPresentation;
   branchFamilies?: GatewayHistoryBranchFamily[];
   summary?: GatewayHistorySummary;
 }

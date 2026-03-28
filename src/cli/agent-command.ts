@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline/promises';
 
@@ -5,9 +7,233 @@ import {
   ensureRuntimeConfigFile,
   getRuntimeConfig,
   runtimeConfigPath,
+  updateRuntimeConfig,
 } from '../config/runtime-config.js';
 import { normalizeArgs, parseValueFlag } from './common.js';
 import { isHelpRequest, printAgentUsage } from './help.js';
+
+const OFFICIAL_CLAWS_REPO = 'HybridAIOne/claws';
+const OFFICIAL_CLAWS_REF = 'main';
+
+interface ResolvedInstallArchive {
+  archivePath: string;
+  cleanup?: () => void;
+}
+
+interface OfficialClawsSource {
+  repo: string;
+  ref: string;
+  selector: string;
+}
+
+function githubApiHeaders(url: string): Record<string, string> {
+  const headers: Record<string, string> = {};
+  if (!url.startsWith('https://api.github.com/')) {
+    return headers;
+  }
+  const token =
+    process.env.GITHUB_TOKEN?.trim() || process.env.GH_TOKEN?.trim() || '';
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  return headers;
+}
+
+async function fetchJson<T>(url: string): Promise<T> {
+  const response = await fetch(url, {
+    headers: githubApiHeaders(url),
+  });
+  if (!response.ok) {
+    throw new Error(`Request failed for ${url}: HTTP ${response.status}`);
+  }
+  return (await response.json()) as T;
+}
+
+async function downloadArchive(url: string): Promise<ResolvedInstallArchive> {
+  const response = await fetch(url, {
+    headers: githubApiHeaders(url),
+  });
+  if (!response.ok) {
+    throw new Error(`Request failed for ${url}: HTTP ${response.status}`);
+  }
+  const tempDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-agent-install-'),
+  );
+  const fileName =
+    path.basename(new URL(url).pathname).trim() || 'agent-package.claw';
+  const archivePath = path.join(tempDir, fileName);
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  fs.writeFileSync(archivePath, bytes);
+  return {
+    archivePath,
+    cleanup: () => {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    },
+  };
+}
+
+function parseOfficialClawsSource(
+  rawValue: string,
+): OfficialClawsSource | null {
+  const raw = rawValue.trim();
+  if (!raw) return null;
+
+  if (raw.startsWith('official:')) {
+    const selector = raw.slice('official:'.length).trim();
+    if (!selector) {
+      throw new Error(
+        'Missing agent selector for `official:<agent-id-or-dir>` install source.',
+      );
+    }
+    return {
+      repo: OFFICIAL_CLAWS_REPO,
+      ref: OFFICIAL_CLAWS_REF,
+      selector,
+    };
+  }
+
+  if (!raw.startsWith('github:')) {
+    return null;
+  }
+
+  const spec = raw.slice('github:'.length).trim();
+  const segments = spec.split('/').filter(Boolean);
+  if (segments.length < 3) {
+    throw new Error(
+      'GitHub install source must look like `github:owner/repo/<agent-id-or-dir>` or `github:owner/repo/<ref>/<agent-id-or-dir>`.',
+    );
+  }
+  const repo = `${segments[0]}/${segments[1]}`;
+  if (segments[2] === 'dist') {
+    return {
+      repo,
+      ref: OFFICIAL_CLAWS_REF,
+      selector: segments.slice(3).join('/'),
+    };
+  }
+  if (segments[3] === 'dist') {
+    return {
+      repo,
+      ref: segments[2],
+      selector: segments.slice(4).join('/'),
+    };
+  }
+  if (segments.length === 3) {
+    return {
+      repo,
+      ref: OFFICIAL_CLAWS_REF,
+      selector: segments[2],
+    };
+  }
+  return {
+    repo,
+    ref: segments[2],
+    selector: segments.slice(3).join('/'),
+  };
+}
+
+async function resolveOfficialClawDirName(
+  repo: string,
+  ref: string,
+  selector: string,
+): Promise<string> {
+  const normalizedSelector = selector.trim().replace(/\.claw$/i, '');
+  if (!normalizedSelector) {
+    throw new Error('Agent selector cannot be empty.');
+  }
+
+  const directories = await fetchJson<Array<{ name?: string; type?: string }>>(
+    `https://api.github.com/repos/${repo}/contents/src?ref=${encodeURIComponent(ref)}`,
+  );
+  const dirNames = directories
+    .filter((entry) => entry.type === 'dir' && typeof entry.name === 'string')
+    .map((entry) => String(entry.name).trim())
+    .filter(Boolean);
+
+  if (dirNames.includes(normalizedSelector)) {
+    return normalizedSelector;
+  }
+
+  const manifestMatches = await Promise.all(
+    dirNames.map(async (dirName) => {
+      const manifest = await fetchJson<{ id?: unknown }>(
+        `https://raw.githubusercontent.com/${repo}/${encodeURIComponent(ref)}/src/${dirName}/manifest.json`,
+      );
+      return String(manifest.id || '').trim() === normalizedSelector
+        ? dirName
+        : null;
+    }),
+  );
+
+  const match = manifestMatches.find((value) => typeof value === 'string');
+  if (match) {
+    return match;
+  }
+
+  throw new Error(
+    `Could not find agent "${normalizedSelector}" in ${repo}@${ref}.`,
+  );
+}
+
+function parseGitHubArchiveUrl(rawValue: string): string | null {
+  const raw = rawValue.trim();
+  if (!/^https?:\/\//.test(raw)) return null;
+  const url = new URL(raw);
+  const pathname = url.pathname.replace(/^\/+/, '');
+
+  if (
+    url.hostname === 'raw.githubusercontent.com' &&
+    pathname.endsWith('.claw')
+  ) {
+    return url.toString();
+  }
+
+  if (
+    url.hostname === 'github.com' &&
+    pathname.includes('/blob/') &&
+    pathname.endsWith('.claw')
+  ) {
+    const segments = pathname.split('/').filter(Boolean);
+    if (segments.length >= 5 && segments[2] === 'blob') {
+      const repo = `${segments[0]}/${segments[1]}`;
+      const ref = segments[3];
+      const filePath = segments.slice(4).join('/');
+      return `https://raw.githubusercontent.com/${repo}/${encodeURIComponent(ref)}/${filePath}`;
+    }
+  }
+
+  return null;
+}
+
+async function resolveInstallArchiveSource(
+  rawArchivePath: string,
+): Promise<ResolvedInstallArchive> {
+  const directUrl = parseGitHubArchiveUrl(rawArchivePath);
+  if (directUrl) {
+    return downloadArchive(directUrl);
+  }
+
+  const official = parseOfficialClawsSource(rawArchivePath);
+  if (!official) {
+    return { archivePath: path.resolve(rawArchivePath) };
+  }
+
+  const selector = official.selector.trim();
+  if (selector.startsWith('dist/') && selector.endsWith('.claw')) {
+    return downloadArchive(
+      `https://raw.githubusercontent.com/${official.repo}/${encodeURIComponent(official.ref)}/${selector}`,
+    );
+  }
+
+  const dirName = await resolveOfficialClawDirName(
+    official.repo,
+    official.ref,
+    selector,
+  );
+  return downloadArchive(
+    `https://raw.githubusercontent.com/${official.repo}/${encodeURIComponent(official.ref)}/dist/${dirName}.claw`,
+  );
+}
 
 async function ensureAgentPackagingRuntime(): Promise<void> {
   ensureRuntimeConfigFile();
@@ -501,29 +727,35 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
     const { formatClawArchiveSummary, unpackAgent } = await import(
       '../agents/claw-archive.js'
     );
-    const result = await unpackAgent(path.resolve(archivePath), {
-      ...(requestedId ? { agentId: requestedId } : {}),
-      force,
-      skipSkillScan,
-      skipExternals,
-      yes,
-      confirm: async (inspection) => {
-        console.log(formatClawArchiveSummary(inspection).join('\n'));
-        const rl = readline.createInterface({
-          input: process.stdin,
-          output: process.stdout,
-        });
-        try {
-          return await promptYesNo(
-            rl,
-            `Import this agent as "${requestedId || inspection.manifest.id || inspection.manifest.name}"?`,
-            false,
-          );
-        } finally {
-          rl.close();
-        }
-      },
-    });
+    const resolvedArchive = await resolveInstallArchiveSource(archivePath);
+    let result: Awaited<ReturnType<typeof unpackAgent>>;
+    try {
+      result = await unpackAgent(resolvedArchive.archivePath, {
+        ...(requestedId ? { agentId: requestedId } : {}),
+        force,
+        skipSkillScan,
+        skipExternals,
+        yes,
+        confirm: async (inspection) => {
+          console.log(formatClawArchiveSummary(inspection).join('\n'));
+          const rl = readline.createInterface({
+            input: process.stdin,
+            output: process.stdout,
+          });
+          try {
+            return await promptYesNo(
+              rl,
+              `Import this agent as "${requestedId || inspection.manifest.id || inspection.manifest.name}"?`,
+              false,
+            );
+          } finally {
+            rl.close();
+          }
+        },
+      });
+    } finally {
+      resolvedArchive.cleanup?.();
+    }
 
     console.log(
       `📥 Installed agent ${result.agentId} to ${result.workspacePath}.`,
@@ -553,6 +785,31 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
         console.log(`  ${action}`);
       }
     }
+    return;
+  }
+
+  if (sub === 'activate') {
+    const targetAgentId = normalized[1]?.trim() || '';
+    if (!targetAgentId || normalized.length !== 2) {
+      printAgentUsage();
+      throw new Error(
+        'Usage: `hybridclaw agent activate <agent-id>` requires exactly one agent id.',
+      );
+    }
+
+    const { getAgentById } = await import('../agents/agent-registry.js');
+    const agent = getAgentById(targetAgentId);
+    if (!agent) {
+      throw new Error(`Unknown agent: ${targetAgentId}`);
+    }
+
+    updateRuntimeConfig((draft) => {
+      draft.agents ??= {};
+      draft.agents.defaultAgentId = agent.id;
+    });
+    console.log(
+      `🎯 Activated agent ${agent.id} as the default at ${runtimeConfigPath()}.`,
+    );
     return;
   }
 
@@ -628,6 +885,6 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
 
   printAgentUsage();
   throw new Error(
-    `Unknown agent subcommand: ${rawSub}. Use \`hybridclaw agent export\`, \`hybridclaw agent inspect\`, \`hybridclaw agent install\`, or \`hybridclaw agent uninstall\`.`,
+    `Unknown agent subcommand: ${rawSub}. Use \`hybridclaw agent export\`, \`hybridclaw agent inspect\`, \`hybridclaw agent install\`, \`hybridclaw agent activate\`, or \`hybridclaw agent uninstall\`.`,
   );
 }

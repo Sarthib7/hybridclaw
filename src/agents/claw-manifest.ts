@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import { normalizeTrimmedString as normalizeString } from '../utils/normalized-strings.js';
 import type { AgentModelConfig } from './agent-types.js';
 
@@ -19,6 +21,11 @@ export interface ClawPluginExternalRef {
   id?: string;
 }
 
+export interface ClawPresentation {
+  displayName?: string;
+  imageAsset?: string;
+}
+
 export interface ClawManifest {
   formatVersion: typeof CLAW_FORMAT_VERSION;
   name: string;
@@ -27,6 +34,7 @@ export interface ClawManifest {
   author?: string;
   version?: string;
   createdAt?: string;
+  presentation?: ClawPresentation;
   agent?: {
     model?: AgentModelConfig;
     enableRag?: boolean;
@@ -94,6 +102,29 @@ function normalizeModelConfig(value: unknown): AgentModelConfig | undefined {
     (entry) => entry !== primary,
   );
   return fallbacks.length > 0 ? { primary, fallbacks } : { primary };
+}
+
+function normalizePresentation(value: unknown): ClawPresentation | undefined {
+  if (!isRecord(value)) return undefined;
+
+  const displayName = normalizeString(value.displayName);
+  const imageAsset = normalizeString(value.imageAsset);
+  if (
+    imageAsset &&
+    (path.isAbsolute(imageAsset) ||
+      imageAsset.includes('\\') ||
+      imageAsset.split('/').some((segment) => segment === '..' || !segment))
+  ) {
+    throw new Error(
+      'manifest.presentation.imageAsset must be a relative workspace path.',
+    );
+  }
+
+  if (!displayName && !imageAsset) return undefined;
+  return {
+    ...(displayName ? { displayName } : {}),
+    ...(imageAsset ? { imageAsset } : {}),
+  };
 }
 
 function normalizeBundledDirectoryNames(
@@ -320,6 +351,7 @@ export function validateClawManifest(
   if (createdAt && Number.isNaN(Date.parse(createdAt))) {
     throw new Error('manifest.json `createdAt` must be a valid ISO timestamp.');
   }
+  const presentation = normalizePresentation(input.presentation);
 
   let agent: ClawManifest['agent'] | undefined;
   if (isRecord(input.agent)) {
@@ -404,6 +436,7 @@ export function validateClawManifest(
     ...(author ? { author } : {}),
     ...(version ? { version } : {}),
     ...(createdAt ? { createdAt } : {}),
+    ...(presentation ? { presentation } : {}),
     ...(agent && Object.keys(agent).length > 0 ? { agent } : {}),
     ...(skills && Object.keys(skills).length > 0 ? { skills } : {}),
     ...(plugins && Object.keys(plugins).length > 0 ? { plugins } : {}),

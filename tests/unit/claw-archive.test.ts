@@ -202,7 +202,9 @@ describe('.claw archive support', () => {
       ),
     }));
 
-    const { initDatabase } = await import('../../src/memory/db.js');
+    const { getAgentById, initDatabase } = await import(
+      '../../src/memory/db.js'
+    );
     const { initAgentRegistry } = await import(
       '../../src/agents/agent-registry.js'
     );
@@ -222,6 +224,8 @@ describe('.claw archive support', () => {
         {
           id: 'main',
           name: 'Main Agent',
+          displayName: 'Captain Claw',
+          imageAsset: 'avatars/main.png',
           model: 'gpt-5-mini',
           enableRag: false,
         },
@@ -231,10 +235,15 @@ describe('.claw archive support', () => {
     ensureBootstrapFiles('main');
     const sourceWorkspace = agentWorkspaceDir('main');
     fs.mkdirSync(path.join(sourceWorkspace, 'notes'), { recursive: true });
+    fs.mkdirSync(path.join(sourceWorkspace, 'avatars'), { recursive: true });
     fs.writeFileSync(
       path.join(sourceWorkspace, 'notes', 'bio.md'),
       'portable memory\n',
       'utf-8',
+    );
+    fs.writeFileSync(
+      path.join(sourceWorkspace, 'avatars', 'main.png'),
+      Buffer.from('89504e470d0a1a0a', 'hex'),
     );
     writeSkillDir(
       path.join(sourceWorkspace, 'skills', 'custom-skill'),
@@ -256,6 +265,8 @@ describe('.claw archive support', () => {
         {
           id: 'main',
           name: 'Main Agent',
+          displayName: 'Captain Claw',
+          imageAsset: 'avatars/main.png',
           model: 'gpt-5-mini',
           enableRag: false,
         },
@@ -286,6 +297,10 @@ describe('.claw archive support', () => {
     const inspection = await inspectClawArchive(archivePath);
     expect(inspection.manifest.formatVersion).toBe(1);
     expect(inspection.manifest.name).toBe('Main Agent');
+    expect(inspection.manifest.presentation).toEqual({
+      displayName: 'Captain Claw',
+      imageAsset: 'avatars/main.png',
+    });
     expect(inspection.manifest.agent?.model).toBe('gpt-5-mini');
     expect(inspection.manifest.agent?.enableRag).toBe(false);
     expect(inspection.manifest.skills?.bundled).toEqual(['custom-skill']);
@@ -316,12 +331,21 @@ describe('.claw archive support', () => {
     });
 
     expect(unpacked.agentId).toBe('imported-agent');
+    expect(getAgentById('imported-agent')).toMatchObject({
+      id: 'imported-agent',
+      name: 'Main Agent',
+      displayName: 'Captain Claw',
+      imageAsset: 'avatars/main.png',
+    });
     expect(
       fs.readFileSync(
         path.join(unpacked.workspacePath, 'notes', 'bio.md'),
         'utf-8',
       ),
     ).toBe('portable memory\n');
+    expect(
+      fs.existsSync(path.join(unpacked.workspacePath, 'avatars', 'main.png')),
+    ).toBe(true);
     expect(
       fs.existsSync(
         path.join(unpacked.workspacePath, 'skills', 'custom-skill', 'SKILL.md'),
@@ -432,6 +456,68 @@ describe('.claw archive support', () => {
             path.join(unpacked.workspacePath, 'skills', 'himalaya'),
       ),
     ).toBe(true);
+  });
+
+  test('unpack skips manifest skill imports when skipExternals is set', async () => {
+    const homeDir = makeTempDir('hybridclaw-claw-home-');
+    const cwd = makeTempDir('hybridclaw-claw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    vi.stubEnv('HYBRIDCLAW_DISABLE_CONFIG_WATCHER', '1');
+    process.chdir(cwd);
+
+    const { initDatabase } = await import('../../src/memory/db.js');
+    const { initAgentRegistry } = await import(
+      '../../src/agents/agent-registry.js'
+    );
+    const { getRuntimeConfig } = await import(
+      '../../src/config/runtime-config.js'
+    );
+    const { unpackAgent } = await import('../../src/agents/claw-archive.js');
+
+    initDatabase({ quiet: true });
+    initAgentRegistry({
+      list: [{ id: 'main', name: 'Main Agent' }],
+    });
+
+    const archivePath = path.join(cwd, 'skip-imports.claw');
+    await writeZipArchive(archivePath, [
+      {
+        name: 'manifest.json',
+        content: JSON.stringify(
+          {
+            formatVersion: 1,
+            name: 'Imported Skills Agent',
+            id: 'imported-skills-agent',
+            skills: {
+              imports: [{ source: 'official/himalaya' }],
+            },
+          },
+          null,
+          2,
+        ),
+      },
+      {
+        name: 'workspace/SOUL.md',
+        content: '# Soul\n',
+      },
+    ]);
+
+    const unpacked = await unpackAgent(archivePath, {
+      yes: true,
+      homeDir,
+      cwd,
+      skipExternals: true,
+    });
+
+    expect(unpacked.importedSkills).toHaveLength(0);
+    expect(
+      fs.existsSync(
+        path.join(unpacked.workspacePath, 'skills', 'himalaya', 'SKILL.md'),
+      ),
+    ).toBe(false);
+    expect(getRuntimeConfig().skills.extraDirs).not.toContain(
+      path.join(unpacked.workspacePath, 'skills'),
+    );
   });
 
   test('unpack rejects staged skill-import collisions without force', async () => {
@@ -1991,6 +2077,15 @@ describe('.claw archive support', () => {
         },
       }),
     ).toThrow(/Unsupported skill external kind "clawhub"/i);
+    expect(() =>
+      validateClawManifest({
+        formatVersion: 1,
+        name: 'Bad',
+        presentation: {
+          imageAsset: '../secret.png',
+        },
+      }),
+    ).toThrow(/manifest\.presentation\.imageAsset must be a relative workspace path/i);
     expect(() =>
       validateClawManifest({
         formatVersion: 1,

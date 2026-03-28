@@ -6,6 +6,7 @@ import {
   OPENROUTER_MODEL_PREFIX,
   readOpenRouterApiKey,
 } from './openrouter-utils.js';
+import { normalizeBaseUrl } from './utils.js';
 import type {
   AIProvider,
   ResolvedModelRuntimeCredentials,
@@ -26,7 +27,7 @@ async function resolveOpenRouterRuntimeCredentials(
   return {
     provider: 'openrouter',
     apiKey: readOpenRouterApiKey({ required: true }),
-    baseUrl: OPENROUTER_BASE_URL.trim().replace(/\/+$/g, ''),
+    baseUrl: normalizeBaseUrl(OPENROUTER_BASE_URL),
     chatbotId: '',
     enableRag: false,
     requestHeaders: buildOpenRouterAttributionHeaders(),

@@ -62,7 +62,11 @@ export async function checkProviders(): Promise<DiagResult[]> {
   const config = getRuntimeConfig();
   const defaultProvider = resolveModelProvider(config.hybridai.defaultModel);
   const codexStatus = getCodexAuthStatus();
-  const codexModels = dedupeStrings(config.codex.models);
+  const codexModels = dedupeStrings(config.codex?.models ?? []);
+  const openRouterEnabled = config.openrouter?.enabled === true;
+  const openRouterModels = dedupeStrings(config.openrouter?.models ?? []);
+  const huggingFaceEnabled = config.huggingface?.enabled === true;
+  const huggingFaceModels = dedupeStrings(config.huggingface?.models ?? []);
   const plans: ProviderPlan[] = [
     {
       key: 'hybridai',
@@ -95,10 +99,10 @@ export async function checkProviders(): Promise<DiagResult[]> {
       key: 'openrouter',
       label: 'OpenRouter',
       active: defaultProvider === 'openrouter',
-      configured: config.openrouter.enabled || defaultProvider === 'openrouter',
-      configuredModelCount: dedupeStrings(config.openrouter.models).length,
+      configured: openRouterEnabled || defaultProvider === 'openrouter',
+      configuredModelCount: openRouterModels.length,
       probe:
-        config.openrouter.enabled || defaultProvider === 'openrouter'
+        openRouterEnabled || defaultProvider === 'openrouter'
           ? () => probeOpenRouter()
           : null,
       inactiveMessage: 'Provider disabled',
@@ -107,11 +111,10 @@ export async function checkProviders(): Promise<DiagResult[]> {
       key: 'huggingface',
       label: 'Hugging Face',
       active: defaultProvider === 'huggingface',
-      configured:
-        config.huggingface.enabled || defaultProvider === 'huggingface',
-      configuredModelCount: dedupeStrings(config.huggingface.models).length,
+      configured: huggingFaceEnabled || defaultProvider === 'huggingface',
+      configuredModelCount: huggingFaceModels.length,
       probe:
-        config.huggingface.enabled || defaultProvider === 'huggingface'
+        huggingFaceEnabled || defaultProvider === 'huggingface'
           ? () => probeHuggingFace()
           : null,
       inactiveMessage: 'Provider disabled',

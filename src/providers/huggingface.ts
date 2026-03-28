@@ -5,6 +5,7 @@ import {
   HUGGINGFACE_MODEL_PREFIX,
   readHuggingFaceApiKey,
 } from './huggingface-utils.js';
+import { normalizeBaseUrl } from './utils.js';
 import type {
   AIProvider,
   ResolvedModelRuntimeCredentials,
@@ -25,7 +26,7 @@ async function resolveHuggingFaceRuntimeCredentials(
   return {
     provider: 'huggingface',
     apiKey: readHuggingFaceApiKey({ required: true }),
-    baseUrl: HUGGINGFACE_BASE_URL.trim().replace(/\/+$/g, ''),
+    baseUrl: normalizeBaseUrl(HUGGINGFACE_BASE_URL),
     chatbotId: '',
     enableRag: false,
     requestHeaders: {},

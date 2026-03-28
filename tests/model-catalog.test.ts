@@ -328,7 +328,9 @@ test('available model catalog returns the full Hugging Face discovery list', asy
 
 test('available model catalog reads Hugging Face provider-level context windows', async () => {
   const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
   process.env.HF_TOKEN = 'hf-test-key';
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
   writeRuntimeConfig(homeDir, (config) => {
     config.huggingface.enabled = true;
     config.openrouter.enabled = false;
@@ -336,6 +338,7 @@ test('available model catalog reads Hugging Face provider-level context windows'
     config.local.backends.lmstudio.enabled = false;
     config.local.backends.vllm.enabled = false;
   });
+  vi.resetModules();
 
   vi.stubGlobal(
     'fetch',

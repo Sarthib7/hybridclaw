@@ -178,7 +178,7 @@ const MUTED = PALETTE.muted;
 const TEAL = PALETTE.teal;
 const GOLD = PALETTE.gold;
 const GREEN = PALETTE.green;
-const LIGHT_GREEN = PALETTE.lightGreen;
+const LIGHT_GREEN = '\x1b[1;92m';
 const RED = PALETTE.red;
 const WORDMARK_RAMP =
   THEME === 'light'
@@ -1374,12 +1374,12 @@ async function promptModelSelection(
   for (const [index, entry] of models.entries()) {
     const suffix =
       currentModel === entry.label ? ` ${MUTED}(current)${RESET}` : '';
+    const marker = entry.recommended ? `${LIGHT_GREEN}★ ${RESET}` : '';
     const modelColor = entry.recommended
       ? LIGHT_GREEN
       : entry.isFree
         ? GREEN
         : RESET;
-    const marker = entry.recommended ? `${LIGHT_GREEN}★ ${RESET}` : '';
     console.log(
       `  ${TEAL}${index + 1}${RESET} ${marker}${modelColor}${entry.label}${RESET}${suffix}`,
     );

@@ -9,6 +9,7 @@ import {
 } from '../config/runtime-config.js';
 import type { LocalBackendType } from '../providers/local-types.js';
 import { formatModelForDisplay } from '../providers/model-names.js';
+import { normalizeBaseUrl } from '../providers/utils.js';
 import {
   runtimeSecretsPath,
   saveRuntimeSecrets,
@@ -166,8 +167,6 @@ interface ParsedOpenRouterLoginArgs {
   setDefault: boolean;
 }
 
-type ParsedHuggingFaceLoginArgs = ParsedOpenRouterLoginArgs;
-
 function parseOpenRouterLoginArgs(args: string[]): ParsedOpenRouterLoginArgs {
   const positional: string[] = [];
   const { baseUrl, remaining } = extractBaseUrlArg(args);
@@ -211,38 +210,56 @@ function parseOpenRouterLoginArgs(args: string[]): ParsedOpenRouterLoginArgs {
   };
 }
 
-function parseHuggingFaceLoginArgs(args: string[]): ParsedHuggingFaceLoginArgs {
+function parseHuggingFaceLoginArgs(args: string[]): ParsedOpenRouterLoginArgs {
   return parseOpenRouterLoginArgs(args);
 }
 
-function normalizeOpenRouterModelId(rawModelId: string): string {
+function normalizeProviderModelId(prefix: string, rawModelId: string): string {
   const trimmed = rawModelId.trim();
   if (!trimmed) return '';
-  if (trimmed.toLowerCase().startsWith('openrouter/')) {
+  if (trimmed.toLowerCase().startsWith(prefix)) {
     return trimmed;
   }
-  return `openrouter/${trimmed}`;
+  return `${prefix}${trimmed}`;
+}
+
+function normalizeProviderBaseUrl(
+  defaultBaseUrl: string,
+  requiredSuffixPattern: RegExp,
+  requiredSuffix: string,
+  rawBaseUrl: string,
+): string {
+  const trimmed = normalizeBaseUrl(rawBaseUrl);
+  if (!trimmed) return defaultBaseUrl;
+  return requiredSuffixPattern.test(trimmed)
+    ? trimmed
+    : `${trimmed}${requiredSuffix}`;
+}
+
+function normalizeOpenRouterModelId(rawModelId: string): string {
+  return normalizeProviderModelId('openrouter/', rawModelId);
 }
 
 function normalizeOpenRouterBaseUrl(rawBaseUrl: string): string {
-  const trimmed = rawBaseUrl.trim().replace(/\/+$/g, '');
-  if (!trimmed) return 'https://openrouter.ai/api/v1';
-  return /\/api\/v1$/i.test(trimmed) ? trimmed : `${trimmed}/api/v1`;
+  return normalizeProviderBaseUrl(
+    'https://openrouter.ai/api/v1',
+    /\/api\/v1$/i,
+    '/api/v1',
+    rawBaseUrl,
+  );
 }
 
 function normalizeHuggingFaceModelId(rawModelId: string): string {
-  const trimmed = rawModelId.trim();
-  if (!trimmed) return '';
-  if (trimmed.toLowerCase().startsWith('huggingface/')) {
-    return trimmed;
-  }
-  return `huggingface/${trimmed}`;
+  return normalizeProviderModelId('huggingface/', rawModelId);
 }
 
 function normalizeHuggingFaceBaseUrl(rawBaseUrl: string): string {
-  const trimmed = rawBaseUrl.trim().replace(/\/+$/g, '');
-  if (!trimmed) return 'https://router.huggingface.co/v1';
-  return /\/v1$/i.test(trimmed) ? trimmed : `${trimmed}/v1`;
+  return normalizeProviderBaseUrl(
+    'https://router.huggingface.co/v1',
+    /\/v1$/i,
+    '/v1',
+    rawBaseUrl,
+  );
 }
 
 async function promptForSecretInput(
@@ -255,18 +272,48 @@ async function promptForSecretInput(
 
   const ttyInput = process.stdin as NodeJS.ReadStream;
   if (typeof ttyInput.setRawMode !== 'function') {
-    const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
-    });
-    try {
-      return (await rl.question(prompt)).trim();
-    } finally {
-      rl.close();
-    }
+    return await promptForSecretInputFallback(prompt);
   }
 
-  process.stdout.write(prompt);
+  // Muted readline still lets the terminal echo pasted input in some cases,
+  // so the raw-mode path stays as the secure default for interactive terminals.
+  return await readHiddenSecretFromTty(prompt, ttyInput, process.stdout);
+}
+
+async function promptForSecretInputFallback(prompt: string): Promise<string> {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  try {
+    return (await rl.question(prompt)).trim();
+  } finally {
+    rl.close();
+  }
+}
+
+function isSecretInputCancel(char: string): boolean {
+  return char === '\u0003';
+}
+
+function isSecretInputSubmit(char: string): boolean {
+  return char === '\r' || char === '\n';
+}
+
+function isSecretInputBackspace(char: string): boolean {
+  return char === '\u007f' || char === '\b';
+}
+
+function isSecretInputPrintable(char: string): boolean {
+  return char >= ' ';
+}
+
+async function readHiddenSecretFromTty(
+  prompt: string,
+  ttyInput: NodeJS.ReadStream,
+  ttyOutput: NodeJS.WriteStream,
+): Promise<string> {
+  ttyOutput.write(prompt);
   const previousRawMode = ttyInput.isRaw;
   ttyInput.setRawMode(true);
   ttyInput.resume();
@@ -277,27 +324,26 @@ async function promptForSecretInput(
     const cleanup = () => {
       ttyInput.off('data', handleData);
       ttyInput.setRawMode(previousRawMode ?? false);
-      process.stdout.write('\n');
+      ttyOutput.write('\n');
     };
 
     const handleData = (chunk: string | Buffer) => {
-      const input = chunk.toString('utf8');
-      for (const char of input) {
-        if (char === '\u0003') {
+      for (const char of chunk.toString('utf8')) {
+        if (isSecretInputCancel(char)) {
           cleanup();
           reject(new Error('Prompt cancelled.'));
           return;
         }
-        if (char === '\r' || char === '\n') {
+        if (isSecretInputSubmit(char)) {
           cleanup();
           resolve(value.trim());
           return;
         }
-        if (char === '\u007f' || char === '\b') {
+        if (isSecretInputBackspace(char)) {
           value = value.slice(0, -1);
           continue;
         }
-        if (char >= ' ') {
+        if (isSecretInputPrintable(char)) {
           value += char;
         }
       }
@@ -350,41 +396,54 @@ async function resolveHuggingFaceApiKey(
   );
 }
 
-async function configureOpenRouter(args: string[]): Promise<void> {
+interface RouterProviderConfigFlowOptions {
+  args: string[];
+  providerId: 'openrouter' | 'huggingface';
+  providerLabel: 'OpenRouter' | 'Hugging Face';
+  parseArgs: (args: string[]) => ParsedOpenRouterLoginArgs;
+  getCurrentProviderConfig: () => { baseUrl: string; models: string[] };
+  defaultModel: string;
+  normalizeModelId: (modelId: string) => string;
+  normalizeBaseUrl: (baseUrl: string) => string;
+  resolveApiKey: (explicitApiKey: string | undefined) => Promise<string>;
+  saveSecrets: (apiKey: string) => string;
+  applyApiKeyToEnv: (apiKey: string) => void;
+  updateConfig: (
+    parsed: ParsedOpenRouterLoginArgs,
+    normalizedBaseUrl: string,
+    fullModelName: string,
+  ) => ReturnType<typeof updateRuntimeConfig>;
+}
+
+async function configureRouterProvider(
+  options: RouterProviderConfigFlowOptions,
+): Promise<void> {
   ensureRuntimeConfigFile();
-  const parsed = parseOpenRouterLoginArgs(args);
-  const currentConfig = getRuntimeConfig();
+  const parsed = options.parseArgs(options.args);
+  const currentProviderConfig = options.getCurrentProviderConfig();
   const configuredModel =
-    parsed.modelId ||
-    currentConfig.openrouter.models[0] ||
-    'openrouter/anthropic/claude-sonnet-4';
-  const fullModelName = normalizeOpenRouterModelId(configuredModel);
+    parsed.modelId || currentProviderConfig.models[0] || options.defaultModel;
+  const fullModelName = options.normalizeModelId(configuredModel);
   if (!fullModelName) {
-    throw new Error('OpenRouter model ID cannot be empty.');
+    throw new Error(`${options.providerLabel} model ID cannot be empty.`);
   }
 
-  const apiKey = await resolveOpenRouterApiKey(parsed.apiKey);
-
-  const normalizedBaseUrl = normalizeOpenRouterBaseUrl(
-    parsed.baseUrl || currentConfig.openrouter.baseUrl,
+  const apiKey = await options.resolveApiKey(parsed.apiKey);
+  const normalizedBaseUrl = options.normalizeBaseUrl(
+    parsed.baseUrl || currentProviderConfig.baseUrl,
   );
-  const secretsPath = saveRuntimeSecrets({ OPENROUTER_API_KEY: apiKey });
-  const nextConfig = updateRuntimeConfig((draft) => {
-    draft.openrouter.enabled = true;
-    draft.openrouter.baseUrl = normalizedBaseUrl;
-    draft.openrouter.models = Array.from(
-      new Set([fullModelName, ...draft.openrouter.models]),
-    );
-    if (parsed.setDefault) {
-      draft.hybridai.defaultModel = fullModelName;
-    }
-  });
+  const secretsPath = options.saveSecrets(apiKey);
+  const nextConfig = options.updateConfig(
+    parsed,
+    normalizedBaseUrl,
+    fullModelName,
+  );
 
-  process.env.OPENROUTER_API_KEY = apiKey;
-  console.log(`Saved OpenRouter credentials to ${secretsPath}.`);
+  options.applyApiKeyToEnv(apiKey);
+  console.log(`Saved ${options.providerLabel} credentials to ${secretsPath}.`);
   console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
-  console.log(`Provider: openrouter`);
-  console.log(`Base URL: ${nextConfig.openrouter.baseUrl}`);
+  console.log(`Provider: ${options.providerId}`);
+  console.log(`Base URL: ${normalizedBaseUrl}`);
   console.log(`Configured model: ${fullModelName}`);
   if (parsed.setDefault) {
     console.log(`Default model: ${fullModelName}`);
@@ -398,52 +457,63 @@ async function configureOpenRouter(args: string[]): Promise<void> {
   console.log(`  /model set ${fullModelName}`);
 }
 
-async function configureHuggingFace(args: string[]): Promise<void> {
-  ensureRuntimeConfigFile();
-  const parsed = parseHuggingFaceLoginArgs(args);
-  const currentConfig = getRuntimeConfig();
-  const configuredModel =
-    parsed.modelId ||
-    currentConfig.huggingface.models[0] ||
-    'huggingface/meta-llama/Llama-3.1-8B-Instruct';
-  const fullModelName = normalizeHuggingFaceModelId(configuredModel);
-  if (!fullModelName) {
-    throw new Error('Hugging Face model ID cannot be empty.');
-  }
-
-  const apiKey = await resolveHuggingFaceApiKey(parsed.apiKey);
-  const normalizedBaseUrl = normalizeHuggingFaceBaseUrl(
-    parsed.baseUrl || currentConfig.huggingface.baseUrl,
-  );
-  const secretsPath = saveRuntimeSecrets({ HF_TOKEN: apiKey });
-  const nextConfig = updateRuntimeConfig((draft) => {
-    draft.huggingface.enabled = true;
-    draft.huggingface.baseUrl = normalizedBaseUrl;
-    draft.huggingface.models = Array.from(
-      new Set([fullModelName, ...draft.huggingface.models]),
-    );
-    if (parsed.setDefault) {
-      draft.hybridai.defaultModel = fullModelName;
-    }
+async function configureOpenRouter(args: string[]): Promise<void> {
+  await configureRouterProvider({
+    args,
+    providerId: 'openrouter',
+    providerLabel: 'OpenRouter',
+    parseArgs: parseOpenRouterLoginArgs,
+    getCurrentProviderConfig: () => getRuntimeConfig().openrouter,
+    defaultModel: 'openrouter/anthropic/claude-sonnet-4',
+    normalizeModelId: normalizeOpenRouterModelId,
+    normalizeBaseUrl: normalizeOpenRouterBaseUrl,
+    resolveApiKey: resolveOpenRouterApiKey,
+    saveSecrets: (apiKey) => saveRuntimeSecrets({ OPENROUTER_API_KEY: apiKey }),
+    applyApiKeyToEnv: (apiKey) => {
+      process.env.OPENROUTER_API_KEY = apiKey;
+    },
+    updateConfig: (parsed, normalizedBaseUrl, fullModelName) =>
+      updateRuntimeConfig((draft) => {
+        draft.openrouter.enabled = true;
+        draft.openrouter.baseUrl = normalizedBaseUrl;
+        draft.openrouter.models = Array.from(
+          new Set([fullModelName, ...draft.openrouter.models]),
+        );
+        if (parsed.setDefault) {
+          draft.hybridai.defaultModel = fullModelName;
+        }
+      }),
   });
+}
 
-  process.env.HF_TOKEN = apiKey;
-  process.env.HUGGINGFACE_API_KEY = apiKey;
-  console.log(`Saved Hugging Face credentials to ${secretsPath}.`);
-  console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
-  console.log(`Provider: huggingface`);
-  console.log(`Base URL: ${nextConfig.huggingface.baseUrl}`);
-  console.log(`Configured model: ${fullModelName}`);
-  if (parsed.setDefault) {
-    console.log(`Default model: ${fullModelName}`);
-  } else {
-    console.log(
-      `Default model unchanged: ${formatModelForDisplay(nextConfig.hybridai.defaultModel)}`,
-    );
-  }
-  console.log('Next:');
-  console.log('  hybridclaw tui');
-  console.log(`  /model set ${fullModelName}`);
+async function configureHuggingFace(args: string[]): Promise<void> {
+  await configureRouterProvider({
+    args,
+    providerId: 'huggingface',
+    providerLabel: 'Hugging Face',
+    parseArgs: parseHuggingFaceLoginArgs,
+    getCurrentProviderConfig: () => getRuntimeConfig().huggingface,
+    defaultModel: 'huggingface/meta-llama/Llama-3.1-8B-Instruct',
+    normalizeModelId: normalizeHuggingFaceModelId,
+    normalizeBaseUrl: normalizeHuggingFaceBaseUrl,
+    resolveApiKey: resolveHuggingFaceApiKey,
+    saveSecrets: (apiKey) => saveRuntimeSecrets({ HF_TOKEN: apiKey }),
+    applyApiKeyToEnv: (apiKey) => {
+      process.env.HF_TOKEN = apiKey;
+      process.env.HUGGINGFACE_API_KEY = apiKey;
+    },
+    updateConfig: (parsed, normalizedBaseUrl, fullModelName) =>
+      updateRuntimeConfig((draft) => {
+        draft.huggingface.enabled = true;
+        draft.huggingface.baseUrl = normalizedBaseUrl;
+        draft.huggingface.models = Array.from(
+          new Set([fullModelName, ...draft.huggingface.models]),
+        );
+        if (parsed.setDefault) {
+          draft.hybridai.defaultModel = fullModelName;
+        }
+      }),
+  });
 }
 
 type UnifiedProvider =

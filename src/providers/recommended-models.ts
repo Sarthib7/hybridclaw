@@ -1,6 +1,7 @@
 import { HUGGINGFACE_MODEL_PREFIX } from './huggingface-utils.js';
 import { OPENROUTER_MODEL_PREFIX } from './openrouter-utils.js';
 
+// User-curated shortlist for model list emphasis in the TUI.
 const HUGGINGFACE_RECOMMENDED_MODEL_IDS = [
   'Qwen/Qwen3.5-397B-A17B',
   'Qwen/Qwen3.5-35B-A3B',
@@ -22,15 +23,9 @@ const OPENROUTER_RECOMMENDED_MODEL_IDS = [
   'xiaomi/mimo-v2-pro',
   'moonshotai/kimi-k2-thinking',
   'nvidia/nemotron-3-super-120b-a12b',
-  'openrouter/nvidia/nemotron-3-super-120b-a12b',
 ] as const;
 
-const HUGGINGFACE_RECOMMENDED_FRAGMENTS = [
-  'qwen3.5-27b',
-  'nemotron-3-super-120b-a12b',
-] as const;
-
-const OPENROUTER_RECOMMENDED_FRAGMENTS = [
+const SHARED_RECOMMENDED_FRAGMENTS = [
   'qwen3.5-27b',
   'nemotron-3-super-120b-a12b',
 ] as const;
@@ -45,14 +40,15 @@ function hasExactOrTaggedMatch(
   });
 }
 
-function hasFragmentMatch(tail: string, fragments: readonly string[]): boolean {
+function hasFragmentMatch(
+  tail: string,
+  fragments: readonly string[],
+): boolean {
   return fragments.some((fragment) => tail.includes(fragment));
 }
 
 function normalizeModelTail(model: string, prefix: string): string | null {
-  const normalized = String(model || '')
-    .trim()
-    .toLowerCase();
+  const normalized = String(model || '').trim().toLowerCase();
   if (!normalized.startsWith(prefix)) return null;
   return normalized.slice(prefix.length);
 }
@@ -64,15 +60,17 @@ export function isRecommendedModel(model: string): boolean {
       hasExactOrTaggedMatch(
         huggingFaceTail,
         HUGGINGFACE_RECOMMENDED_MODEL_IDS,
-      ) || hasFragmentMatch(huggingFaceTail, HUGGINGFACE_RECOMMENDED_FRAGMENTS)
+      ) || hasFragmentMatch(huggingFaceTail, SHARED_RECOMMENDED_FRAGMENTS)
     );
   }
 
   const openRouterTail = normalizeModelTail(model, OPENROUTER_MODEL_PREFIX);
   if (openRouterTail) {
     return (
-      hasExactOrTaggedMatch(openRouterTail, OPENROUTER_RECOMMENDED_MODEL_IDS) ||
-      hasFragmentMatch(openRouterTail, OPENROUTER_RECOMMENDED_FRAGMENTS)
+      hasExactOrTaggedMatch(
+        openRouterTail,
+        OPENROUTER_RECOMMENDED_MODEL_IDS,
+      ) || hasFragmentMatch(openRouterTail, SHARED_RECOMMENDED_FRAGMENTS)
     );
   }
 

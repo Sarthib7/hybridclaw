@@ -169,6 +169,7 @@ export function saveRuntimeSecrets(
     encoding: 'utf-8',
     mode: 0o600,
   });
+  // Re-apply owner-only permissions so an existing credentials file is corrected too.
   fs.chmodSync(filePath, 0o600);
   return filePath;
 }

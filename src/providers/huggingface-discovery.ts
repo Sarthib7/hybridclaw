@@ -1,4 +1,5 @@
 import { HUGGINGFACE_BASE_URL, HUGGINGFACE_ENABLED } from '../config/config.js';
+import { logger } from '../logger.js';
 import {
   HUGGINGFACE_MODEL_PREFIX,
   readHuggingFaceApiKey,
@@ -30,22 +31,19 @@ function readPositiveInteger(value: unknown): number | null {
 function readHuggingFaceContextWindow(
   entry: Record<string, unknown>,
 ): number | null {
+  // Observed on Hugging Face Router `/v1/models` on 2026-03-28:
+  // - top-level `context_length`
+  // - nested `providers[].context_length`
+  // Keep parsing limited to the fields we have actually seen.
   const providers = Array.isArray(entry.providers) ? entry.providers : [];
   for (const provider of providers) {
     if (!isRecord(provider)) continue;
-    const contextWindow =
-      readPositiveInteger(provider.context_length) ??
-      readPositiveInteger(provider.contextLength);
+    const contextWindow = readPositiveInteger(provider.context_length);
     if (contextWindow != null) {
       return contextWindow;
     }
   }
-  return (
-    readPositiveInteger(entry.context_length) ??
-    readPositiveInteger(entry.contextLength) ??
-    readPositiveInteger(entry.max_context_length) ??
-    readPositiveInteger(entry.maxContextLength)
-  );
+  return readPositiveInteger(entry.context_length);
 }
 
 export interface HuggingFaceDiscoveryStore {
@@ -131,7 +129,8 @@ export function createHuggingFaceDiscoveryStore(): HuggingFaceDiscoveryStore {
       try {
         await fetchHuggingFaceModels(apiKey);
         return [...discoveredModelNames];
-      } catch {
+      } catch (err) {
+        logger.warn({ err }, 'HuggingFace model discovery failed');
         return stale;
       } finally {
         discoveryInFlight = null;

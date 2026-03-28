@@ -753,10 +753,12 @@ test('model list includes discovered OpenRouter models', async () => {
         label: 'hybridai/gpt-5-nano (current)',
         isFree: false,
       },
-      expect.objectContaining({
+      {
         value: 'openrouter/nvidia/nemotron-3-super-120b-a12b:free',
+        label: 'openrouter/nvidia/nemotron-3-super-120b-a12b:free',
+        isFree: false,
         recommended: true,
-      }),
+      },
     ]),
   );
   expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -938,7 +940,7 @@ test('model list filters by provider alias', async () => {
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 
-test('model list shows the full Hugging Face catalog and marks Hermes-aligned models as recommended', async () => {
+test('model list shows the full Hugging Face catalog', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
   process.env.HF_TOKEN = 'hf-gateway-status-1234567890';
@@ -1000,21 +1002,29 @@ test('model list shows the full Hugging Face catalog and marks Hermes-aligned mo
   expect(listed.text).toContain('huggingface/zeta/custom-model');
   expect(listed.modelCatalog).toEqual(
     expect.arrayContaining([
-      expect.objectContaining({
+      {
         value: 'huggingface/Qwen/Qwen3.5-397B-A17B',
+        label: 'huggingface/Qwen/Qwen3.5-397B-A17B (current)',
+        isFree: false,
         recommended: true,
-      }),
-      expect.objectContaining({
+      },
+      {
         value: 'huggingface/deepseek-ai/DeepSeek-V3.2',
+        label: 'huggingface/deepseek-ai/DeepSeek-V3.2',
+        isFree: false,
         recommended: true,
-      }),
-      expect.objectContaining({
+      },
+      {
         value: 'huggingface/Qwen/Qwen3.5-27B-FP8',
+        label: 'huggingface/Qwen/Qwen3.5-27B-FP8',
+        isFree: false,
         recommended: true,
-      }),
-      expect.objectContaining({
+      },
+      {
         value: 'huggingface/zeta/custom-model',
-      }),
+        label: 'huggingface/zeta/custom-model',
+        isFree: false,
+      },
     ]),
   );
 });

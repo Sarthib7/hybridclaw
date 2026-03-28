@@ -176,12 +176,12 @@ import {
   formatModelForDisplay,
   normalizeHybridAIModelForRuntime,
 } from '../providers/model-names.js';
-import { isRecommendedModel } from '../providers/recommended-models.js';
 import {
   discoverOpenRouterModels,
   getDiscoveredOpenRouterModelContextWindow,
 } from '../providers/openrouter-discovery.js';
 import { readOpenRouterApiKey } from '../providers/openrouter-utils.js';
+import { isRecommendedModel } from '../providers/recommended-models.js';
 import { runIsolatedScheduledTask } from '../scheduler/scheduled-task-runner.js';
 import {
   getScheduledTaskNextRunAt,

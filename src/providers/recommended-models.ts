@@ -40,15 +40,14 @@ function hasExactOrTaggedMatch(
   });
 }
 
-function hasFragmentMatch(
-  tail: string,
-  fragments: readonly string[],
-): boolean {
+function hasFragmentMatch(tail: string, fragments: readonly string[]): boolean {
   return fragments.some((fragment) => tail.includes(fragment));
 }
 
 function normalizeModelTail(model: string, prefix: string): string | null {
-  const normalized = String(model || '').trim().toLowerCase();
+  const normalized = String(model || '')
+    .trim()
+    .toLowerCase();
   if (!normalized.startsWith(prefix)) return null;
   return normalized.slice(prefix.length);
 }
@@ -67,10 +66,8 @@ export function isRecommendedModel(model: string): boolean {
   const openRouterTail = normalizeModelTail(model, OPENROUTER_MODEL_PREFIX);
   if (openRouterTail) {
     return (
-      hasExactOrTaggedMatch(
-        openRouterTail,
-        OPENROUTER_RECOMMENDED_MODEL_IDS,
-      ) || hasFragmentMatch(openRouterTail, SHARED_RECOMMENDED_FRAGMENTS)
+      hasExactOrTaggedMatch(openRouterTail, OPENROUTER_RECOMMENDED_MODEL_IDS) ||
+      hasFragmentMatch(openRouterTail, SHARED_RECOMMENDED_FRAGMENTS)
     );
   }
 

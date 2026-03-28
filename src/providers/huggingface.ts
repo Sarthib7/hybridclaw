@@ -5,12 +5,12 @@ import {
   HUGGINGFACE_MODEL_PREFIX,
   readHuggingFaceApiKey,
 } from './huggingface-utils.js';
-import { normalizeBaseUrl } from './utils.js';
 import type {
   AIProvider,
   ResolvedModelRuntimeCredentials,
   ResolveProviderRuntimeParams,
 } from './types.js';
+import { normalizeBaseUrl } from './utils.js';
 
 export function isHuggingFaceModel(model: string): boolean {
   return String(model || '')

@@ -6,12 +6,12 @@ import {
   OPENROUTER_MODEL_PREFIX,
   readOpenRouterApiKey,
 } from './openrouter-utils.js';
-import { normalizeBaseUrl } from './utils.js';
 import type {
   AIProvider,
   ResolvedModelRuntimeCredentials,
   ResolveProviderRuntimeParams,
 } from './types.js';
+import { normalizeBaseUrl } from './utils.js';
 
 export function isOpenRouterModel(model: string): boolean {
   return String(model || '')

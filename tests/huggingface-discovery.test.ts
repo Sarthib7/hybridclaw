@@ -82,7 +82,12 @@ describe('huggingface discovery', () => {
         async () =>
           new Response(
             JSON.stringify({
-              data: [{ id: 'meta-llama/Llama-3.1-8B-Instruct', context_length: 131_072 }],
+              data: [
+                {
+                  id: 'meta-llama/Llama-3.1-8B-Instruct',
+                  context_length: 131_072,
+                },
+              ],
             }),
             {
               status: 200,
@@ -137,7 +142,9 @@ describe('huggingface discovery', () => {
     await expect(store.discoverModels()).resolves.toEqual([
       'huggingface/Qwen/Qwen3.5-27B',
     ]);
-    expect(store.getModelContextWindow('huggingface/Qwen/Qwen3.5-27B')).toBeNull();
+    expect(
+      store.getModelContextWindow('huggingface/Qwen/Qwen3.5-27B'),
+    ).toBeNull();
   });
 
   test('logs a warning and returns stale models when discovery refresh fails', async () => {
@@ -150,7 +157,12 @@ describe('huggingface discovery', () => {
         async () =>
           new Response(
             JSON.stringify({
-              data: [{ id: 'meta-llama/Llama-3.1-8B-Instruct', context_length: 131_072 }],
+              data: [
+                {
+                  id: 'meta-llama/Llama-3.1-8B-Instruct',
+                  context_length: 131_072,
+                },
+              ],
             }),
             {
               status: 200,

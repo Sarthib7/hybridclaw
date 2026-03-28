@@ -1,6 +1,4 @@
-import {
-  HUGGINGFACE_API_KEY,
-} from '../config/config.js';
+import { HUGGINGFACE_API_KEY } from '../config/config.js';
 import { readProviderApiKey } from './provider-api-key-utils.js';
 
 export const HUGGINGFACE_MODEL_PREFIX = 'huggingface/';

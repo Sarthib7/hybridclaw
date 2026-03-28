@@ -4,13 +4,14 @@ import { resolveModelProvider } from '../../providers/factory.js';
 import {
   type ProviderProbeResult,
   probeCodex,
+  probeHuggingFace,
   probeHybridAI,
   probeOpenRouter,
 } from '../provider-probes.js';
 import type { DiagResult } from '../types.js';
 import { makeResult, severityFrom, toErrorMessage } from '../utils.js';
 
-type ProviderKey = 'hybridai' | 'codex' | 'openrouter';
+type ProviderKey = 'hybridai' | 'codex' | 'openrouter' | 'huggingface';
 
 interface ProviderPlan {
   key: ProviderKey;
@@ -99,6 +100,19 @@ export async function checkProviders(): Promise<DiagResult[]> {
       probe:
         config.openrouter.enabled || defaultProvider === 'openrouter'
           ? () => probeOpenRouter()
+          : null,
+      inactiveMessage: 'Provider disabled',
+    },
+    {
+      key: 'huggingface',
+      label: 'Hugging Face',
+      active: defaultProvider === 'huggingface',
+      configured:
+        config.huggingface.enabled || defaultProvider === 'huggingface',
+      configuredModelCount: dedupeStrings(config.huggingface.models).length,
+      probe:
+        config.huggingface.enabled || defaultProvider === 'huggingface'
+          ? () => probeHuggingFace()
           : null,
       inactiveMessage: 'Provider disabled',
     },

@@ -18,6 +18,7 @@ import {
   isHelpRequest,
   printAuthUsage,
   printCodexUsage,
+  printHuggingFaceUsage,
   printHybridAIUsage,
   printLocalUsage,
   printMSTeamsUsage,
@@ -165,6 +166,8 @@ interface ParsedOpenRouterLoginArgs {
   setDefault: boolean;
 }
 
+type ParsedHuggingFaceLoginArgs = ParsedOpenRouterLoginArgs;
+
 function parseOpenRouterLoginArgs(args: string[]): ParsedOpenRouterLoginArgs {
   const positional: string[] = [];
   const { baseUrl, remaining } = extractBaseUrlArg(args);
@@ -208,6 +211,12 @@ function parseOpenRouterLoginArgs(args: string[]): ParsedOpenRouterLoginArgs {
   };
 }
 
+function parseHuggingFaceLoginArgs(
+  args: string[],
+): ParsedHuggingFaceLoginArgs {
+  return parseOpenRouterLoginArgs(args);
+}
+
 function normalizeOpenRouterModelId(rawModelId: string): string {
   const trimmed = rawModelId.trim();
   if (!trimmed) return '';
@@ -223,23 +232,88 @@ function normalizeOpenRouterBaseUrl(rawBaseUrl: string): string {
   return /\/api\/v1$/i.test(trimmed) ? trimmed : `${trimmed}/api/v1`;
 }
 
-async function promptForOpenRouterApiKey(): Promise<string> {
+function normalizeHuggingFaceModelId(rawModelId: string): string {
+  const trimmed = rawModelId.trim();
+  if (!trimmed) return '';
+  if (trimmed.toLowerCase().startsWith('huggingface/')) {
+    return trimmed;
+  }
+  return `huggingface/${trimmed}`;
+}
+
+function normalizeHuggingFaceBaseUrl(rawBaseUrl: string): string {
+  const trimmed = rawBaseUrl.trim().replace(/\/+$/g, '');
+  if (!trimmed) return 'https://router.huggingface.co/v1';
+  return /\/v1$/i.test(trimmed) ? trimmed : `${trimmed}/v1`;
+}
+
+async function promptForSecretInput(
+  prompt: string,
+  missingMessage: string,
+): Promise<string> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    throw new Error(
-      'Missing OpenRouter API key. Pass `--api-key <key>`, set `OPENROUTER_API_KEY`, or run this command in an interactive terminal to paste it.',
-    );
+    throw new Error(missingMessage);
   }
 
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
+  const ttyInput = process.stdin as NodeJS.ReadStream;
+  if (typeof ttyInput.setRawMode !== 'function') {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+    try {
+      return (await rl.question(prompt)).trim();
+    } finally {
+      rl.close();
+    }
+  }
+
+  process.stdout.write(prompt);
+  const previousRawMode = ttyInput.isRaw;
+  ttyInput.setRawMode(true);
+  ttyInput.resume();
+
+  return await new Promise<string>((resolve, reject) => {
+    let value = '';
+
+    const cleanup = () => {
+      ttyInput.off('data', handleData);
+      ttyInput.setRawMode(previousRawMode ?? false);
+      process.stdout.write('\n');
+    };
+
+    const handleData = (chunk: string | Buffer) => {
+      const input = chunk.toString('utf8');
+      for (const char of input) {
+        if (char === '\u0003') {
+          cleanup();
+          reject(new Error('Prompt cancelled.'));
+          return;
+        }
+        if (char === '\r' || char === '\n') {
+          cleanup();
+          resolve(value.trim());
+          return;
+        }
+        if (char === '\u007f' || char === '\b') {
+          value = value.slice(0, -1);
+          continue;
+        }
+        if (char >= ' ') {
+          value += char;
+        }
+      }
+    };
+
+    ttyInput.on('data', handleData);
   });
+}
 
-  try {
-    return (await rl.question('Paste OpenRouter API key: ')).trim();
-  } finally {
-    rl.close();
-  }
+async function promptForOpenRouterApiKey(): Promise<string> {
+  return await promptForSecretInput(
+    '🔒 Paste OpenRouter API key: ',
+    'Missing OpenRouter API key. Pass `--api-key <key>`, set `OPENROUTER_API_KEY`, or run this command in an interactive terminal to paste it.',
+  );
 }
 
 async function resolveOpenRouterApiKey(
@@ -254,6 +328,27 @@ async function resolveOpenRouterApiKey(
 
   throw new Error(
     'OpenRouter API key cannot be empty. Pass `--api-key <key>`, set `OPENROUTER_API_KEY`, or paste it when prompted.',
+  );
+}
+
+async function promptForHuggingFaceApiKey(): Promise<string> {
+  return await promptForSecretInput(
+    '🔒 Paste Hugging Face token: ',
+    'Missing Hugging Face token. Pass `--api-key <token>`, set `HF_TOKEN`, or run this command in an interactive terminal to paste it.',
+  );
+}
+
+async function resolveHuggingFaceApiKey(
+  explicitApiKey: string | undefined,
+): Promise<string> {
+  const configuredApiKey = explicitApiKey?.trim() || '';
+  if (configuredApiKey) return configuredApiKey;
+
+  const promptedApiKey = await promptForHuggingFaceApiKey();
+  if (promptedApiKey) return promptedApiKey;
+
+  throw new Error(
+    'Hugging Face token cannot be empty. Pass `--api-key <token>` or paste it when prompted.',
   );
 }
 
@@ -301,8 +396,54 @@ async function configureOpenRouter(args: string[]): Promise<void> {
     );
   }
   console.log('Next:');
-  console.log('  hybridclaw gateway restart --foreground');
-  console.log('  hybridclaw gateway status');
+  console.log('  hybridclaw tui');
+  console.log(`  /model set ${fullModelName}`);
+}
+
+async function configureHuggingFace(args: string[]): Promise<void> {
+  ensureRuntimeConfigFile();
+  const parsed = parseHuggingFaceLoginArgs(args);
+  const currentConfig = getRuntimeConfig();
+  const configuredModel =
+    parsed.modelId ||
+    currentConfig.huggingface.models[0] ||
+    'huggingface/meta-llama/Llama-3.1-8B-Instruct';
+  const fullModelName = normalizeHuggingFaceModelId(configuredModel);
+  if (!fullModelName) {
+    throw new Error('Hugging Face model ID cannot be empty.');
+  }
+
+  const apiKey = await resolveHuggingFaceApiKey(parsed.apiKey);
+  const normalizedBaseUrl = normalizeHuggingFaceBaseUrl(
+    parsed.baseUrl || currentConfig.huggingface.baseUrl,
+  );
+  const secretsPath = saveRuntimeSecrets({ HF_TOKEN: apiKey });
+  const nextConfig = updateRuntimeConfig((draft) => {
+    draft.huggingface.enabled = true;
+    draft.huggingface.baseUrl = normalizedBaseUrl;
+    draft.huggingface.models = Array.from(
+      new Set([fullModelName, ...draft.huggingface.models]),
+    );
+    if (parsed.setDefault) {
+      draft.hybridai.defaultModel = fullModelName;
+    }
+  });
+
+  process.env.HF_TOKEN = apiKey;
+  process.env.HUGGINGFACE_API_KEY = apiKey;
+  console.log(`Saved Hugging Face credentials to ${secretsPath}.`);
+  console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
+  console.log(`Provider: huggingface`);
+  console.log(`Base URL: ${nextConfig.huggingface.baseUrl}`);
+  console.log(`Configured model: ${fullModelName}`);
+  if (parsed.setDefault) {
+    console.log(`Default model: ${fullModelName}`);
+  } else {
+    console.log(
+      `Default model unchanged: ${formatModelForDisplay(nextConfig.hybridai.defaultModel)}`,
+    );
+  }
+  console.log('Next:');
   console.log('  hybridclaw tui');
   console.log(`  /model set ${fullModelName}`);
 }
@@ -311,6 +452,7 @@ type UnifiedProvider =
   | 'hybridai'
   | 'codex'
   | 'openrouter'
+  | 'huggingface'
   | 'local'
   | 'msteams';
 
@@ -333,6 +475,14 @@ function normalizeUnifiedProvider(
   }
   if (normalized === 'openrouter' || normalized === 'or') {
     return 'openrouter';
+  }
+  if (
+    normalized === 'huggingface' ||
+    normalized === 'hf' ||
+    normalized === 'hugging-face' ||
+    normalized === 'huggingface-hub'
+  ) {
+    return 'huggingface';
   }
   if (normalized === 'local') {
     return 'local';
@@ -367,7 +517,7 @@ function parseUnifiedProviderArgs(args: string[]): {
     const provider = normalizeUnifiedProvider(rawProvider);
     if (!provider) {
       throw new Error(
-        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`local\`, or \`msteams\`.`,
+        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`huggingface\`, \`local\`, or \`msteams\`.`,
       );
     }
     return {
@@ -381,7 +531,7 @@ function parseUnifiedProviderArgs(args: string[]): {
     const provider = normalizeUnifiedProvider(rawProvider);
     if (!provider) {
       throw new Error(
-        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`local\`, or \`msteams\`.`,
+        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`huggingface\`, \`local\`, or \`msteams\`.`,
       );
     }
     return {
@@ -398,7 +548,7 @@ function parseUnifiedProviderArgs(args: string[]): {
 }
 
 function readStoredRuntimeSecret(
-  secretKey: 'OPENROUTER_API_KEY' | 'MSTEAMS_APP_PASSWORD',
+  secretKey: 'OPENROUTER_API_KEY' | 'HF_TOKEN' | 'MSTEAMS_APP_PASSWORD',
 ): string | null {
   const filePath = runtimeSecretsPath();
   if (!fs.existsSync(filePath)) return null;
@@ -460,12 +610,56 @@ function printOpenRouterStatus(): void {
   );
 }
 
+function printHuggingFaceStatus(): void {
+  ensureRuntimeConfigFile();
+  const config = getRuntimeConfig();
+  const storedApiKey = readStoredRuntimeSecret('HF_TOKEN');
+  const envApiKey =
+    process.env.HF_TOKEN?.trim() || process.env.HUGGINGFACE_API_KEY?.trim() || '';
+  const source = envApiKey
+    ? storedApiKey && envApiKey === storedApiKey
+      ? 'runtime-secrets'
+      : 'env'
+    : storedApiKey
+      ? 'runtime-secrets'
+      : null;
+  const apiKey = envApiKey || storedApiKey || '';
+
+  console.log(`Path: ${runtimeSecretsPath()}`);
+  console.log(`Authenticated: ${apiKey ? 'yes' : 'no'}`);
+  if (source) {
+    console.log(`Source: ${source}`);
+  }
+  if (apiKey) {
+    console.log(`API key: ${maskSecret(apiKey)}`);
+  }
+  console.log(`Config: ${runtimeConfigPath()}`);
+  console.log(`Enabled: ${config.huggingface.enabled ? 'yes' : 'no'}`);
+  console.log(`Base URL: ${config.huggingface.baseUrl}`);
+  console.log(
+    `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
+  );
+  console.log(
+    `Models: ${config.huggingface.models.length > 0 ? config.huggingface.models.join(', ') : '(none configured)'}`,
+  );
+}
+
 function clearOpenRouterCredentials(): void {
   const filePath = saveRuntimeSecrets({ OPENROUTER_API_KEY: null });
   delete process.env.OPENROUTER_API_KEY;
   console.log(`Cleared OpenRouter credentials in ${filePath}.`);
   console.log(
     'If OPENROUTER_API_KEY is still exported in your shell, unset it separately.',
+  );
+}
+
+function clearHuggingFaceCredentials(): void {
+  const filePath = saveRuntimeSecrets({ HF_TOKEN: null });
+  delete process.env.HF_TOKEN;
+  delete process.env.HUGGINGFACE_API_KEY;
+  console.log(`Cleared Hugging Face credentials in ${filePath}.`);
+  console.log(
+    'If HF_TOKEN is still exported in your shell, unset it separately.',
   );
 }
 
@@ -614,6 +808,10 @@ function printUnifiedProviderUsage(provider: UnifiedProvider): void {
   }
   if (provider === 'openrouter') {
     printOpenRouterUsage();
+    return;
+  }
+  if (provider === 'huggingface') {
+    printHuggingFaceUsage();
     return;
   }
   if (provider === 'msteams') {
@@ -835,7 +1033,7 @@ async function handleAuthLoginCommand(normalizedArgs: string[]): Promise<void> {
   const parsed = parseUnifiedProviderArgs(normalizedArgs);
   if (!parsed.provider) {
     throw new Error(
-      `Unknown auth login provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`local\`, or \`msteams\`.`,
+      `Unknown auth login provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`huggingface\`, \`local\`, or \`msteams\`.`,
     );
   }
   if (isHelpRequest(parsed.remaining)) {
@@ -853,6 +1051,10 @@ async function handleAuthLoginCommand(normalizedArgs: string[]): Promise<void> {
   }
   if (parsed.provider === 'openrouter') {
     await configureOpenRouter(parsed.remaining);
+    return;
+  }
+  if (parsed.provider === 'huggingface') {
+    await configureHuggingFace(parsed.remaining);
     return;
   }
   if (parsed.provider === 'msteams') {
@@ -966,6 +1168,14 @@ async function dispatchProviderAction(
     clearOpenRouterCredentials();
     return;
   }
+  if (provider === 'huggingface') {
+    if (action === 'status') {
+      printHuggingFaceStatus();
+      return;
+    }
+    clearHuggingFaceCredentials();
+    return;
+  }
   if (provider === 'msteams') {
     if (action === 'status') {
       printMSTeamsStatus();
@@ -994,7 +1204,7 @@ async function handleProviderActionCommand(
   const parsed = parseUnifiedProviderArgs(normalizedArgs);
   if (!parsed.provider) {
     throw new Error(
-      `Unknown ${action} provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`local\`, or \`msteams\`.`,
+      `Unknown ${action} provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`huggingface\`, \`local\`, or \`msteams\`.`,
     );
   }
   if (parsed.remaining.length > 0) {

@@ -143,18 +143,22 @@ import {
   resolveModelProvider,
 } from '../providers/factory.js';
 import {
+  discoverHuggingFaceModels,
+  getDiscoveredHuggingFaceModelContextWindow,
+} from '../providers/huggingface-discovery.js';
+import { readHuggingFaceApiKey } from '../providers/huggingface-utils.js';
+import {
   fetchHybridAIBots,
   HybridAIBotFetchError,
 } from '../providers/hybridai-bots.js';
 import {
-  discoverHuggingFaceModels,
-  getDiscoveredHuggingFaceModelContextWindow,
-} from '../providers/huggingface-discovery.js';
-import {
   getDiscoveredHybridAIModelContextWindow,
   getDiscoveredHybridAIModelNames,
 } from '../providers/hybridai-discovery.js';
-import { type HybridAIHealthResult, hybridAIProbe } from '../providers/hybridai-health.js';
+import {
+  type HybridAIHealthResult,
+  hybridAIProbe,
+} from '../providers/hybridai-health.js';
 import { resolveModelContextWindowFallback } from '../providers/hybridai-models.js';
 import {
   getLocalModelInfo,
@@ -176,7 +180,6 @@ import {
   discoverOpenRouterModels,
   getDiscoveredOpenRouterModelContextWindow,
 } from '../providers/openrouter-discovery.js';
-import { readHuggingFaceApiKey } from '../providers/huggingface-utils.js';
 import { readOpenRouterApiKey } from '../providers/openrouter-utils.js';
 import { isRecommendedModel } from '../providers/recommended-models.js';
 import { runIsolatedScheduledTask } from '../scheduler/scheduled-task-runner.js';

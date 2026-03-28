@@ -335,7 +335,9 @@ test('status uses Hugging Face context_length metadata for the context window', 
     config.huggingface.enabled = true;
     config.hybridai.defaultModel =
       'huggingface/meta-llama/Llama-3.1-8B-Instruct';
-    config.huggingface.models = ['huggingface/meta-llama/Llama-3.1-8B-Instruct'];
+    config.huggingface.models = [
+      'huggingface/meta-llama/Llama-3.1-8B-Instruct',
+    ];
     config.openrouter.enabled = false;
     config.local.backends.ollama.enabled = false;
     config.local.backends.lmstudio.enabled = false;
@@ -474,7 +476,9 @@ test('status uses Hugging Face provider-level context_length metadata for the co
   if (result.kind !== 'info') {
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
-  expect(result.text).toContain('🧠 Model: huggingface/XiaomiMiMo/MiMo-V2-Flash');
+  expect(result.text).toContain(
+    '🧠 Model: huggingface/XiaomiMiMo/MiMo-V2-Flash',
+  );
   expect(result.text).toContain('📚 Context: 23k/262k');
 });
 
@@ -940,8 +944,7 @@ test('model list shows the full Hugging Face catalog and marks Hermes-aligned mo
   process.env.HF_TOKEN = 'hf-gateway-status-1234567890';
   writeRuntimeConfig(homeDir, (config) => {
     config.huggingface.enabled = true;
-    config.hybridai.defaultModel =
-      'huggingface/Qwen/Qwen3.5-397B-A17B';
+    config.hybridai.defaultModel = 'huggingface/Qwen/Qwen3.5-397B-A17B';
     config.huggingface.models = ['huggingface/Qwen/Qwen3.5-397B-A17B'];
     config.openrouter.enabled = false;
     config.local.backends.ollama.enabled = false;
@@ -991,9 +994,7 @@ test('model list shows the full Hugging Face catalog and marks Hermes-aligned mo
     throw new Error(`Unexpected result kind: ${listed.kind}`);
   }
   expect(listed.title).toBe('Available Models (huggingface)');
-  expect(listed.text).toContain(
-    'huggingface/Qwen/Qwen3.5-397B-A17B (current)',
-  );
+  expect(listed.text).toContain('huggingface/Qwen/Qwen3.5-397B-A17B (current)');
   expect(listed.text).toContain('huggingface/deepseek-ai/DeepSeek-V3.2');
   expect(listed.text).toContain('huggingface/Qwen/Qwen3.5-27B-FP8');
   expect(listed.text).toContain('huggingface/zeta/custom-model');

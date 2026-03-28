@@ -88,7 +88,9 @@ test('provider factory resolves adapters by model family', async () => {
     factory.resolveModelProvider('openrouter/anthropic/claude-sonnet-4'),
   ).toBe('openrouter');
   expect(
-    factory.resolveModelProvider('huggingface/meta-llama/Llama-3.1-8B-Instruct'),
+    factory.resolveModelProvider(
+      'huggingface/meta-llama/Llama-3.1-8B-Instruct',
+    ),
   ).toBe('huggingface');
   expect(factory.resolveModelProvider('anthropic/claude-3-7-sonnet')).toBe(
     'anthropic',
@@ -196,9 +198,7 @@ test('provider factory resolves Hugging Face runtime credentials', async () => {
   const homeDir = makeTempHome();
   vi.doMock('../src/providers/huggingface-discovery.ts', () => ({
     getDiscoveredHuggingFaceModelContextWindow: vi.fn((model: string) =>
-      model === 'huggingface/meta-llama/Llama-3.1-8B-Instruct'
-        ? 131_072
-        : null,
+      model === 'huggingface/meta-llama/Llama-3.1-8B-Instruct' ? 131_072 : null,
     ),
   }));
   writeRuntimeConfig(homeDir, (config) => {

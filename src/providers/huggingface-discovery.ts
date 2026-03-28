@@ -1,5 +1,8 @@
 import { HUGGINGFACE_BASE_URL, HUGGINGFACE_ENABLED } from '../config/config.js';
-import { HUGGINGFACE_MODEL_PREFIX, readHuggingFaceApiKey } from './huggingface-utils.js';
+import {
+  HUGGINGFACE_MODEL_PREFIX,
+  readHuggingFaceApiKey,
+} from './huggingface-utils.js';
 import { isRecord, normalizeBaseUrl } from './utils.js';
 
 const HUGGINGFACE_DISCOVERY_TTL_MS = 3_600_000;
@@ -24,7 +27,9 @@ function readPositiveInteger(value: unknown): number | null {
   return Math.floor(parsed);
 }
 
-function readHuggingFaceContextWindow(entry: Record<string, unknown>): number | null {
+function readHuggingFaceContextWindow(
+  entry: Record<string, unknown>,
+): number | null {
   const providers = Array.isArray(entry.providers) ? entry.providers : [];
   for (const provider of providers) {
     if (!isRecord(provider)) continue;

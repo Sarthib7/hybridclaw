@@ -211,9 +211,7 @@ function parseOpenRouterLoginArgs(args: string[]): ParsedOpenRouterLoginArgs {
   };
 }
 
-function parseHuggingFaceLoginArgs(
-  args: string[],
-): ParsedHuggingFaceLoginArgs {
+function parseHuggingFaceLoginArgs(args: string[]): ParsedHuggingFaceLoginArgs {
   return parseOpenRouterLoginArgs(args);
 }
 
@@ -615,7 +613,9 @@ function printHuggingFaceStatus(): void {
   const config = getRuntimeConfig();
   const storedApiKey = readStoredRuntimeSecret('HF_TOKEN');
   const envApiKey =
-    process.env.HF_TOKEN?.trim() || process.env.HUGGINGFACE_API_KEY?.trim() || '';
+    process.env.HF_TOKEN?.trim() ||
+    process.env.HUGGINGFACE_API_KEY?.trim() ||
+    '';
   const source = envApiKey
     ? storedApiKey && envApiKey === storedApiKey
       ? 'runtime-secrets'

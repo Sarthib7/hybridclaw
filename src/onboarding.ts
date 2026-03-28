@@ -930,7 +930,7 @@ export async function ensureRuntimeCredentials(
         ? 'openrouter'
         : resolvedCurrentProvider === 'huggingface'
           ? 'huggingface'
-        : 'hybridai');
+          : 'hybridai');
   const force = options.force === true;
   let securityAccepted = isSecurityTrustAccepted(runtimeConfig);
   const needsSecurityAcceptance = !securityAccepted || force;
@@ -942,7 +942,7 @@ export async function ensureRuntimeCredentials(
         ? !!existingOpenRouterKey
         : currentAuth === 'huggingface'
           ? !!existingHuggingFaceKey
-        : !!existingKey;
+          : !!existingKey;
   if (!needsSecurityAcceptance && hasRequiredCredentials) return;
 
   if (!process.stdin.isTTY || !process.stdout.isTTY) {

@@ -1318,12 +1318,12 @@ async function fetchSelectableModels(): Promise<
     }
     const models = parseModelNamesFromListText(result.text || '');
     return models.length > 0
-        ? models.map((model) => ({
-            label: model,
-            value: normalizeHybridAIModelForRuntime(model),
-            isFree: false,
-            recommended: false,
-          }))
+      ? models.map((model) => ({
+          label: model,
+          value: normalizeHybridAIModelForRuntime(model),
+          isFree: false,
+          recommended: false,
+        }))
       : fallback;
   } catch {
     return fallback;

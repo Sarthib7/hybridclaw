@@ -365,9 +365,9 @@ test('available model catalog reads Hugging Face provider-level context windows'
 
   const discovery = await import('../src/providers/huggingface-discovery.ts');
 
-  await expect(discovery.discoverHuggingFaceModels({ force: true })).resolves.toEqual([
-    'huggingface/XiaomiMiMo/MiMo-V2-Flash',
-  ]);
+  await expect(
+    discovery.discoverHuggingFaceModels({ force: true }),
+  ).resolves.toEqual(['huggingface/XiaomiMiMo/MiMo-V2-Flash']);
   expect(
     discovery.getDiscoveredHuggingFaceModelContextWindow(
       'huggingface/XiaomiMiMo/MiMo-V2-Flash',

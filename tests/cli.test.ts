@@ -1960,14 +1960,10 @@ describe('CLI hybridai commands', () => {
     });
 
     try {
-      const {
-        cli,
-        saveRuntimeSecrets,
-        readlineQuestion,
-        readlineClose,
-      } = await importFreshCli({
-        promptResponses: ['hf-pasted-token'],
-      });
+      const { cli, saveRuntimeSecrets, readlineQuestion, readlineClose } =
+        await importFreshCli({
+          promptResponses: ['hf-pasted-token'],
+        });
 
       await cli.main([
         'auth',
@@ -2009,14 +2005,10 @@ describe('CLI hybridai commands', () => {
     });
 
     try {
-      const {
-        cli,
-        saveRuntimeSecrets,
-        readlineQuestion,
-        readlineClose,
-      } = await importFreshCli({
-        promptResponses: ['hf-new-token'],
-      });
+      const { cli, saveRuntimeSecrets, readlineQuestion, readlineClose } =
+        await importFreshCli({
+          promptResponses: ['hf-new-token'],
+        });
 
       await cli.main([
         'auth',

@@ -1,7 +1,10 @@
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { HUGGINGFACE_BASE_URL } from '../config/config.js';
 import { getDiscoveredHuggingFaceModelContextWindow } from './huggingface-discovery.js';
-import { HUGGINGFACE_MODEL_PREFIX, readHuggingFaceApiKey } from './huggingface-utils.js';
+import {
+  HUGGINGFACE_MODEL_PREFIX,
+  readHuggingFaceApiKey,
+} from './huggingface-utils.js';
 import type {
   AIProvider,
   ResolvedModelRuntimeCredentials,

@@ -4,6 +4,7 @@ import {
   discoverHuggingFaceModels,
   getDiscoveredHuggingFaceModelNames,
 } from './huggingface-discovery.js';
+import { HUGGINGFACE_MODEL_PREFIX } from './huggingface-utils.js';
 import {
   discoverHybridAIModels,
   getDiscoveredHybridAIModelNames,
@@ -14,7 +15,6 @@ import {
   getDiscoveredLocalModelNames,
 } from './local-discovery.js';
 import { formatModelForDisplay } from './model-names.js';
-import { HUGGINGFACE_MODEL_PREFIX } from './huggingface-utils.js';
 import { OPENAI_CODEX_MODEL_PREFIX } from './openai.js';
 import {
   discoverOpenRouterModels,

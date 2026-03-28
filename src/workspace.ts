@@ -199,9 +199,17 @@ function looksLikeCompletedWorkspace(
   const customizedIdentity = isWorkspaceFileCustomized(wsDir, 'IDENTITY.md');
   const customizedUser = isWorkspaceFileCustomized(wsDir, 'USER.md');
   const userContentPresent = hasWorkspaceUserContent(wsDir);
+  const customizedBootstrap =
+    bootstrapExists && isWorkspaceFileCustomized(wsDir, 'BOOTSTRAP.md');
 
   if (!bootstrapExists) {
     return customizedIdentity || customizedUser || userContentPresent;
+  }
+
+  // If the workspace shipped with a package-provided BOOTSTRAP.md, keep it
+  // until the agent explicitly removes it during onboarding.
+  if (customizedBootstrap) {
+    return false;
   }
 
   return (customizedIdentity || customizedUser) && userContentPresent;
@@ -484,4 +492,24 @@ export function isBootstrapping(agentId: string): boolean {
   }
 
   return false;
+}
+
+export function resolveStartupBootstrapFile(
+  agentId: string,
+): 'BOOTSTRAP.md' | 'BOOT.md' | null {
+  if (isBootstrapping(agentId)) {
+    return 'BOOTSTRAP.md';
+  }
+
+  const bootPath = path.join(agentWorkspaceDir(agentId), 'BOOT.md');
+  if (!fs.existsSync(bootPath)) return null;
+  try {
+    return fs.readFileSync(bootPath, 'utf-8').trim() ? 'BOOT.md' : null;
+  } catch (error) {
+    logger.warn(
+      { agentId, path: bootPath, error },
+      'Failed to inspect BOOT.md while resolving startup bootstrap state',
+    );
+    return null;
+  }
 }

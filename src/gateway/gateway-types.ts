@@ -279,6 +279,7 @@ export interface GatewayStatus {
   uptime: number;
   sessions: number;
   activeContainers: number;
+  defaultAgentId: string;
   defaultModel: string;
   ragDefault: boolean;
   fullAuto?: {

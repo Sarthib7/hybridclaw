@@ -172,6 +172,30 @@ test('getGatewayStatus includes Codex auth state', async () => {
   });
 });
 
+test('getGatewayStatus includes the configured default agent id', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  mockHealthProbes();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.agents = {
+      ...(config.agents ?? {}),
+      defaultAgentId: 'charly',
+      list: [{ id: 'main' }, { id: 'charly' }],
+    };
+  });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getGatewayStatus } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const status = await getGatewayStatus();
+
+  expect(status.defaultAgentId).toBe('charly');
+});
+
 test('status command includes the current session agent', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;

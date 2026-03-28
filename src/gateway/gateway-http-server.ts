@@ -68,6 +68,7 @@ import {
   createGatewayAdminAgent,
   deleteGatewayAdminAgent,
   deleteGatewayAdminSession,
+  ensureGatewayBootstrapAutostart,
   type GatewayChatRequest,
   type GatewayCommandRequest,
   GatewayRequestError,
@@ -1450,7 +1451,7 @@ async function handleApiPluginTool(
   }
 }
 
-function handleApiHistory(res: ServerResponse, url: URL): void {
+async function handleApiHistory(res: ServerResponse, url: URL): Promise<void> {
   const sessionId = url.searchParams.get('sessionId')?.trim();
   if (!sessionId) {
     sendJson(res, 400, { error: 'Missing `sessionId` query parameter.' });
@@ -1466,6 +1467,7 @@ function handleApiHistory(res: ServerResponse, url: URL): void {
     10,
   );
   const limit = Number.isNaN(parsedLimit) ? 40 : parsedLimit;
+  await ensureGatewayBootstrapAutostart({ sessionId });
   const historyPage = getGatewayHistory(sessionId, limit);
   const summary = getGatewayHistorySummary(sessionId, {
     sinceMs: Number.isNaN(parsedSummarySinceMs) ? null : parsedSummarySinceMs,
@@ -2442,7 +2444,7 @@ export function startGatewayHttpServer(): void {
             return;
           }
           if (pathname === '/api/history' && method === 'GET') {
-            handleApiHistory(res, url);
+            await handleApiHistory(res, url);
             return;
           }
           if (pathname === '/api/chat/recent' && method === 'GET') {

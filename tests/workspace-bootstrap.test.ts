@@ -212,4 +212,49 @@ describe('workspace bootstrap lifecycle', () => {
     expect(state.bootstrapSeededAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
     expect(state.onboardingCompletedAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
   });
+
+  test('keeps a package-provided custom BOOTSTRAP.md on fresh install', async () => {
+    const homeDir = makeTempDir('hybridclaw-home-');
+    const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    process.chdir(unrelatedCwd);
+
+    const workspace = await import('../src/workspace.js');
+    const ipc = await import('../src/infra/ipc.js');
+
+    workspace.ensureBootstrapFiles('agent-test');
+
+    const workspaceDir = ipc.agentWorkspaceDir('agent-test');
+    const bootstrapPath = path.join(workspaceDir, 'BOOTSTRAP.md');
+
+    fs.writeFileSync(
+      bootstrapPath,
+      '# BOOTSTRAP.md - Persona Onboarding\n\nIntroduce yourself and onboard the user.\n',
+      'utf-8',
+    );
+    fs.writeFileSync(
+      path.join(workspaceDir, 'IDENTITY.md'),
+      '# IDENTITY.md - Who Am I?\n\n- **Name:** Charly\n- **Creature:** GEO Specialist\n',
+      'utf-8',
+    );
+    fs.writeFileSync(
+      path.join(workspaceDir, 'USER.md'),
+      '# USER.md - About Your Human\n\n- **Name:** Unknown until the user says otherwise\n',
+      'utf-8',
+    );
+    fs.writeFileSync(
+      path.join(workspaceDir, 'MEMORY.md'),
+      '# MEMORY.md - Session Memory\n\n## Facts\n- Charly is optimized for GEO work.\n',
+      'utf-8',
+    );
+
+    workspace.ensureBootstrapFiles('agent-test');
+
+    expect(fs.existsSync(bootstrapPath)).toBe(true);
+    expect(workspace.isBootstrapping('agent-test')).toBe(true);
+
+    const state = readWorkspaceState(workspaceDir);
+    expect(state.bootstrapSeededAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
+    expect(state.onboardingCompletedAt).toBeUndefined();
+  });
 });

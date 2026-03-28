@@ -805,6 +805,18 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
 
     updateRuntimeConfig((draft) => {
       draft.agents ??= {};
+      const nextAgents = Array.isArray(draft.agents.list)
+        ? [...draft.agents.list]
+        : [];
+      const existingIndex = nextAgents.findIndex(
+        (entry) => entry?.id?.trim() === agent.id,
+      );
+      if (existingIndex >= 0) {
+        nextAgents[existingIndex] = agent;
+      } else {
+        nextAgents.push(agent);
+      }
+      draft.agents.list = nextAgents;
       draft.agents.defaultAgentId = agent.id;
     });
     console.log(

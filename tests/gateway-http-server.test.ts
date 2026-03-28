@@ -7,7 +7,7 @@ import { Readable } from 'node:stream';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 const DEFAULT_WEB_SESSION_ID = 'agent:main:channel:web:chat:dm:peer:default';
-const WEB_SESSION_ID_RE = /^agent:main:channel:web:chat:dm:peer:[a-f0-9]{16}$/;
+const WEB_SESSION_ID_RE = /^agent:[^:]+:channel:web:chat:dm:peer:[a-f0-9]{16}$/;
 
 const tempDirs: string[] = [];
 const ORIGINAL_HYBRIDCLAW_AUTH_SECRET = process.env.HYBRIDCLAW_AUTH_SECRET;
@@ -390,6 +390,7 @@ async function importFreshHealth(options?: {
     displayName: 'Charly',
     imageUrl: '/api/agent-avatar?agentId=charly',
   }));
+  const ensureGatewayBootstrapAutostart = vi.fn(async () => {});
   const getAgentById = vi.fn((agentId: string) =>
     agentId === 'charly'
       ? {
@@ -865,6 +866,7 @@ async function importFreshHealth(options?: {
     createGatewayAdminAgent,
     deleteGatewayAdminAgent,
     deleteGatewayAdminSession,
+    ensureGatewayBootstrapAutostart,
     GatewayRequestError,
     getGatewayAgents,
     getGatewayAdminAgents,
@@ -929,6 +931,7 @@ async function importFreshHealth(options?: {
     handler,
     listenArgs,
     getGatewayStatus,
+    ensureGatewayBootstrapAutostart,
     getGatewayAssistantPresentationForSession,
     getGatewayHistory,
     getGatewayRecentChatSessions,
@@ -1621,6 +1624,9 @@ describe('gateway HTTP server', () => {
     state.handler(req as never, res as never);
     await waitForResponse(res, (next) => next.writableEnded);
 
+    expect(state.ensureGatewayBootstrapAutostart).toHaveBeenCalledWith({
+      sessionId: 's1',
+    });
     expect(state.getGatewayHistory).toHaveBeenCalledWith('s1', 2);
     expect(state.getGatewayHistorySummary).toHaveBeenCalledWith('s1', {
       sinceMs: null,

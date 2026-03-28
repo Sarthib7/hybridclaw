@@ -1108,20 +1108,63 @@
       return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
     }
 
-    function generateWebSessionId() {
-      return `agent:main:channel:web:chat:dm:peer:${randomHex(8)}`;
+    const DEFAULT_AGENT_ID = 'main';
+    const LEGACY_DEFAULT_WEB_SESSION_ID_RE = /^agent:[^:]+:channel:web:chat:dm:peer:default$/;
+
+    function normalizeSessionKeySegment(value) {
+      return String(value || '').trim().toLowerCase();
+    }
+
+    function encodeSessionKeySegment(value, label) {
+      const normalized = normalizeSessionKeySegment(value);
+      if (!normalized) {
+        throw new Error(`Session key ${label} cannot be empty`);
+      }
+      return encodeURIComponent(normalized);
+    }
+
+    function decodeSessionKeySegment(value) {
+      const normalized = String(value || '').trim();
+      if (!normalized) return '';
+      try {
+        return decodeURIComponent(normalized).trim().toLowerCase();
+      } catch {
+        return '';
+      }
+    }
+
+    function buildWebSessionId(agentId, peerId) {
+      return `agent:${encodeSessionKeySegment(agentId, 'agentId')}:channel:web:chat:dm:peer:${encodeSessionKeySegment(peerId, 'peerId')}`;
+    }
+
+    let activeDefaultAgentId = DEFAULT_AGENT_ID;
+
+    function generateWebSessionId(agentId = activeDefaultAgentId) {
+      return buildWebSessionId(agentId, randomHex(8));
+    }
+
+    function normalizeAgentId(value) {
+      return normalizeSessionKeySegment(value) || DEFAULT_AGENT_ID;
     }
 
     function generateWebUserId() {
       return `web-user-${randomHex(4)}`;
     }
 
-    function resolveStoredSessionId(raw) {
+    function resolveStoredSessionId(raw, options = {}) {
+      const defaultAgentId = normalizeAgentId(options.defaultAgentId || activeDefaultAgentId);
+      const allowGenerate = options.allowGenerate !== false;
       const normalized = String(raw || '').trim();
-      if (!normalized || normalized === 'web:default' || normalized === 'agent:main:channel:web:chat:dm:peer:default') {
-        return generateWebSessionId();
+      if (!normalized || normalized === 'web:default' || LEGACY_DEFAULT_WEB_SESSION_ID_RE.test(normalized)) {
+        return allowGenerate ? generateWebSessionId(defaultAgentId) : '';
       }
       return normalized;
+    }
+
+    function resolveWebSessionAgentId(sessionId) {
+      const match = String(sessionId || '').trim().match(/^agent:([^:]+):channel:web:chat:dm:peer:[^:]+$/);
+      if (!match) return '';
+      return decodeSessionKeySegment(match[1]);
     }
 
     function normalizeRecentSession(entry) {
@@ -1138,7 +1181,12 @@
       };
     }
 
-    let activeSessionId = resolveStoredSessionId(localStorage.getItem('hybridclaw_session'));
+    const initialStoredSessionId = localStorage.getItem('hybridclaw_session');
+    let activeSessionId = resolveStoredSessionId(initialStoredSessionId, {
+      allowGenerate: false,
+    });
+    let initialStoredRestoreSessionId = activeSessionId;
+    let initialStoredRestorePending = Boolean(activeSessionId);
     const activeUserId = localStorage.getItem('hybridclaw_user_id') || generateWebUserId();
     let activeSessionNumber = parseInt(localStorage.getItem('hybridclaw_session_number') || '1', 10);
     if (Number.isNaN(activeSessionNumber) || activeSessionNumber < 1) {
@@ -1182,7 +1230,11 @@
     }
 
     function savePrefs() {
-      localStorage.setItem('hybridclaw_session', activeSessionId);
+      if (activeSessionId) {
+        localStorage.setItem('hybridclaw_session', activeSessionId);
+      } else {
+        localStorage.removeItem('hybridclaw_session');
+      }
       localStorage.setItem('hybridclaw_user_id', activeUserId);
       localStorage.setItem('hybridclaw_session_number', String(activeSessionNumber));
       localStorage.setItem('hybridclaw_last_session_number', String(lastSessionNumber));
@@ -2417,6 +2469,7 @@
       messagesEl.innerHTML = '';
       updateEmptyState();
       try {
+        const requestedSessionId = activeSessionId;
         const sessionId = encodeURIComponent(activeSessionId);
         const payload = await requestJson(`/api/history?sessionId=${sessionId}&limit=80`, {
           method: 'GET',
@@ -2428,6 +2481,24 @@
           savePrefs();
         }
         activeAssistantPresentation = normalizeAssistantPresentation(payload.assistantPresentation);
+        const restoredAgentId = normalizeAgentId(activeAssistantPresentation?.agentId);
+        if (
+          initialStoredRestorePending &&
+          requestedSessionId &&
+          requestedSessionId === initialStoredRestoreSessionId &&
+          restoredAgentId &&
+          restoredAgentId !== activeDefaultAgentId
+        ) {
+          initialStoredRestorePending = false;
+          initialStoredRestoreSessionId = '';
+          activeSessionId = generateWebSessionId();
+          savePrefs();
+          renderRecentSessions();
+          await loadHistory();
+          return;
+        }
+        initialStoredRestorePending = false;
+        initialStoredRestoreSessionId = '';
         hydrateBranchFamilies(payload.branchFamilies);
         let lastUserPrompt = null;
         for (const msg of payload.history || []) {
@@ -2471,8 +2542,44 @@
           method: 'GET',
           headers: apiHeaders(),
         });
+        activeDefaultAgentId = normalizeAgentId(payload.defaultAgentId);
+        const storedSessionId = resolveStoredSessionId(
+          initialStoredSessionId || localStorage.getItem('hybridclaw_session'),
+          { allowGenerate: false },
+        );
+        const storedSessionAgentId = resolveWebSessionAgentId(storedSessionId);
+        const shouldReplaceStoredSession =
+          Boolean(storedSessionId) &&
+          Boolean(storedSessionAgentId) &&
+          storedSessionAgentId !== activeDefaultAgentId;
+        if (!activeSessionId) {
+          activeSessionId = storedSessionId;
+        }
+        if (
+          shouldReplaceStoredSession &&
+          (!activeSessionId || activeSessionId === storedSessionId)
+        ) {
+          activeSessionId = generateWebSessionId();
+          initialStoredRestorePending = false;
+          initialStoredRestoreSessionId = '';
+        }
+        if (!activeSessionId) {
+          activeSessionId = generateWebSessionId();
+          initialStoredRestorePending = false;
+          initialStoredRestoreSessionId = '';
+        }
+        savePrefs();
+        updateWindowTitle();
+        renderRecentSessions();
         setAppVersion(payload.version || '');
       } catch {
+        activeDefaultAgentId = DEFAULT_AGENT_ID;
+        if (!activeSessionId) {
+          activeSessionId = generateWebSessionId();
+          savePrefs();
+          updateWindowTitle();
+          renderRecentSessions();
+        }
         setAppVersion('');
       }
     }
@@ -2638,6 +2745,8 @@
       }
       activeSessionId = String(sessionId || '').trim();
       if (!activeSessionId) return;
+      initialStoredRestorePending = false;
+      initialStoredRestoreSessionId = '';
       pruneBranchStateForSession(activeSessionId);
       messageEl.value = '';
       messagesEl.innerHTML = '';
@@ -2664,6 +2773,8 @@
       lastSessionNumber += 1;
       activeSessionNumber = lastSessionNumber;
       activeSessionId = generateWebSessionId();
+      initialStoredRestorePending = false;
+      initialStoredRestoreSessionId = '';
       pruneBranchStateForSession(null);
       messageEl.value = '';
       messagesEl.innerHTML = '';
@@ -2724,10 +2835,11 @@
     renderPendingMedia();
     updateEmptyState();
     updateWindowTitle();
-    savePrefs();
-    void loadStatus();
-    void refreshRecentSessions();
-    void loadHistory();
+    void (async () => {
+      await loadStatus();
+      await refreshRecentSessions();
+      await loadHistory();
+    })();
   </script>
 </body>
 </html>

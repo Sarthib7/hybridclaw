@@ -2877,9 +2877,12 @@ describe('CLI hybridai commands', () => {
 
     expect(updateRuntimeConfig).toHaveBeenCalled();
     const nextConfig = updateRuntimeConfig.mock.results[0]?.value as {
-      agents: { defaultAgentId: string };
+      agents: { defaultAgentId: string; list: Array<{ id: string }> };
     };
     expect(nextConfig.agents.defaultAgentId).toBe('charly');
+    expect(nextConfig.agents.list).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'charly' })]),
+    );
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('Activated agent charly as the default'),
     );

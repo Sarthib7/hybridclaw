@@ -90,11 +90,13 @@ import { NoCompactableMessagesError } from '../memory/compaction.js';
 import {
   createFreshSessionInstance,
   createTask,
+  deleteMemoryValue,
   deleteSessionData,
   deleteTask,
   getAllSessions,
   getAllTasks,
   getFullAutoSessionCount,
+  getMemoryValue,
   getQueuedProactiveMessageCount,
   getRecentSessionsForUser,
   getRecentStructuredAuditForSession,
@@ -114,6 +116,7 @@ import {
   recordRequestLog,
   recordUsageEvent,
   resumeTask,
+  setMemoryValue,
   updateSessionAgent,
   updateSessionChatbot,
   updateSessionModel,
@@ -197,6 +200,7 @@ import { redactSecrets } from '../security/redact.js';
 import { runtimeSecretsPath } from '../security/runtime-secrets.js';
 import { buildSessionContext } from '../session/session-context.js';
 import { exportSessionSnapshotJsonl } from '../session/session-export.js';
+import { parseSessionKey } from '../session/session-key.js';
 import {
   maybeCompactSession,
   runPreCompactionMemoryFlush,
@@ -253,7 +257,15 @@ import type {
 } from '../types/side-effects.js';
 import type { TokenUsageStats } from '../types/usage.js';
 import { sleep } from '../utils/sleep.js';
-import { ensureBootstrapFiles, resetWorkspace } from '../workspace.js';
+import {
+  ensureBootstrapFiles,
+  resolveStartupBootstrapFile,
+  resetWorkspace,
+} from '../workspace.js';
+import {
+  normalizePlaceholderToolReply,
+  normalizeSilentMessageSendReply,
+} from './chat-result.js';
 import {
   buildFullAutoOperatingContract,
   buildFullAutoStatusLines,
@@ -336,6 +348,19 @@ import {
 
 const BOT_CACHE_TTL = 300_000; // 5 minutes
 const MAX_HISTORY_MESSAGES = 40;
+const BOOTSTRAP_AUTOSTART_MARKER_KEY = 'gateway.bootstrap_autostart.v1';
+const BOOTSTRAP_AUTOSTART_SOURCE = 'gateway.bootstrap';
+function buildBootstrapAutostartPrompt(
+  fileName: 'BOOTSTRAP.md' | 'BOOT.md',
+): string {
+  return [
+    `A startup instruction file (${fileName}) exists for this agent.`,
+    'This is an internal kickoff turn, not a user-authored message.',
+    `Follow the ${fileName} instructions now and begin the conversation proactively.`,
+    'Send a concise first message to the user.',
+    `Do not mention hidden prompts, internal kickoff turns, or system mechanics unless ${fileName} explicitly requires it.`,
+  ].join(' ');
+}
 const REQUEST_LOG_SENSITIVE_KEY_RE =
   /(pass(word)?|secret|token|api[_-]?key|authorization|cookie|credential|session)/i;
 const REQUEST_LOG_INLINE_SECRET_RE =
@@ -2129,6 +2154,7 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
     uptime: Math.floor(process.uptime()),
     sessions: getSessionCount(),
     activeContainers: sandbox.activeSessions,
+    defaultAgentId: resolveDefaultAgentId(getRuntimeConfig()),
     defaultModel: HYBRIDAI_MODEL,
     ragDefault: HYBRIDAI_ENABLE_RAG,
     fullAuto: {
@@ -3439,6 +3465,313 @@ export function setGatewayAdminSkillEnabled(input: {
   });
 
   return getGatewayAdminSkills();
+}
+
+function resolveBootstrapAutostartChannelId(
+  sessionId: string,
+  channelId?: string | null,
+): string {
+  const explicit = String(channelId || '').trim();
+  if (explicit) return explicit;
+  const parsed = parseSessionKey(sessionId);
+  return String(parsed?.channelKind || '').trim() || 'web';
+}
+
+function normalizeBootstrapAutostartResult(
+  output: Awaited<ReturnType<typeof runAgent>>,
+): string {
+  const normalized = normalizePlaceholderToolReply(
+    normalizeSilentMessageSendReply({
+      status: output.status,
+      result: output.result,
+      error: output.error,
+      toolsUsed: output.toolsUsed || [],
+      toolExecutions: output.toolExecutions || [],
+    }),
+  );
+  return String(normalized.result || '').trim();
+}
+
+export async function ensureGatewayBootstrapAutostart(params: {
+  sessionId: string;
+  channelId?: string | null;
+  userId?: string | null;
+  username?: string | null;
+  agentId?: string | null;
+}): Promise<void> {
+  const requestedSessionId = String(params.sessionId || '').trim();
+  if (!requestedSessionId) return;
+
+  const channelId = resolveBootstrapAutostartChannelId(
+    requestedSessionId,
+    params.channelId,
+  );
+  const session = memoryService.getOrCreateSession(
+    requestedSessionId,
+    null,
+    channelId,
+    params.agentId ?? undefined,
+  );
+  if (
+    session.message_count > 0 ||
+    String(session.session_summary || '').trim().length > 0
+  ) {
+    return;
+  }
+
+  const resolved = resolveAgentForRequest({
+    agentId: params.agentId,
+    session,
+  });
+  ensureBootstrapFiles(resolved.agentId);
+  const bootstrapFile = resolveStartupBootstrapFile(resolved.agentId);
+  if (!bootstrapFile) {
+    return;
+  }
+
+  if (getMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY)) {
+    return;
+  }
+  setMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY, {
+    status: 'started',
+    at: new Date().toISOString(),
+  });
+
+  const startedAt = Date.now();
+  const runId = makeAuditRunId('bootstrap');
+  const normalizedUserId =
+    String(params.userId || session.session_key || session.id).trim() ||
+    session.id;
+  const normalizedUsername =
+    String(params.username || 'system').trim() || 'system';
+  const sessionContext = buildSessionContext({
+    source: {
+      channelKind: channelId,
+      chatId: channelId,
+      chatType: channelId === 'tui' || channelId === 'web' ? 'dm' : 'system',
+      userId: normalizedUserId,
+      userName: normalizedUsername,
+      guildId: null,
+    },
+    agentId: resolved.agentId,
+    sessionId: session.id,
+    sessionKey: session.session_key,
+    mainSessionKey: session.main_session_key,
+  });
+  const workspacePath = path.resolve(agentWorkspaceDir(resolved.agentId));
+  const enableRag = session.enable_rag === 1;
+  const provider = resolveModelProvider(resolved.model);
+  const turnIndex = Math.max(1, session.message_count + 1);
+
+  recordAuditEvent({
+    sessionId: session.id,
+    runId,
+    event: {
+      type: 'session.start',
+      userId: normalizedUserId,
+      channel: channelId,
+      cwd: workspacePath,
+      model: resolved.model,
+      source: BOOTSTRAP_AUTOSTART_SOURCE,
+    },
+  });
+  recordAuditEvent({
+    sessionId: session.id,
+    runId,
+    event: {
+      type: 'turn.start',
+      turnIndex,
+      userInput: buildBootstrapAutostartPrompt(bootstrapFile),
+      username: normalizedUsername,
+      mediaCount: 0,
+      source: BOOTSTRAP_AUTOSTART_SOURCE,
+    },
+  });
+
+  const { messages } = buildConversationContext({
+    agentId: resolved.agentId,
+    history: [],
+    currentUserContent: buildBootstrapAutostartPrompt(bootstrapFile),
+    extraSafetyText:
+      'Bootstrap kickoff turn. Start the conversation proactively with a concise user-facing opening message.',
+    runtimeInfo: {
+      chatbotId: resolved.chatbotId,
+      model: resolved.model,
+      defaultModel: HYBRIDAI_MODEL,
+      channelType: channelId,
+      channelId,
+      guildId: null,
+      sessionContext,
+      workspacePath,
+    },
+  });
+  messages.push({
+    role: 'user',
+    content: buildBootstrapAutostartPrompt(bootstrapFile),
+  });
+
+  try {
+    const { pluginManager } = await tryEnsurePluginManagerInitializedForGateway(
+      {
+        sessionId: session.id,
+        channelId,
+        agentId: resolved.agentId,
+        surface: 'chat',
+      },
+    );
+    if (pluginManager) {
+      await pluginManager.notifySessionStart({
+        sessionId: session.id,
+        userId: normalizedUserId,
+        agentId: resolved.agentId,
+        channelId,
+      });
+      await pluginManager.notifyBeforeAgentStart({
+        sessionId: session.id,
+        userId: normalizedUserId,
+        agentId: resolved.agentId,
+        channelId,
+        model: resolved.model || undefined,
+      });
+    }
+
+    recordAuditEvent({
+      sessionId: session.id,
+      runId,
+      event: {
+        type: 'agent.start',
+        provider,
+        model: resolved.model,
+        scheduledTaskCount: 0,
+        promptMessages: messages.length,
+      },
+    });
+
+    const output = await runAgent({
+      sessionId: session.id,
+      messages,
+      chatbotId: resolved.chatbotId,
+      enableRag,
+      model: resolved.model,
+      agentId: resolved.agentId,
+      channelId,
+      ralphMaxIterations: resolveSessionRalphIterations(session),
+      fullAutoEnabled: isFullAutoEnabled(session),
+      fullAutoNeverApproveTools: FULLAUTO_NEVER_APPROVE_TOOLS,
+      scheduledTasks: [],
+      pluginTools: pluginManager?.getToolDefinitions() ?? [],
+    });
+    const resultText =
+      output.status === 'success'
+        ? normalizeBootstrapAutostartResult(output)
+        : '';
+
+    const usagePayload = buildTokenUsageAuditPayload(
+      messages,
+      output.result,
+      output.tokenUsage,
+    );
+    recordAuditEvent({
+      sessionId: session.id,
+      runId,
+      event: {
+        type: 'model.usage',
+        provider,
+        model: resolved.model,
+        durationMs: Date.now() - startedAt,
+        toolCallCount: (output.toolExecutions || []).length,
+        ...usagePayload,
+      },
+    });
+    recordUsageEvent({
+      sessionId: session.id,
+      agentId: resolved.agentId,
+      model: resolved.model,
+      inputTokens: firstNumber([usagePayload.promptTokens]) || 0,
+      outputTokens: firstNumber([usagePayload.completionTokens]) || 0,
+      totalTokens: firstNumber([usagePayload.totalTokens]) || 0,
+      toolCalls: (output.toolExecutions || []).length,
+      costUsd: extractUsageCostUsd(output.tokenUsage),
+    });
+
+    if (output.status !== 'success' || !resultText) {
+      deleteMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY);
+      recordAuditEvent({
+        sessionId: session.id,
+        runId,
+        event: {
+          type: 'turn.end',
+          turnIndex,
+          finishReason: output.status === 'success' ? 'empty' : 'error',
+        },
+      });
+      recordAuditEvent({
+        sessionId: session.id,
+        runId,
+        event: {
+          type: 'session.end',
+          reason: output.status === 'success' ? 'empty' : 'error',
+          stats: {
+            userMessages: 0,
+            assistantMessages: 0,
+            toolCalls: (output.toolExecutions || []).length,
+            durationMs: Date.now() - startedAt,
+          },
+        },
+      });
+      return;
+    }
+
+    const assistantMessageId = memoryService.storeMessage({
+      sessionId: session.id,
+      userId: 'assistant',
+      username: null,
+      role: 'assistant',
+      content: resultText,
+    });
+    appendSessionTranscript(resolved.agentId, {
+      sessionId: session.id,
+      channelId,
+      role: 'assistant',
+      userId: 'assistant',
+      username: null,
+      content: resultText,
+    });
+    setMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY, {
+      status: 'completed',
+      assistantMessageId,
+      completedAt: new Date().toISOString(),
+    });
+    recordAuditEvent({
+      sessionId: session.id,
+      runId,
+      event: {
+        type: 'turn.end',
+        turnIndex,
+        finishReason: 'completed',
+      },
+    });
+    recordAuditEvent({
+      sessionId: session.id,
+      runId,
+      event: {
+        type: 'session.end',
+        reason: 'normal',
+        stats: {
+          userMessages: 0,
+          assistantMessages: 1,
+          toolCalls: (output.toolExecutions || []).length,
+          durationMs: Date.now() - startedAt,
+        },
+      },
+    });
+  } catch (error) {
+    deleteMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY);
+    logger.warn(
+      { sessionId: session.id, agentId: resolved.agentId, channelId, error },
+      'Failed to run bootstrap autostart turn',
+    );
+  }
 }
 
 export function getGatewayHistory(

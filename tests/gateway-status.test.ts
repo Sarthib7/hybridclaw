@@ -172,6 +172,30 @@ test('getGatewayStatus includes Codex auth state', async () => {
   });
 });
 
+test('getGatewayStatus includes the configured default agent id', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  mockHealthProbes();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.agents = {
+      ...(config.agents ?? {}),
+      defaultAgentId: 'charly',
+      list: [{ id: 'main' }, { id: 'charly' }],
+    };
+  });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getGatewayStatus } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const status = await getGatewayStatus();
+
+  expect(status.defaultAgentId).toBe('charly');
+});
+
 test('status command includes the current session agent', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
@@ -214,6 +238,52 @@ test('status command includes the current session agent', async () => {
   expect(result.text).toContain(
     `CWD: ${path.resolve(agentWorkspaceDir('research'))}`,
   );
+});
+
+test('assistant presentation caches resolved image assets per agent path', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { upsertRegisteredAgent } = await import(
+    '../src/agents/agent-registry.ts'
+  );
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
+  const { getGatewayAssistantPresentationForAgent } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  upsertRegisteredAgent({
+    id: 'charly',
+    name: 'Charly Agent',
+    displayName: 'Charly',
+    imageAsset: 'avatars/charly.png',
+  });
+
+  const avatarPath = path.join(
+    agentWorkspaceDir('charly'),
+    'avatars',
+    'charly.png',
+  );
+  fs.mkdirSync(path.dirname(avatarPath), { recursive: true });
+  fs.writeFileSync(avatarPath, Buffer.from('89504e470d0a1a0a', 'hex'));
+
+  const statSyncSpy = vi.spyOn(fs, 'statSync');
+
+  expect(getGatewayAssistantPresentationForAgent('charly')).toMatchObject({
+    agentId: 'charly',
+    displayName: 'Charly',
+    imageUrl: '/api/agent-avatar?agentId=charly',
+  });
+  expect(getGatewayAssistantPresentationForAgent('charly')).toMatchObject({
+    agentId: 'charly',
+    displayName: 'Charly',
+    imageUrl: '/api/agent-avatar?agentId=charly',
+  });
+  expect(statSyncSpy).toHaveBeenCalledTimes(1);
 });
 
 test('getGatewayStatus includes loaded plugin commands for TUI discovery', async () => {

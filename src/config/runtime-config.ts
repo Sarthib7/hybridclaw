@@ -10,6 +10,7 @@ import {
   type AgentDefaultsConfig,
   type AgentModelConfig,
   type AgentsConfig,
+  buildOptionalAgentPresentation,
   DEFAULT_AGENT_ID,
 } from '../agents/agent-types.js';
 
@@ -615,6 +616,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     trustModelAcceptedBy: '',
   },
   agents: {
+    defaultAgentId: DEFAULT_AGENT_ID,
     defaults: {},
     list: [{ id: DEFAULT_AGENT_ID }],
   },
@@ -1278,6 +1280,20 @@ function normalizeAgentConfig(
   const name = normalizeString(value.name, fallback?.name ?? '', {
     allowEmpty: true,
   });
+  const displayName = normalizeString(
+    value.displayName,
+    fallback?.displayName ?? '',
+    {
+      allowEmpty: true,
+    },
+  );
+  const imageAsset = normalizeString(
+    value.imageAsset,
+    fallback?.imageAsset ?? '',
+    {
+      allowEmpty: true,
+    },
+  );
   const model = normalizeAgentModelConfig(value.model, fallback?.model);
   const workspace = normalizeString(
     value.workspace,
@@ -1300,6 +1316,7 @@ function normalizeAgentConfig(
   return {
     id,
     ...(name ? { name } : {}),
+    ...buildOptionalAgentPresentation(displayName, imageAsset),
     ...(model ? { model } : {}),
     ...(workspace ? { workspace } : {}),
     ...(chatbotId ? { chatbotId } : {}),
@@ -1327,8 +1344,17 @@ function normalizeAgentsConfig(
   }
   if (!seen.has(DEFAULT_AGENT_ID)) {
     list.unshift({ id: DEFAULT_AGENT_ID });
+    seen.add(DEFAULT_AGENT_ID);
   }
+  const defaultAgentId = normalizeString(
+    raw.defaultAgentId,
+    fallback.defaultAgentId ?? DEFAULT_AGENT_ID,
+    { allowEmpty: false },
+  );
   return {
+    defaultAgentId: seen.has(defaultAgentId)
+      ? defaultAgentId
+      : DEFAULT_AGENT_ID,
     defaults,
     list,
   };
@@ -3987,6 +4013,23 @@ export function ensureRuntimeConfigFile(): boolean {
 
 export function getRuntimeConfig(): RuntimeConfig {
   return cloneConfig(currentConfig);
+}
+
+export function resolveDefaultAgentId(
+  config: Pick<RuntimeConfig, 'agents'> = currentConfig,
+): string {
+  const configured = normalizeString(
+    config.agents.defaultAgentId,
+    DEFAULT_AGENT_ID,
+    { allowEmpty: false },
+  );
+  const hasConfiguredAgent = (config.agents.list ?? []).some(
+    (entry) =>
+      normalizeString(entry.id, '', {
+        allowEmpty: false,
+      }) === configured,
+  );
+  return hasConfiguredAgent ? configured : DEFAULT_AGENT_ID;
 }
 
 export function isContainerSandboxModeExplicit(): boolean {

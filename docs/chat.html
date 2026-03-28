@@ -647,6 +647,41 @@
       background: #ffffff;
     }
 
+    .msg-agent {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+      color: #5f6f88;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+    }
+
+    .msg-agent-avatar {
+      width: 30px;
+      height: 30px;
+      border-radius: 999px;
+      object-fit: cover;
+      border: 1px solid rgba(95, 111, 136, 0.12);
+      background: #eef3ff;
+      flex: 0 0 auto;
+    }
+
+    .msg-agent-fallback {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, rgba(80, 103, 255, 0.14), rgba(108, 127, 255, 0.22));
+      color: #3750c7;
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+
+    .msg-content {
+      min-width: 0;
+    }
+
     .msg.system {
       background: #f8faff;
       color: #4e6285;
@@ -1073,20 +1108,63 @@
       return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
     }
 
-    function generateWebSessionId() {
-      return `agent:main:channel:web:chat:dm:peer:${randomHex(8)}`;
+    const DEFAULT_AGENT_ID = 'main';
+    const LEGACY_DEFAULT_WEB_SESSION_ID_RE = /^agent:[^:]+:channel:web:chat:dm:peer:default$/;
+
+    function normalizeSessionKeySegment(value) {
+      return String(value || '').trim().toLowerCase();
+    }
+
+    function encodeSessionKeySegment(value, label) {
+      const normalized = normalizeSessionKeySegment(value);
+      if (!normalized) {
+        throw new Error(`Session key ${label} cannot be empty`);
+      }
+      return encodeURIComponent(normalized);
+    }
+
+    function decodeSessionKeySegment(value) {
+      const normalized = String(value || '').trim();
+      if (!normalized) return '';
+      try {
+        return decodeURIComponent(normalized).trim().toLowerCase();
+      } catch {
+        return '';
+      }
+    }
+
+    function buildWebSessionId(agentId, peerId) {
+      return `agent:${encodeSessionKeySegment(agentId, 'agentId')}:channel:web:chat:dm:peer:${encodeSessionKeySegment(peerId, 'peerId')}`;
+    }
+
+    let activeDefaultAgentId = DEFAULT_AGENT_ID;
+
+    function generateWebSessionId(agentId = activeDefaultAgentId) {
+      return buildWebSessionId(agentId, randomHex(8));
+    }
+
+    function normalizeAgentId(value) {
+      return normalizeSessionKeySegment(value) || DEFAULT_AGENT_ID;
     }
 
     function generateWebUserId() {
       return `web-user-${randomHex(4)}`;
     }
 
-    function resolveStoredSessionId(raw) {
+    function resolveStoredSessionId(raw, options = {}) {
+      const defaultAgentId = normalizeAgentId(options.defaultAgentId || activeDefaultAgentId);
+      const allowGenerate = options.allowGenerate !== false;
       const normalized = String(raw || '').trim();
-      if (!normalized || normalized === 'web:default' || normalized === 'agent:main:channel:web:chat:dm:peer:default') {
-        return generateWebSessionId();
+      if (!normalized || normalized === 'web:default' || LEGACY_DEFAULT_WEB_SESSION_ID_RE.test(normalized)) {
+        return allowGenerate ? generateWebSessionId(defaultAgentId) : '';
       }
       return normalized;
+    }
+
+    function resolveWebSessionAgentId(sessionId) {
+      const match = String(sessionId || '').trim().match(/^agent:([^:]+):channel:web:chat:dm:peer:[^:]+$/);
+      if (!match) return '';
+      return decodeSessionKeySegment(match[1]);
     }
 
     function normalizeRecentSession(entry) {
@@ -1103,7 +1181,12 @@
       };
     }
 
-    let activeSessionId = resolveStoredSessionId(localStorage.getItem('hybridclaw_session'));
+    const initialStoredSessionId = localStorage.getItem('hybridclaw_session');
+    let activeSessionId = resolveStoredSessionId(initialStoredSessionId, {
+      allowGenerate: false,
+    });
+    let initialStoredRestoreSessionId = activeSessionId;
+    let initialStoredRestorePending = Boolean(activeSessionId);
     const activeUserId = localStorage.getItem('hybridclaw_user_id') || generateWebUserId();
     let activeSessionNumber = parseInt(localStorage.getItem('hybridclaw_session_number') || '1', 10);
     if (Number.isNaN(activeSessionNumber) || activeSessionNumber < 1) {
@@ -1119,6 +1202,10 @@
     let pendingUploadCount = 0;
     let activeChatRequest = null;
     let activeEditState = null;
+    let activeAssistantPresentation = null;
+    const assistantAvatarObjectUrls = new Map();
+    const assistantAvatarFetches = new Map();
+    let bootstrapPollTimer = null;
     const messageMetaByBlock = new WeakMap();
     const sessionBranchAnchors = new Map();
     const branchFamilies = new Map();
@@ -1138,6 +1225,8 @@
       'Brainstorm mode activated. What’s first?',
     ];
     let introIndex = 0;
+    const BOOTSTRAP_POLL_DELAY_MS = 900;
+    const MAX_BOOTSTRAP_POLL_ATTEMPTS = 24;
 
     function renderIntro() {
       if (greetingEl) {
@@ -1145,8 +1234,51 @@
       }
     }
 
+    function clearBootstrapPoll() {
+      if (bootstrapPollTimer) {
+        window.clearTimeout(bootstrapPollTimer);
+        bootstrapPollTimer = null;
+      }
+    }
+
+    function showBootstrapPendingState(fileName) {
+      if (messagesEl.querySelector('[data-bootstrap-pending="true"]')) {
+        return;
+      }
+      if (fileName === 'BOOTSTRAP.md') {
+        const statusView = addMessage('system', 'Starting onboarding.');
+        if (statusView?.block) {
+          statusView.block.dataset.bootstrapPending = 'true';
+        }
+      }
+      const thinkingItem = addThinkingMessage();
+      thinkingItem.dataset.bootstrapPending = 'true';
+    }
+
+    function scheduleBootstrapPoll(sessionId, attempt) {
+      if (attempt >= MAX_BOOTSTRAP_POLL_ATTEMPTS) {
+        clearBootstrapPoll();
+        return;
+      }
+      clearBootstrapPoll();
+      bootstrapPollTimer = window.setTimeout(() => {
+        if (String(activeSessionId || '').trim() !== String(sessionId || '').trim()) {
+          clearBootstrapPoll();
+          return;
+        }
+        void loadHistory({
+          preservePendingBootstrap: true,
+          bootstrapAttempt: attempt + 1,
+        });
+      }, BOOTSTRAP_POLL_DELAY_MS);
+    }
+
     function savePrefs() {
-      localStorage.setItem('hybridclaw_session', activeSessionId);
+      if (activeSessionId) {
+        localStorage.setItem('hybridclaw_session', activeSessionId);
+      } else {
+        localStorage.removeItem('hybridclaw_session');
+      }
       localStorage.setItem('hybridclaw_user_id', activeUserId);
       localStorage.setItem('hybridclaw_session_number', String(activeSessionNumber));
       localStorage.setItem('hybridclaw_last_session_number', String(lastSessionNumber));
@@ -1193,6 +1325,131 @@
       if (!Array.isArray(media) || media.length === 0) return [];
       return media.map((item) => ({ ...item }));
     }
+
+    function normalizeAssistantPresentation(value) {
+      if (!value || typeof value !== 'object') return null;
+      const displayName = String(value.displayName || '').trim();
+      if (!displayName) return null;
+      const agentId = String(value.agentId || '').trim();
+      const imageUrl = String(value.imageUrl || '').trim();
+      return {
+        agentId,
+        displayName,
+        imageUrl: imageUrl || '',
+      };
+    }
+
+    function resolveAssistantImageUrl(rawUrl) {
+      const base = String(rawUrl || '').trim();
+      if (!base) return '';
+      try {
+        return new URL(base, window.location.origin).toString();
+      } catch {
+        return base;
+      }
+    }
+
+    async function fetchAssistantAvatarObjectUrl(rawUrl) {
+      const resolvedUrl = resolveAssistantImageUrl(rawUrl);
+      if (!resolvedUrl) return '';
+      if (assistantAvatarObjectUrls.has(resolvedUrl)) {
+        return assistantAvatarObjectUrls.get(resolvedUrl) || '';
+      }
+      if (assistantAvatarFetches.has(resolvedUrl)) {
+        return assistantAvatarFetches.get(resolvedUrl);
+      }
+
+      const fetchPromise = fetch(resolvedUrl, {
+        headers: apiHeaders(null),
+      })
+        .then(async (response) => {
+          if (!response.ok) return '';
+          const blob = await response.blob();
+          const objectUrl = URL.createObjectURL(blob);
+          assistantAvatarObjectUrls.set(resolvedUrl, objectUrl);
+          return objectUrl;
+        })
+        .catch(() => '')
+        .finally(() => {
+          assistantAvatarFetches.delete(resolvedUrl);
+        });
+
+      assistantAvatarFetches.set(resolvedUrl, fetchPromise);
+      return fetchPromise;
+    }
+
+    function buildAssistantInitials(label) {
+      const words = String(label || '')
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean);
+      if (words.length === 0) return 'AI';
+      const initials = words
+        .slice(0, 2)
+        .map((word) => word.charAt(0))
+        .join('');
+      return initials.toUpperCase() || 'AI';
+    }
+
+    function createAssistantAvatarFallback(label) {
+      const fallback = document.createElement('span');
+      fallback.className = 'msg-agent-avatar msg-agent-fallback';
+      fallback.textContent = buildAssistantInitials(label);
+      return fallback;
+    }
+
+    async function loadAssistantAvatar(rawUrl, displayName, fallback) {
+      const imageUrl = await fetchAssistantAvatarObjectUrl(rawUrl);
+      if (!imageUrl || !fallback.isConnected) return;
+
+      const avatar = document.createElement('img');
+      avatar.className = 'msg-agent-avatar';
+      avatar.alt = displayName;
+      avatar.loading = 'lazy';
+
+      await new Promise((resolve) => {
+        avatar.addEventListener('load', resolve, { once: true });
+        avatar.addEventListener('error', resolve, { once: true });
+        avatar.src = imageUrl;
+      });
+
+      if (!fallback.isConnected || !avatar.complete || avatar.naturalWidth === 0) {
+        return;
+      }
+      fallback.replaceWith(avatar);
+    }
+
+    function appendAssistantPresentation(item, presentation) {
+      const normalized = normalizeAssistantPresentation(presentation);
+      if (!normalized) return;
+
+      const header = document.createElement('div');
+      header.className = 'msg-agent';
+
+      const fallback = createAssistantAvatarFallback(normalized.displayName);
+      header.appendChild(fallback);
+
+      if (normalized.imageUrl) {
+        void loadAssistantAvatar(
+          normalized.imageUrl,
+          normalized.displayName,
+          fallback,
+        );
+      }
+
+      const label = document.createElement('span');
+      label.textContent = normalized.displayName;
+      header.appendChild(label);
+      item.appendChild(header);
+    }
+
+    window.addEventListener('beforeunload', () => {
+      for (const objectUrl of assistantAvatarObjectUrls.values()) {
+        URL.revokeObjectURL(objectUrl);
+      }
+      assistantAvatarObjectUrls.clear();
+      assistantAvatarFetches.clear();
+    });
 
     function normalizeMessageId(value) {
       const id = Number(value);
@@ -2003,7 +2260,14 @@
       item.className = `msg ${role}`;
       if (role === 'assistant') {
         item.classList.add('markdown');
-        item.innerHTML = renderMarkdown(content || '');
+        appendAssistantPresentation(
+          item,
+          options.assistantPresentation || activeAssistantPresentation,
+        );
+        const contentEl = document.createElement('div');
+        contentEl.className = 'msg-content';
+        contentEl.innerHTML = renderMarkdown(content || '');
+        item.appendChild(contentEl);
       } else {
         item.textContent = content || '';
       }
@@ -2288,14 +2552,21 @@
       attachmentInputEl.value = '';
     }
 
-    async function loadHistory() {
+    async function loadHistory(options = {}) {
+      const preservePendingBootstrap = options.preservePendingBootstrap === true;
+      const bootstrapAttempt = Number(options.bootstrapAttempt) || 0;
       activeEditState = null;
+      activeAssistantPresentation = null;
       savePrefs();
       setError('');
       pruneBranchStateForSession(activeSessionId);
-      messagesEl.innerHTML = '';
-      updateEmptyState();
+      if (!preservePendingBootstrap) {
+        clearBootstrapPoll();
+        messagesEl.innerHTML = '';
+        updateEmptyState();
+      }
       try {
+        const requestedSessionId = activeSessionId;
         const sessionId = encodeURIComponent(activeSessionId);
         const payload = await requestJson(`/api/history?sessionId=${sessionId}&limit=80`, {
           method: 'GET',
@@ -2306,7 +2577,36 @@
           activeSessionId = nextSessionId;
           savePrefs();
         }
+        activeAssistantPresentation = normalizeAssistantPresentation(payload.assistantPresentation);
+        const restoredAgentId = normalizeAgentId(activeAssistantPresentation?.agentId);
+        if (
+          initialStoredRestorePending &&
+          requestedSessionId &&
+          requestedSessionId === initialStoredRestoreSessionId &&
+          restoredAgentId &&
+          restoredAgentId !== activeDefaultAgentId
+        ) {
+          initialStoredRestorePending = false;
+          initialStoredRestoreSessionId = '';
+          activeSessionId = generateWebSessionId();
+          savePrefs();
+          renderRecentSessions();
+          await loadHistory();
+          return;
+        }
+        initialStoredRestorePending = false;
+        initialStoredRestoreSessionId = '';
         hydrateBranchFamilies(payload.branchFamilies);
+        const bootstrapAutostart = payload?.bootstrapAutostart || null;
+        const showBootstrapPending =
+          (!Array.isArray(payload.history) || payload.history.length === 0) &&
+          bootstrapAutostart?.status === 'starting' &&
+          (bootstrapAutostart?.fileName === 'BOOTSTRAP.md' ||
+            bootstrapAutostart?.fileName === 'OPENING.md');
+        if (!preservePendingBootstrap || !showBootstrapPending) {
+          messagesEl.innerHTML = '';
+          updateEmptyState();
+        }
         let lastUserPrompt = null;
         for (const msg of payload.history || []) {
           const role = String(msg.role || '');
@@ -2331,13 +2631,21 @@
               sessionId: activeSessionId,
               messageId,
               replayRequest: lastUserPrompt,
+              assistantPresentation: activeAssistantPresentation,
             });
             continue;
           }
           addMessage(role, content);
         }
+        if (showBootstrapPending) {
+          showBootstrapPendingState(bootstrapAutostart?.fileName);
+          scheduleBootstrapPoll(activeSessionId, bootstrapAttempt);
+        } else {
+          clearBootstrapPoll();
+        }
         renderRecentSessions();
       } catch (err) {
+        clearBootstrapPoll();
         setError(err instanceof Error ? err.message : String(err));
       }
     }
@@ -2348,8 +2656,44 @@
           method: 'GET',
           headers: apiHeaders(),
         });
+        activeDefaultAgentId = normalizeAgentId(payload.defaultAgentId);
+        const storedSessionId = resolveStoredSessionId(
+          initialStoredSessionId || localStorage.getItem('hybridclaw_session'),
+          { allowGenerate: false },
+        );
+        const storedSessionAgentId = resolveWebSessionAgentId(storedSessionId);
+        const shouldReplaceStoredSession =
+          Boolean(storedSessionId) &&
+          Boolean(storedSessionAgentId) &&
+          storedSessionAgentId !== activeDefaultAgentId;
+        if (!activeSessionId) {
+          activeSessionId = storedSessionId;
+        }
+        if (
+          shouldReplaceStoredSession &&
+          (!activeSessionId || activeSessionId === storedSessionId)
+        ) {
+          activeSessionId = generateWebSessionId();
+          initialStoredRestorePending = false;
+          initialStoredRestoreSessionId = '';
+        }
+        if (!activeSessionId) {
+          activeSessionId = generateWebSessionId();
+          initialStoredRestorePending = false;
+          initialStoredRestoreSessionId = '';
+        }
+        savePrefs();
+        updateWindowTitle();
+        renderRecentSessions();
         setAppVersion(payload.version || '');
       } catch {
+        activeDefaultAgentId = DEFAULT_AGENT_ID;
+        if (!activeSessionId) {
+          activeSessionId = generateWebSessionId();
+          savePrefs();
+          updateWindowTitle();
+          renderRecentSessions();
+        }
         setAppVersion('');
       }
     }
@@ -2512,6 +2856,8 @@
       }
       activeSessionId = String(sessionId || '').trim();
       if (!activeSessionId) return;
+      initialStoredRestorePending = false;
+      initialStoredRestoreSessionId = '';
       pruneBranchStateForSession(activeSessionId);
       messageEl.value = '';
       messagesEl.innerHTML = '';
@@ -2538,6 +2884,8 @@
       lastSessionNumber += 1;
       activeSessionNumber = lastSessionNumber;
       activeSessionId = generateWebSessionId();
+      initialStoredRestorePending = false;
+      initialStoredRestoreSessionId = '';
       pruneBranchStateForSession(null);
       messageEl.value = '';
       messagesEl.innerHTML = '';
@@ -2598,10 +2946,11 @@
     renderPendingMedia();
     updateEmptyState();
     updateWindowTitle();
-    savePrefs();
-    void loadStatus();
-    void refreshRecentSessions();
-    void loadHistory();
+    void (async () => {
+      await loadStatus();
+      await refreshRecentSessions();
+      await loadHistory();
+    })();
   </script>
 </body>
 </html>

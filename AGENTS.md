@@ -310,7 +310,15 @@ When the user says "bump release":
 5. Commit with `chore: release vX.Y.Z`.
 6. Create an annotated git tag `vX.Y.Z`.
 7. Push the commit and tag.
-8. Create or publish a GitHub Release entry for the tag.
+8. Create or publish a GitHub Release entry for the tag using the same curated
+   format as `v0.9.2`:
+   - title: `HybridClaw vX.Y.Z`
+   - `Release Date:` line with the calendar date
+   - short blockquote summary paragraph
+   - `Highlights`, `Changed`, and `Fixed` sections with polished bullets
+   - `Contributors` section (`Core` and `All Contributors`)
+   - trailing `Full Changelog` compare link
+   - do not paste the raw `CHANGELOG.md` version heading/body verbatim
 
 ---
 

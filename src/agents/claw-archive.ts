@@ -980,6 +980,19 @@ export async function packAgent(
       ? { version: normalizeString(options.manifestMetadata?.version) }
       : {}),
     createdAt: options.createdAt ?? new Date().toISOString(),
+    ...(normalizeString(resolved.displayName) ||
+    normalizeString(resolved.imageAsset)
+      ? {
+          presentation: {
+            ...(normalizeString(resolved.displayName)
+              ? { displayName: normalizeString(resolved.displayName) }
+              : {}),
+            ...(normalizeString(resolved.imageAsset)
+              ? { imageAsset: normalizeString(resolved.imageAsset) }
+              : {}),
+          },
+        }
+      : {}),
     agent: {
       ...(resolved.model ? { model: resolved.model } : {}),
       ...(typeof resolved.enableRag === 'boolean'
@@ -1130,7 +1143,7 @@ export async function unpackAgent(
     }
 
     const importedSkillSources = manifest.skills?.imports ?? [];
-    if (importedSkillSources.length > 0) {
+    if (importedSkillSources.length > 0 && options.skipExternals !== true) {
       const workspaceSkillsDir = path.join(stagedWorkspacePath, 'skills');
       for (const entry of importedSkillSources) {
         const importResult = await importSkill(entry.source, {
@@ -1198,6 +1211,12 @@ export async function unpackAgent(
     upsertRegisteredAgent({
       id: resolvedAgentId,
       name: manifest.name,
+      ...(manifest.presentation?.displayName
+        ? { displayName: manifest.presentation.displayName }
+        : {}),
+      ...(manifest.presentation?.imageAsset
+        ? { imageAsset: manifest.presentation.imageAsset }
+        : {}),
       ...(manifest.agent?.model ? { model: manifest.agent.model } : {}),
       ...(typeof manifest.agent?.enableRag === 'boolean'
         ? { enableRag: manifest.agent.enableRag }

@@ -172,6 +172,7 @@ async function importFreshCli(options?: {
     removedAgentRoot: boolean;
     removedRegistration: boolean;
   };
+  fetchMock?: (input: string | URL | Request, init?: RequestInit) => unknown;
   agentListResult?: Array<{
     id: string;
     name: string;
@@ -192,6 +193,14 @@ async function importFreshCli(options?: {
     value: true,
   });
   const promptResponses = [...(options?.promptResponses || [])];
+  if (options?.fetchMock) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) =>
+        options.fetchMock?.(input, init),
+      ),
+    );
+  }
 
   const clearHybridAICredentials = vi.fn(() => '/tmp/credentials.json');
   const getHybridAIAuthStatus = vi.fn(
@@ -831,6 +840,7 @@ async function importFreshCli(options?: {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   vi.doUnmock('../src/auth/hybridai-auth.ts');
   vi.doUnmock('../src/auth/codex-auth.ts');
   vi.doUnmock('../src/config/cli-flags.ts');
@@ -2786,6 +2796,159 @@ describe('CLI hybridai commands', () => {
     );
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('Updated runtime config at'),
+    );
+  });
+
+  it('downloads official claws from GitHub before install', async () => {
+    const { cli, unpackAgent } = await importFreshCli({
+      fetchMock: async (input) => {
+        const url = String(input);
+        if (
+          url ===
+          'https://api.github.com/repos/HybridAIOne/claws/contents/src?ref=main'
+        ) {
+          return new Response(
+            JSON.stringify([
+              {
+                type: 'dir',
+                name: 'charly-neumann-executive-briefing-chief-of-staff',
+              },
+            ]),
+            { status: 200 },
+          );
+        }
+        if (
+          url ===
+          'https://raw.githubusercontent.com/HybridAIOne/claws/main/dist/charly-neumann-executive-briefing-chief-of-staff.claw'
+        ) {
+          return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
+        }
+        throw new Error(`Unexpected fetch URL: ${url}`);
+      },
+    });
+
+    await cli.main([
+      'agent',
+      'install',
+      'official:charly-neumann-executive-briefing-chief-of-staff',
+      '--yes',
+    ]);
+
+    expect(unpackAgent).toHaveBeenCalledTimes(1);
+    expect(String(unpackAgent.mock.calls[0]?.[0] || '')).toMatch(
+      /charly-neumann-executive-briefing-chief-of-staff\.claw$/,
+    );
+  });
+
+  it('fails fast when an official claws selector is not an exact directory match', async () => {
+    const { cli, unpackAgent } = await importFreshCli({
+      fetchMock: async (input) => {
+        const url = String(input);
+        if (
+          url ===
+          'https://api.github.com/repos/HybridAIOne/claws/contents/src?ref=main'
+        ) {
+          return new Response(
+            JSON.stringify([
+              {
+                type: 'dir',
+                name: 'charly-neumann-executive-briefing-chief-of-staff',
+              },
+            ]),
+            { status: 200 },
+          );
+        }
+        throw new Error(`Unexpected fetch URL: ${url}`);
+      },
+    });
+
+    await expect(
+      cli.main(['agent', 'install', 'official:charly', '--yes']),
+    ).rejects.toThrow(
+      'Could not find packaged agent directory "charly" in HybridAIOne/claws@main. Use the exact src directory name or an explicit dist/<file>.claw path.',
+    );
+    expect(unpackAgent).not.toHaveBeenCalled();
+  });
+
+  it('fails fast when the official claws src listing is empty or malformed', async () => {
+    const { cli, unpackAgent } = await importFreshCli({
+      fetchMock: async (input) => {
+        const url = String(input);
+        if (
+          url ===
+          'https://api.github.com/repos/HybridAIOne/claws/contents/src?ref=main'
+        ) {
+          return new Response(JSON.stringify([]), { status: 200 });
+        }
+        throw new Error(`Unexpected fetch URL: ${url}`);
+      },
+    });
+
+    await expect(
+      cli.main(['agent', 'install', 'official:charly', '--yes']),
+    ).rejects.toThrow(
+      'No packaged agent directories were found under HybridAIOne/claws@main src/. The repository contents may be empty or malformed.',
+    );
+    expect(unpackAgent).not.toHaveBeenCalled();
+  });
+
+  it('rejects github install shorthands that guess a dist layout', async () => {
+    const { cli, unpackAgent } = await importFreshCli();
+
+    await expect(
+      cli.main([
+        'agent',
+        'install',
+        'github:HybridAIOne/claws/dist/charly.claw',
+        '--yes',
+      ]),
+    ).rejects.toThrow(
+      '`github:owner/repo/<ref>/<agent-dir>` install source must point to an agent directory, not a packaged .claw file.',
+    );
+    expect(unpackAgent).not.toHaveBeenCalled();
+  });
+
+  it('passes skipExternals through agent install', async () => {
+    const { cli, unpackAgent } = await importFreshCli();
+
+    await cli.main([
+      'agent',
+      'install',
+      '/tmp/demo.claw',
+      '--yes',
+      '--skip-externals',
+    ]);
+
+    expect(unpackAgent).toHaveBeenCalledWith(
+      path.resolve('/tmp/demo.claw'),
+      expect.objectContaining({
+        yes: true,
+        skipExternals: true,
+      }),
+    );
+  });
+
+  it('activates an installed agent as the default runtime agent', async () => {
+    const { cli, updateRuntimeConfig } = await importFreshCli({
+      agentListResult: [
+        { id: 'main', name: 'Main Agent', model: 'gpt-5-mini' },
+        { id: 'charly', name: 'Charly Agent', model: 'gpt-5-mini' },
+      ],
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['agent', 'activate', 'charly']);
+
+    expect(updateRuntimeConfig).toHaveBeenCalled();
+    const nextConfig = updateRuntimeConfig.mock.results[0]?.value as {
+      agents: { defaultAgentId: string; list: Array<{ id: string }> };
+    };
+    expect(nextConfig.agents.defaultAgentId).toBe('charly');
+    expect(nextConfig.agents.list).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'charly' })]),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Activated agent charly as the default'),
     );
   });
 

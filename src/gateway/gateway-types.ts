@@ -35,6 +35,12 @@ export interface GatewayCommandResult {
   modelCatalog?: GatewayModelCatalogEntry[];
 }
 
+export interface GatewayAssistantPresentation {
+  agentId: string;
+  displayName: string;
+  imageUrl?: string;
+}
+
 export interface GatewayChatResult {
   status: 'success' | 'error';
   result: string | null;
@@ -210,6 +216,11 @@ export interface GatewayHistoryResponse {
   sessionKey?: string;
   mainSessionKey?: string;
   history: GatewayHistoryMessage[];
+  assistantPresentation?: GatewayAssistantPresentation;
+  bootstrapAutostart?: {
+    status: 'idle' | 'starting' | 'completed';
+    fileName: 'BOOTSTRAP.md' | 'OPENING.md';
+  } | null;
   branchFamilies?: GatewayHistoryBranchFamily[];
   summary?: GatewayHistorySummary;
 }
@@ -271,6 +282,7 @@ export interface GatewayStatus {
   uptime: number;
   sessions: number;
   activeContainers: number;
+  defaultAgentId: string;
   defaultModel: string;
   ragDefault: boolean;
   fullAuto?: {

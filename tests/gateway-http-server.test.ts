@@ -7,7 +7,7 @@ import { Readable } from 'node:stream';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 const DEFAULT_WEB_SESSION_ID = 'agent:main:channel:web:chat:dm:peer:default';
-const WEB_SESSION_ID_RE = /^agent:main:channel:web:chat:dm:peer:[a-f0-9]{16}$/;
+const WEB_SESSION_ID_RE = /^agent:[^:]+:channel:web:chat:dm:peer:[a-f0-9]{16}$/;
 
 const tempDirs: string[] = [];
 const ORIGINAL_HYBRIDCLAW_AUTH_SECRET = process.env.HYBRIDCLAW_AUTH_SECRET;
@@ -385,6 +385,30 @@ async function importFreshHealth(options?: {
       deletedCount: 1,
     },
   }));
+  const getGatewayAssistantPresentationForSession = vi.fn(() => ({
+    agentId: 'charly',
+    displayName: 'Charly',
+    imageUrl: '/api/agent-avatar?agentId=charly',
+  }));
+  const getGatewayBootstrapAutostartState = vi.fn(() => null);
+  const ensureGatewayBootstrapAutostart = vi.fn(async () => {});
+  const getAgentById = vi.fn((agentId: string) =>
+    agentId === 'charly'
+      ? {
+          id: 'charly',
+          name: 'Charly Agent',
+          displayName: 'Charly',
+          imageAsset: 'avatars/charly.png',
+        }
+      : null,
+  );
+  const resolveAgentConfig = vi.fn((agentId?: string | null) => ({
+    id: agentId?.trim() || 'main',
+    name: 'Main Agent',
+  }));
+  const resolveAgentWorkspaceId = vi.fn(
+    (agentId?: string | null) => agentId?.trim() || 'main',
+  );
   const getSessionById = vi.fn(() => ({ show_mode: 'all' }));
   const forkSessionBranch = vi.fn(() => ({
     session: {
@@ -834,10 +858,16 @@ async function importFreshHealth(options?: {
       forkSessionBranch,
     },
   }));
+  vi.doMock('../src/agents/agent-registry.js', () => ({
+    getAgentById,
+    resolveAgentConfig,
+    resolveAgentWorkspaceId,
+  }));
   vi.doMock('../src/gateway/gateway-service.js', () => ({
     createGatewayAdminAgent,
     deleteGatewayAdminAgent,
     deleteGatewayAdminSession,
+    ensureGatewayBootstrapAutostart,
     GatewayRequestError,
     getGatewayAgents,
     getGatewayAdminAgents,
@@ -853,6 +883,8 @@ async function importFreshHealth(options?: {
     getGatewayAdminSessions,
     getGatewayAdminSkills,
     getGatewayAdminTools,
+    getGatewayAssistantPresentationForSession,
+    getGatewayBootstrapAutostartState,
     getGatewayHistory,
     getGatewayRecentChatSessions,
     getGatewayHistorySummary,
@@ -901,6 +933,9 @@ async function importFreshHealth(options?: {
     handler,
     listenArgs,
     getGatewayStatus,
+    ensureGatewayBootstrapAutostart,
+    getGatewayAssistantPresentationForSession,
+    getGatewayBootstrapAutostartState,
     getGatewayHistory,
     getGatewayRecentChatSessions,
     getGatewayHistorySummary,
@@ -927,6 +962,7 @@ async function importFreshHealth(options?: {
     handleGatewayCommand,
     renderGatewayCommand,
     getSessionById,
+    getAgentById,
     loggerDebug,
     runMessageToolAction,
     normalizeDiscordToolAction,
@@ -1591,6 +1627,9 @@ describe('gateway HTTP server', () => {
     state.handler(req as never, res as never);
     await waitForResponse(res, (next) => next.writableEnded);
 
+    expect(state.ensureGatewayBootstrapAutostart).toHaveBeenCalledWith({
+      sessionId: 's1',
+    });
     expect(state.getGatewayHistory).toHaveBeenCalledWith('s1', 2);
     expect(state.getGatewayHistorySummary).toHaveBeenCalledWith('s1', {
       sinceMs: null,
@@ -1600,6 +1639,12 @@ describe('gateway HTTP server', () => {
       sessionId: 's1',
       sessionKey: undefined,
       mainSessionKey: undefined,
+      assistantPresentation: {
+        agentId: 'charly',
+        displayName: 'Charly',
+        imageUrl: '/api/agent-avatar?agentId=charly',
+      },
+      bootstrapAutostart: null,
       history: [
         { role: 'user', content: 'hello' },
         { role: 'assistant', content: 'world' },
@@ -1623,6 +1668,198 @@ describe('gateway HTTP server', () => {
           deletedCount: 1,
         },
       },
+    });
+  });
+
+  test('returns history immediately while BOOTSTRAP autostart is still starting', async () => {
+    const state = await importFreshHealth();
+    state.ensureGatewayBootstrapAutostart.mockImplementation(
+      () => new Promise(() => {}),
+    );
+    state.getGatewayBootstrapAutostartState.mockReturnValue({
+      status: 'starting',
+      fileName: 'OPENING.md',
+    });
+
+    const req = makeRequest({
+      url: '/api/history?sessionId=agent:charly:channel:web:chat:dm:peer:fresh&limit=2',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      sessionId: 'agent:charly:channel:web:chat:dm:peer:fresh',
+      bootstrapAutostart: {
+        status: 'starting',
+        fileName: 'OPENING.md',
+      },
+    });
+  });
+
+  test('streams installed agent avatar assets', async () => {
+    const state = await importFreshHealth();
+    const avatarPath = path.join(
+      state.dataDir,
+      'agents',
+      'charly',
+      'workspace',
+      'avatars',
+      'charly.png',
+    );
+    fs.mkdirSync(path.dirname(avatarPath), { recursive: true });
+    fs.writeFileSync(avatarPath, Buffer.from('89504e470d0a1a0a', 'hex'));
+    const statSyncSpy = vi.spyOn(fs, 'statSync');
+
+    const req = makeRequest({ url: '/api/agent-avatar?agentId=charly' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(state.getAgentById).toHaveBeenCalledWith('charly');
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['Content-Type']).toBe('image/png');
+    expect(res.body.length).toBeGreaterThan(0);
+    expect(statSyncSpy).not.toHaveBeenCalled();
+  });
+
+  test('allows bearer auth for installed agent avatar assets', async () => {
+    const dataDir = makeTempDataDir();
+    const avatarPath = path.join(
+      dataDir,
+      'agents',
+      'charly',
+      'workspace',
+      'avatars',
+      'charly.png',
+    );
+    fs.mkdirSync(path.dirname(avatarPath), { recursive: true });
+    fs.writeFileSync(avatarPath, Buffer.from('89504e470d0a1a0a', 'hex'));
+
+    const state = await importFreshHealth({
+      dataDir,
+      webApiToken: 'web-token',
+    });
+    const req = makeRequest({
+      url: '/api/agent-avatar?agentId=charly',
+      remoteAddress: '203.0.113.10',
+      headers: {
+        authorization: 'Bearer web-token',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['Content-Type']).toBe('image/png');
+    expect(res.body.length).toBeGreaterThan(0);
+  });
+
+  test('rejects query-token auth for installed agent avatar assets', async () => {
+    const dataDir = makeTempDataDir();
+    const avatarPath = path.join(
+      dataDir,
+      'agents',
+      'charly',
+      'workspace',
+      'avatars',
+      'charly.png',
+    );
+    fs.mkdirSync(path.dirname(avatarPath), { recursive: true });
+    fs.writeFileSync(avatarPath, Buffer.from('89504e470d0a1a0a', 'hex'));
+
+    const state = await importFreshHealth({
+      dataDir,
+      webApiToken: 'web-token',
+    });
+    const req = makeRequest({
+      url: '/api/agent-avatar?agentId=charly&token=web-token',
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(401);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
+    });
+  });
+
+  test('rejects installed agent avatar assets that escape the workspace', async () => {
+    const state = await importFreshHealth();
+    state.getAgentById.mockImplementation((agentId: string) =>
+      agentId === 'charly'
+        ? {
+            id: 'charly',
+            name: 'Charly Agent',
+            displayName: 'Charly',
+            imageAsset: '../secret.png',
+          }
+        : null,
+    );
+
+    const req = makeRequest({ url: '/api/agent-avatar?agentId=charly' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(404);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Agent avatar not found.',
+    });
+  });
+
+  test('rejects non-image workspace files as installed agent avatar assets', async () => {
+    const dataDir = makeTempDataDir();
+    const scriptPath = path.join(
+      dataDir,
+      'agents',
+      'charly',
+      'workspace',
+      'scripts',
+      'setup.sh',
+    );
+    fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
+    fs.writeFileSync(scriptPath, '#!/bin/sh\necho setup\n', 'utf8');
+
+    const state = await importFreshHealth({
+      dataDir,
+      webApiToken: 'web-token',
+    });
+    state.getAgentById.mockImplementation((agentId: string) =>
+      agentId === 'charly'
+        ? {
+            id: 'charly',
+            name: 'Charly Agent',
+            displayName: 'Charly',
+            imageAsset: 'scripts/setup.sh',
+          }
+        : null,
+    );
+
+    const req = makeRequest({
+      url: '/api/agent-avatar?agentId=charly',
+      remoteAddress: '203.0.113.10',
+      headers: {
+        authorization: 'Bearer web-token',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(404);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Agent avatar not found.',
     });
   });
 

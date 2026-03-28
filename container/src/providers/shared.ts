@@ -1,4 +1,9 @@
-import type { ChatMessage, ToolDefinition } from '../types.js';
+import { normalizeMessageContentToText } from '../ralph.js';
+import type {
+  ChatCompletionResponse,
+  ChatMessage,
+  ToolDefinition,
+} from '../types.js';
 
 export type RuntimeProvider =
   | 'hybridai'
@@ -130,6 +135,39 @@ export function isPremiumModelPermissionError(error: unknown): boolean {
       parsed.message,
     )
   );
+}
+
+export function isHybridAIEmptyVisibleCompletion(
+  response: ChatCompletionResponse,
+): boolean {
+  const choice = response.choices[0];
+  if (!choice) return false;
+  if ((choice.message.tool_calls || []).length > 0) return false;
+  return !normalizeMessageContentToText(choice.message.content);
+}
+
+export function summarizeHybridAICompletionForDebug(
+  response: ChatCompletionResponse,
+): string {
+  const choice = response.choices[0];
+  const content = choice?.message?.content ?? null;
+  const visibleText = normalizeMessageContentToText(content);
+  return JSON.stringify({
+    id: response.id || null,
+    model: response.model || null,
+    finishReason: choice?.finish_reason || null,
+    contentType: Array.isArray(content)
+      ? 'parts'
+      : content === null
+        ? 'null'
+        : typeof content,
+    contentPartTypes: Array.isArray(content)
+      ? content.map((part) => part?.type || 'unknown')
+      : undefined,
+    visibleTextChars: visibleText.length,
+    toolCallCount: choice?.message?.tool_calls?.length || 0,
+    usage: response.usage || null,
+  });
 }
 
 function isProvider(value: unknown): value is RuntimeProvider {

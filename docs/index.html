@@ -654,6 +654,49 @@
       .nav-links a:not(.nav-gh) { display: none; }
     }
   </style>
+<script>
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@graph': [
+      {
+        '@type': 'Organization',
+        name: 'HybridClaw',
+        url: 'https://hybridclaw.io',
+        logo: 'https://hybridclaw.io/logo.png',
+        foundingDate: '2024-01-01',
+        sameAs: [
+          'https://www.linkedin.com/company/hybridclaw',
+          'https://twitter.com/HybridClaw'
+        ]
+      },
+      {
+        '@type': 'WebSite',
+        name: 'HybridClaw',
+        url: 'https://hybridclaw.io',
+        potentialAction: {
+          '@type': 'SearchAction',
+          target: 'https://hybridclaw.io/search?q={search_term_string}',
+          'query-input': 'required name=search_term_string'
+        }
+      },
+      {
+        '@type': 'SoftwareApplication',
+        name: 'HybridClaw AI Agent',
+        operatingSystem: 'All',
+        applicationCategory: 'AI Agent',
+        offers: {
+          '@type': 'Offer',
+          price: '0',
+          priceCurrency: 'USD'
+        }
+      }
+    ]
+  };
+  const jsonLdScript = document.createElement('script');
+  jsonLdScript.type = 'application/ld+json';
+  jsonLdScript.textContent = JSON.stringify(jsonLd);
+  document.head.appendChild(jsonLdScript);
+</script>
 </head>
 <body>
 

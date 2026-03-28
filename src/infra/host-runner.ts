@@ -350,6 +350,7 @@ function getOrSpawnHostProcess(sessionId: string, agentId: string): PoolEntry {
     PERPLEXITY_API_KEY: process.env.PERPLEXITY_API_KEY,
     TAVILY_API_KEY: process.env.TAVILY_API_KEY,
     HYBRIDCLAW_AGENT_WORKSPACE_ROOT: workspacePath,
+    HYBRIDCLAW_AGENT_PROJECT_ROOT: process.cwd(),
     HYBRIDCLAW_AGENT_MEDIA_ROOT: mediaCacheHostPath,
     HYBRIDCLAW_AGENT_UPLOADED_MEDIA_ROOT: uploadedMediaCacheHostPath,
     HYBRIDCLAW_AGENT_IPC_DIR: ipcPath,

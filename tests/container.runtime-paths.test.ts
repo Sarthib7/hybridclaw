@@ -42,6 +42,61 @@ describe.sequential('container runtime path aliases', () => {
     ).toBe('/workspace/extra/buchhaltung/**/*.pdf');
   });
 
+  test('allows host-mode project-root absolute paths directly', async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-workspace-'),
+    );
+    const projectRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-project-'),
+    );
+    const targetFile = path.join(projectRoot, 'docs', 'index.html');
+    fs.mkdirSync(path.dirname(targetFile), { recursive: true });
+    fs.writeFileSync(targetFile, '<html></html>');
+
+    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspaceRoot);
+    vi.stubEnv('HYBRIDCLAW_AGENT_PROJECT_ROOT', projectRoot);
+    vi.resetModules();
+
+    const { resolveWorkspacePath, resolveWorkspaceGlobPattern } = await import(
+      '../container/src/runtime-paths.ts'
+    );
+
+    expect(resolveWorkspacePath(targetFile)).toBe(path.resolve(targetFile));
+    expect(
+      resolveWorkspaceGlobPattern(path.join(projectRoot, 'docs', '*.html')),
+    ).toBe(path.join(projectRoot, 'docs', '*.html'));
+
+    fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    fs.rmSync(projectRoot, { recursive: true, force: true });
+  });
+
+  test('expands ~/ paths before resolving host-mode project files', async () => {
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-home-'));
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-workspace-'),
+    );
+    const projectRoot = path.join(tempHome, 'src', 'hybridclaw');
+    const targetFile = path.join(projectRoot, 'docs', 'index.html');
+    fs.mkdirSync(path.dirname(targetFile), { recursive: true });
+    fs.writeFileSync(targetFile, '<html></html>');
+
+    vi.stubEnv('HOME', tempHome);
+    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspaceRoot);
+    vi.stubEnv('HYBRIDCLAW_AGENT_PROJECT_ROOT', projectRoot);
+    vi.resetModules();
+
+    const { resolveWorkspacePath } = await import(
+      '../container/src/runtime-paths.ts'
+    );
+
+    expect(resolveWorkspacePath('~/src/hybridclaw/docs/index.html')).toBe(
+      path.resolve(targetFile),
+    );
+
+    fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    fs.rmSync(tempHome, { recursive: true, force: true });
+  });
+
   test('allows managed WhatsApp temp media paths', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-wa-'));
     const tempFile = path.join(tempDir, 'voice-note.ogg');

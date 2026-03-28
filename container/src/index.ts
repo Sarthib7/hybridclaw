@@ -26,7 +26,11 @@ import {
 } from './native-media.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
 import { callRoutedModel, callRoutedModelStream } from './providers/router.js';
-import { HybridAIRequestError } from './providers/shared.js';
+import {
+  HybridAIRequestError,
+  isHybridAIEmptyVisibleCompletion,
+  summarizeHybridAICompletionForDebug,
+} from './providers/shared.js';
 import {
   buildRalphPrompt,
   normalizeMessageContentToText,
@@ -1035,6 +1039,34 @@ async function processRequest(
     }
 
     const toolCalls = choice.message.tool_calls || [];
+    if (
+      provider === 'hybridai' &&
+      toolCalls.length === 0 &&
+      !visibleAssistantText &&
+      parseRalphChoice(choice.message.content) === null &&
+      isHybridAIEmptyVisibleCompletion(response)
+    ) {
+      console.error(
+        `[model] empty completion provider=hybridai model=${model} debug=${summarizeHybridAICompletionForDebug(response)}`,
+      );
+      const failed: ContainerOutput = {
+        status: 'error',
+        result: null,
+        toolsUsed,
+        ...(artifacts.length > 0 ? { artifacts } : {}),
+        toolExecutions,
+        tokenUsage: finalizeTokenUsage(tokenUsage),
+        error:
+          'HybridAI returned an empty completion without visible text or tool calls.',
+        effectiveUserPrompt,
+      };
+      await emitRuntimeEvent({
+        event: 'turn_end',
+        status: failed.status,
+        toolsUsed,
+      });
+      return failed;
+    }
     if (toolCalls.length === 0) {
       if (ralphEnabled) {
         const branchChoice = parseRalphChoice(choice.message.content);

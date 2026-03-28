@@ -10,6 +10,10 @@ const MANAGED_TEMP_MEDIA_DIR_PREFIXES = ['hybridclaw-wa-'] as const;
 export const WORKSPACE_ROOT = path.resolve(
   process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT || WORKSPACE_ROOT_DISPLAY,
 );
+const PROJECT_ROOT = (() => {
+  const raw = (process.env.HYBRIDCLAW_AGENT_PROJECT_ROOT || '').trim();
+  return raw ? path.resolve(raw) : null;
+})();
 export const DISCORD_MEDIA_CACHE_ROOT = path.resolve(
   process.env.HYBRIDCLAW_AGENT_MEDIA_ROOT || DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
 );
@@ -65,6 +69,15 @@ const EXTRA_MOUNT_ALIASES = loadExtraMountAliases();
 
 function normalizeSlashes(value: string): string {
   return value.replace(/\\/g, '/');
+}
+
+function expandUserPath(input: string): string {
+  const trimmed = input.trim();
+  if (trimmed === '~') return os.homedir();
+  if (trimmed.startsWith('~/') || trimmed.startsWith('~\\')) {
+    return path.join(os.homedir(), trimmed.slice(2));
+  }
+  return trimmed;
 }
 
 function isWithinRoot(candidate: string, root: string): boolean {
@@ -134,7 +147,7 @@ function resolveRootBoundPath(
   actualRoot: string,
   displayRoot: string,
 ): string | null {
-  const input = String(rawPath || '').trim();
+  const input = expandUserPath(String(rawPath || ''));
   if (!input) return null;
 
   const normalizedInput = normalizeSlashes(input);
@@ -152,6 +165,9 @@ function resolveRootBoundPath(
     }
 
     const resolvedActual = path.resolve(input);
+    if (PROJECT_ROOT && isWithinRoot(resolvedActual, PROJECT_ROOT)) {
+      return resolvedActual;
+    }
     return isWithinRoot(resolvedActual, actualRoot) ? resolvedActual : null;
   }
 
@@ -194,7 +210,7 @@ export function resolveWorkspacePath(rawPath: string): string | null {
 }
 
 export function resolveWorkspaceGlobPattern(rawPattern: string): string | null {
-  const input = String(rawPattern || '').trim();
+  const input = expandUserPath(String(rawPattern || ''));
   if (!input) return null;
 
   const normalized = normalizeSlashes(input);

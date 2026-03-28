@@ -24,7 +24,8 @@ Use it when you want to:
 hybridclaw agent list
 hybridclaw agent export [agent-id] [-o <path>] [--description <text>] [--author <text>] [--version <value>] [--dry-run] [--skills <ask|active|all|some>] [--skill <name>]... [--plugins <ask|active|all|some>] [--plugin <id>]...
 hybridclaw agent inspect <file.claw>
-hybridclaw agent install <file.claw> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--yes]
+hybridclaw agent install <file.claw|official:<agent-dir>|github:owner/repo[/<ref>]/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--yes]
+hybridclaw agent activate <agent-id>
 hybridclaw agent uninstall <agent-id> [--yes]
 ```
 
@@ -39,6 +40,12 @@ hybridclaw agent inspect /tmp/main.claw
 
 # Import it as a new agent id
 hybridclaw agent install /tmp/main.claw --id demo-agent
+
+# Install a packaged agent from the official claws repo
+hybridclaw agent install official:charly-neumann-executive-briefing-chief-of-staff --yes
+
+# Make one installed agent the default for new requests
+hybridclaw agent activate demo-agent
 
 # Remove an installed non-main agent
 hybridclaw agent uninstall demo-agent --yes
@@ -69,15 +76,32 @@ hybridclaw agent export main --plugins all
 hybridclaw agent export main --plugins some --plugin demo-plugin --plugin qmd-memory
 ```
 
-## Bootstrapping from GitHub Artifacts
+## Installing From GitHub Sources
 
-`hybridclaw agent install` currently accepts a local `.claw` file path only.
-If your agent packages are published from a private GitHub repository, the
-recommended workflow is:
+`hybridclaw agent install` accepts:
 
-1. download the built `.claw` artifact
-2. inspect it locally
-3. install it into HybridClaw
+- a local `.claw` file path
+- `official:<agent-dir>` for packaged agents published from
+  `HybridAIOne/claws`
+- `github:owner/repo/<agent-dir>` to resolve a packaged agent from another
+  GitHub claws repository
+- `github:owner/repo/<ref>/<agent-dir>` to pin a specific Git ref before
+  resolving the packaged archive
+
+Examples:
+
+```bash
+hybridclaw agent install official:charly-neumann-executive-briefing-chief-of-staff --yes
+hybridclaw agent install github:your-org/your-claws-repo/research-agent --yes
+hybridclaw agent install github:your-org/your-claws-repo/v1.2.3/research-agent --yes
+```
+
+The GitHub forms resolve a packaged archive from `dist/<agent-dir>.claw`.
+Selectors must point at the source agent directory name, not a `.claw`
+filename.
+
+If your package is not exposed through that layout, or you want to install from
+release assets or Actions artifacts instead, download the `.claw` file first:
 
 Release assets are the best fit for stable bootstrap links:
 
@@ -132,6 +156,7 @@ workspace/
   MEMORY.md
   AGENTS.md
   HEARTBEAT.md
+  OPENING.md
   BOOT.md
   .hybridclaw/
     policy.yaml
@@ -171,6 +196,10 @@ interface ClawManifest {
   author?: string;
   version?: string;
   createdAt?: string;
+  presentation?: {
+    displayName?: string;
+    imageAsset?: string;
+  };
 
   agent?: {
     model?: string | { primary: string; fallbacks?: string[] };
@@ -337,22 +366,33 @@ reuses one readline session for the whole export flow.
 
 `hybridclaw agent install` currently:
 
-1. validates ZIP safety and archive limits
-2. reads and validates `manifest.json`
-3. confirms import unless `--yes` is set
-4. picks the agent id from `--id`, then `manifest.id`, then sanitized
+1. resolves the install source into a local archive path
+2. validates ZIP safety and archive limits
+3. reads and validates `manifest.json`
+4. confirms import unless `--yes` is set
+5. picks the agent id from `--id`, then `manifest.id`, then sanitized
    `manifest.name`
-5. registers the agent in the normal agent registry
-6. copies `workspace/` into the agent workspace path
-7. restores bundled skills into `workspace/skills/`
-8. installs manifest-declared skill imports into `workspace/skills/`
-9. installs bundled plugins with the normal plugin installer
-10. merges packaged skill config and validated bundled-plugin overrides into
+6. registers the agent in the normal agent registry
+7. copies `workspace/` into the agent workspace path
+8. restores bundled skills into `workspace/skills/`
+9. installs manifest-declared skill imports into `workspace/skills/`
+10. installs bundled plugins with the normal plugin installer
+11. merges packaged skill config and validated bundled-plugin overrides into
    runtime config
-11. calls `ensureBootstrapFiles()` to fill any missing templates
+12. calls `ensureBootstrapFiles()` to fill any missing templates
 
 Use `--force` to replace an existing agent workspace or reinstall bundled
-plugins during import.
+plugins during import. Use `--skip-externals` to skip manifest-declared skill
+imports and other external references during install.
+
+## What `activate` Does
+
+`hybridclaw agent activate <agent-id>`:
+
+1. validates that the agent exists
+2. writes `agents.defaultAgentId` into runtime config
+3. makes that agent the default for new requests and fresh web sessions that do
+   not specify an agent explicitly
 
 ## What `uninstall` Does
 

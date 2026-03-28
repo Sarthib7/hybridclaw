@@ -231,6 +231,7 @@ HybridClaw creates `~/.hybridclaw/config.json` on first run and hot-reloads most
 - `mcpServers.*` declares Model Context Protocol servers that HybridClaw connects to per session and exposes as namespaced tools (`server__tool`).
 - `sessionReset.*` controls automatic daily and idle session expiry. The default policy resets both daily and after 24 hours idle at `04:00` in the gateway host's local timezone; set `sessionReset.defaultPolicy.mode` to `none` to disable automatic resets.
 - `sessionRouting.*` controls DM continuity scope. The default `per-channel-peer` mode keeps direct messages isolated by transport and peer identity; `per-linked-identity` plus `sessionRouting.identityLinks` can collapse verified aliases onto one shared main session.
+- `agents.defaultAgentId` selects the default agent for new requests and fresh web sessions when the user does not pin an agent explicitly.
 - `skills.disabled` and `skills.channelDisabled.{discord,msteams,whatsapp,email}` control global and per-channel skill availability. Use `hybridclaw skill enable|disable <name> [--channel <kind>]` or the TUI `/skill config` checklist to manage them.
 - `plugins.list[]` controls plugin overrides such as `enabled`, custom `path`, and top-level `config` values. Use `hybridclaw plugin config <plugin-id> [key] [value|--unset]` for focused edits without rewriting the full config file.
 - `adaptiveSkills.*` controls observation, inspection, amendment staging, and rollback for the self-improving skill loop. See [docs/development/extensibility/adaptive-skills.md](./docs/development/extensibility/adaptive-skills.md) for the operator workflow.
@@ -312,6 +313,8 @@ hybridclaw agent list
 hybridclaw agent export main -o /tmp/main.claw
 hybridclaw agent inspect /tmp/main.claw
 hybridclaw agent install /tmp/main.claw --id demo-agent --yes
+hybridclaw agent install official:charly-neumann-executive-briefing-chief-of-staff --yes
+hybridclaw agent activate demo-agent
 ```
 
 - `agent export` exports the workspace plus optional bundled workspace skills
@@ -319,7 +322,13 @@ hybridclaw agent install /tmp/main.claw --id demo-agent --yes
 - `agent inspect` validates the manifest and prints archive metadata without
   extracting it.
 - `agent install` restores the agent, fills missing bootstrap files, and
-  re-registers bundled content with the runtime.
+  re-registers bundled content with the runtime from a local `.claw` file or a
+  packaged GitHub source such as `official:<agent-dir>` or
+  `github:owner/repo[/<ref>]/<agent-dir>`.
+- `.claw` manifests can include agent presentation metadata such as a
+  `displayName` and workspace-relative profile image asset for web chat.
+- `agent activate <agent-id>` sets the default agent for new requests that do
+  not specify one explicitly.
 - Legacy aliases still work: `agent pack` maps to `export`, and `agent unpack`
   maps to `install`.
 - See [docs/development/extensibility/agent-packages.md](./docs/development/extensibility/agent-packages.md)

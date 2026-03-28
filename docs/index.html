@@ -740,29 +740,29 @@
 <section id="release">
   <div class="section-center">
     <div class="section-label">Coming Up</div>
-    <h2 class="section-title">Since Version 0.9.2</h2>
-    <p class="section-desc">Mainline updates add Hugging Face provider support, an embedded jobs board, prompt-surface controls, and tighter container/runtime reliability around scheduler delivery and skill handling.</p>
+    <h2 class="section-title">Since Version 0.9.3</h2>
+    <p class="section-desc">Mainline updates focus on agent startup and packaging: richer agent profiles, packaged GitHub install sources, proactive first-session openings, and more reliable default-agent/chatbot routing.</p>
   </div>
   <div class="features-grid">
     <div class="feature-card">
-      <div class="feature-icon">&#x1f917;</div>
-      <h3>Hugging Face provider</h3>
-      <p><code>hybridclaw auth login|status|logout huggingface</code>, provider probing, discovery-backed model catalogs, and <code>huggingface/...</code> model ids are supported end-to-end.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">&#x1f4cb;</div>
-      <h3>Jobs board and scheduler follow-ups</h3>
-      <p>The embedded admin console now includes a dedicated <code>Jobs</code> board with richer scheduler metadata, while queued retries and delivery state recovery behave more predictably.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">&#x1f6e0;&#xfe0f;</div>
-      <h3>Built-in tool toggles</h3>
-      <p><code>hybridclaw tool list|enable|disable</code> lets operators remove unused built-in prompt surfaces directly from runtime config when doctor highlights them.</p>
+      <div class="feature-icon">&#x1f9d1;</div>
+      <h3>Agent profiles with images</h3>
+      <p>Agent configs and packaged <code>.claw</code> manifests can now carry a display name plus a workspace image asset so web chat can show the active agent identity with an avatar.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f4e6;</div>
-      <h3>Bootstrap and skill hardening</h3>
-      <p>Installed packages prefer published runtime images, source checkouts build locally, GHCR tags are verified after publish, and skill install/sync handling is more stable.</p>
+      <h3>Packaged agent installs from GitHub</h3>
+      <p><code>hybridclaw agent install</code> now accepts <code>official:&lt;agent-dir&gt;</code> and <code>github:owner/repo[/&lt;ref&gt;]/&lt;agent-dir&gt;</code> sources, and <code>agent activate</code> can set the default agent for new requests.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1f95a;</div>
+      <h3>Proactive startup openings</h3>
+      <p>Fresh sessions can now proactively start from <code>BOOTSTRAP.md</code> or the new <code>OPENING.md</code>, so onboarding and custom opening instructions appear before the first manual prompt.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1f6e1;&#xfe0f;</div>
+      <h3>Safer routing and fallback resolution</h3>
+      <p>Gateway chat, scheduler runs, and startup autostart can recover chatbot ids from HybridAI account metadata, while web chat follows the configured default agent more consistently.</p>
     </div>
   </div>
 </section>
@@ -1265,6 +1265,7 @@
         <tr><td>HEARTBEAT.md</td><td>Tasks to check during heartbeat</td></tr>
         <tr><td>BOOT.md</td><td>Startup instructions</td></tr>
         <tr><td>BOOTSTRAP.md</td><td>One-time onboarding (removed after first run)</td></tr>
+        <tr><td>OPENING.md</td><td>First proactive message for a fresh session</td></tr>
         <tr><td>AGENTS.md</td><td>Conventions and guidelines</td></tr>
       </tbody>
     </table>

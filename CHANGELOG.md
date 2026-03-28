@@ -2,6 +2,44 @@
 
 ## [Coming up]
 
+## [0.9.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.9.4)
+
+### Added
+
+- **Packaged agent GitHub install sources and activation**:
+  `hybridclaw agent install` now accepts
+  `official:<agent-dir>` and `github:owner/repo[/<ref>]/<agent-dir>` sources,
+  and `hybridclaw agent activate <agent-id>` can set the default agent for new
+  requests.
+- **Agent presentation profiles with image assets**: Agent configs and `.claw`
+  manifests can now declare `displayName` and workspace-relative `imageAsset`
+  metadata so web chat can show the active agent name and profile image.
+- **Startup opening automation for fresh sessions**: Gateway/web startup can
+  proactively run `BOOTSTRAP.md` for one-time onboarding and `OPENING.md` for a
+  fresh-session opening message before the user types the first turn.
+
+### Changed
+
+- **Bootstrap templates and workspace completion detection**: Refreshed the
+  shipped onboarding template around a lighter first-hatch flow, added the
+  optional `OPENING.md` template, and tightened workspace completion checks so
+  onboarding stays active until there is real post-bootstrap evidence.
+- **Web chat default-agent routing and history context**: New web sessions now
+  follow the configured default agent, preserve agent presentation across
+  history reloads, and keep bootstrap placeholder state visible while startup
+  autostart is still running.
+
+### Fixed
+
+- **HybridAI chatbot fallback resolution**: Gateway chat, scheduler runs, and
+  bootstrap autostart can fall back to `HybridAI /api/v1/bot-management/me`
+  when a session needs a chatbot id but none was configured explicitly.
+- **Packaged agent source validation**: Official/package GitHub installs now
+  require exact directory matches, reject `.claw` shorthand guesses, and keep
+  external install skipping explicit.
+- **Web chat composer focus styling**: Restored an accessible focus ring while
+  removing the extra focus border regression in the built-in chat surface.
+
 ## [0.9.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.9.3)
 
 ### Added

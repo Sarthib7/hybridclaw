@@ -2,6 +2,8 @@
 
 ## [Coming up]
 
+## [0.9.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.9.3)
+
 ### Added
 
 - **Hugging Face provider support**: Added `hybridclaw auth login|status|logout`

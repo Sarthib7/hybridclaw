@@ -162,7 +162,7 @@ export function getAvailableModelList(provider?: string): string[] {
 
 export function getAvailableModelListWithOptions(
   provider?: string,
-  opts?: { expanded?: boolean },
+  _opts?: { expanded?: boolean },
 ): string[] {
   const models = dedupeModelList([
     ...CONFIGURED_MODELS,

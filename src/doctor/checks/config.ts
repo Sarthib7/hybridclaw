@@ -25,18 +25,76 @@ import {
   toErrorMessage,
 } from '../utils.js';
 
-type UsageEntry = {
+type UnusedEntry = {
   name: string;
   lastUsedAt: string | null;
 };
 
-function formatUnusedEntries(entries: UsageEntry[]): string {
+type UsageEntry = UnusedEntry & {
+  toolNames: string[];
+};
+
+function formatUnusedEntries(entries: readonly UnusedEntry[]): string {
   return entries
     .map(
       (entry) =>
         `${entry.name} (last used ${formatDateOrNever(entry.lastUsedAt)})`,
     )
     .join(', ');
+}
+
+function findLatestToolLastUsedAt(
+  toolNames: readonly string[],
+  usageByTool: ReadonlyMap<string, ToolUsageSummary>,
+): string | null {
+  // Mirrors findServerLastUsedAt below, but works from an explicit tool list
+  // instead of an MCP namespace prefix scan.
+  let lastUsedAt: string | null = null;
+  for (const toolName of toolNames) {
+    const candidate = usageByTool.get(toolName)?.lastUsedAt ?? null;
+    if (!lastUsedAt || (candidate && candidate > lastUsedAt)) {
+      lastUsedAt = candidate;
+    }
+  }
+  return lastUsedAt;
+}
+
+function buildUnusedToolEntries(
+  enabledTools: readonly string[],
+  usageByTool: ReadonlyMap<string, ToolUsageSummary>,
+): UsageEntry[] {
+  const isUnused = (name: string) =>
+    (usageByTool.get(name)?.callsSinceCutoff ?? 0) === 0;
+  const browserTools: string[] = [];
+  let allBrowserToolsUnused = true;
+  const unusedEntries: UsageEntry[] = [];
+
+  for (const name of enabledTools) {
+    if (name.startsWith('browser_')) {
+      browserTools.push(name);
+      allBrowserToolsUnused &&= isUnused(name);
+      continue;
+    }
+
+    if (!isUnused(name)) continue;
+    unusedEntries.push({
+      name,
+      toolNames: [name],
+      lastUsedAt: usageByTool.get(name)?.lastUsedAt ?? null,
+    });
+  }
+
+  if (browserTools.length > 0 && allBrowserToolsUnused) {
+    unusedEntries.push({
+      name: 'browser tools',
+      toolNames: browserTools,
+      lastUsedAt: findLatestToolLastUsedAt(browserTools, usageByTool),
+    });
+  }
+
+  return unusedEntries.sort((left, right) =>
+    left.name.localeCompare(right.name),
+  );
 }
 
 function buildUnusedToolsResult(usage: ToolUsageSummary[]): DiagResult | null {
@@ -48,24 +106,20 @@ function buildUnusedToolsResult(usage: ToolUsageSummary[]): DiagResult | null {
     (name) => !disabled.has(name),
   );
   const usageByTool = new Map(usage.map((entry) => [entry.toolName, entry]));
-  const unused = enabledTools
-    .filter((name) => (usageByTool.get(name)?.callsSinceCutoff || 0) === 0)
-    .map((name) => ({
-      name,
-      lastUsedAt: usageByTool.get(name)?.lastUsedAt || null,
-    }));
+  const unused = buildUnusedToolEntries(enabledTools, usageByTool);
 
   if (unused.length === 0) return null;
 
   const previousDisabled = new Set(config.tools.disabled);
-  const toolNames = unused.map((entry) => entry.name);
+  const toolNames = unused.flatMap((entry) => entry.toolNames);
+  const displayNames = unused.map((entry) => entry.name);
   return makeResult(
     'config',
     'Unused tools',
     'warn',
-    `${unused.length} enabled tool${unused.length === 1 ? '' : 's'} unused in the last ${DEFAULT_UNUSED_WINDOW_DAYS} days: ${formatUnusedEntries(unused)}. Re-enable with \`hybridclaw tool enable <name>\`.`,
+    `${unused.length} enabled ${unused.length === 1 ? 'tool or toolset' : 'tools or toolsets'} unused in the last ${DEFAULT_UNUSED_WINDOW_DAYS} days: ${formatUnusedEntries(unused)}. Re-enable individual tools with \`hybridclaw tool enable <name>\`.`,
     {
-      summary: `Disable unused tools: ${toolNames.join(', ')}`,
+      summary: `Disable unused tools: ${displayNames.join(', ')}`,
       apply: async () => {
         updateRuntimeConfig((draft) => {
           for (const toolName of toolNames) {
@@ -95,8 +149,9 @@ function findServerLastUsedAt(
   let lastUsedAt: string | null = null;
   for (const entry of usage) {
     if (!entry.toolName.startsWith(`${namespace}__`)) continue;
-    if (!lastUsedAt || (entry.lastUsedAt && entry.lastUsedAt > lastUsedAt)) {
-      lastUsedAt = entry.lastUsedAt;
+    const candidate = entry.lastUsedAt ?? null;
+    if (!lastUsedAt || (candidate && candidate > lastUsedAt)) {
+      lastUsedAt = candidate;
     }
   }
   return lastUsedAt;

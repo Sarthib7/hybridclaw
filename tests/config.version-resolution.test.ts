@@ -41,19 +41,21 @@ test('warns once when all app-version package probes fail', async () => {
 
   vi.doMock('node:fs', async () => {
     const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
-    const readFileSync = vi.fn((filePath: fs.PathOrFileDescriptor, ...args: unknown[]) => {
-      const normalized = String(filePath);
-      if (
-        normalized.endsWith(`${path.sep}package.json`) ||
-        normalized.endsWith('/package.json')
-      ) {
-        throw new Error('ENOENT');
-      }
-      return Reflect.apply(actual.readFileSync, actual, [
-        filePath,
-        ...args,
-      ]) as ReturnType<typeof fs.readFileSync>;
-    });
+    const readFileSync = vi.fn(
+      (filePath: fs.PathOrFileDescriptor, ...args: unknown[]) => {
+        const normalized = String(filePath);
+        if (
+          normalized.endsWith(`${path.sep}package.json`) ||
+          normalized.endsWith('/package.json')
+        ) {
+          throw new Error('ENOENT');
+        }
+        return Reflect.apply(actual.readFileSync, actual, [
+          filePath,
+          ...args,
+        ]) as ReturnType<typeof fs.readFileSync>;
+      },
+    );
     return {
       ...actual,
       default: {

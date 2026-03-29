@@ -9,6 +9,12 @@ sidebar_position: 3
 HybridClaw creates `~/.hybridclaw/config.json` on first run and hot-reloads
 most runtime settings.
 
+Use `hybridclaw config` to print the active runtime config,
+`hybridclaw config check` to validate only the config file itself,
+`hybridclaw config reload` to force an immediate in-process hot reload from
+disk, and `hybridclaw config set <key> <value>` to edit an existing dotted key
+path without rewriting the whole file manually.
+
 ## Runtime Files
 
 - `~/.hybridclaw/config.json` for typed runtime config
@@ -22,8 +28,12 @@ HybridClaw does not keep runtime state in the current working directory. If
 ## Important Config Areas
 
 - `container.*` for sandbox mode, resource limits, networking, and extra binds
+- `observability.*` for HybridAI audit-event forwarding, ingest batching, and
+  runtime status reporting
 - `hybridai.baseUrl` for the HybridAI API origin; `HYBRIDAI_BASE_URL` can
   override it for the current process without rewriting `config.json`
+- `hybridai.maxTokens` for the default completion output budget; the shipped
+  default is `4096`
 - `mcpServers.*` for Model Context Protocol servers
 - `sessionReset.*` for daily and idle reset policy
 - `sessionRouting.*` for DM continuity scope and linked identities
@@ -37,6 +47,9 @@ HybridClaw does not keep runtime state in the current working directory. If
 
 - `mcpServers.*.env` and `mcpServers.*.headers` are currently stored in plain
   text in `config.json`
+- In `host` sandbox mode, the agent can access the user home directory, the
+  gateway working directory, `/tmp`, and any host paths explicitly added
+  through `container.binds` or `container.additionalMounts`
 - keep `~/.hybridclaw/` permissions tight
 - prefer low-privilege tokens
 - use `host` sandbox mode for stdio MCP servers that depend on host-installed

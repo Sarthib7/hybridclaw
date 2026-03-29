@@ -151,6 +151,7 @@ hybridclaw local configure ollama llama3.2
 - `hybridclaw auth login huggingface` accepts `--api-key`, falls back to `HF_TOKEN`, or prompts you to paste the token, then enables the provider and can set the global default model.
 - `hybridclaw auth login local` configures Ollama, LM Studio, or vLLM in `~/.hybridclaw/config.json`.
 - `hybridclaw auth login msteams` enables Microsoft Teams, stores `MSTEAMS_APP_PASSWORD` in `~/.hybridclaw/credentials.json`, and can prompt for the app id, app password, and optional tenant id.
+- `hybridclaw auth status hybridai` reports the local auth source, masked API key, active config file, base URL, and default model without printing the credentials file path.
 - `hybridclaw auth logout local` disables configured local backends and clears any saved vLLM API key.
 - `hybridclaw auth logout msteams` clears the stored Teams app password and disables the Teams integration in config.
 - `hybridclaw auth whatsapp reset` clears linked WhatsApp Web auth without starting a new pairing session.
@@ -227,13 +228,17 @@ HybridClaw creates `~/.hybridclaw/config.json` on first run and hot-reloads most
 - Runtime state lives under `~/.hybridclaw/` (`config.json`, `credentials.json`, `data/hybridclaw.db`, audit/session files). Set `HYBRIDCLAW_DATA_DIR` to an absolute path to relocate the full runtime home, including browser profiles and agent workspaces.
 - HybridClaw does not keep runtime state in the current working directory. If `./.env` exists, supported secrets are migrated once into `~/.hybridclaw/credentials.json`.
 - `container.*` controls execution isolation, including `sandboxMode`, `memory`, `memorySwap`, `cpus`, `network`, `binds`, and additional mounts.
+- `hybridclaw config` prints the active runtime config path and current config, `config check` validates only the config file itself, `config reload` performs an immediate in-process hot reload, and `config set <key> <value>` updates one existing dotted key path and re-validates the result.
 - Use `container.binds` for explicit host-to-container mounts in `host:container[:ro|rw]` format. Mounted paths appear inside the sandbox under `/workspace/extra/<container>`.
+- In `host` sandbox mode, the agent can access the user home directory, the gateway working directory, `/tmp`, and any host paths explicitly added through `container.binds` or `container.additionalMounts`.
 - `mcpServers.*` declares Model Context Protocol servers that HybridClaw connects to per session and exposes as namespaced tools (`server__tool`).
 - `sessionReset.*` controls automatic daily and idle session expiry. The default policy resets both daily and after 24 hours idle at `04:00` in the gateway host's local timezone; set `sessionReset.defaultPolicy.mode` to `none` to disable automatic resets.
 - `sessionRouting.*` controls DM continuity scope. The default `per-channel-peer` mode keeps direct messages isolated by transport and peer identity; `per-linked-identity` plus `sessionRouting.identityLinks` can collapse verified aliases onto one shared main session.
 - `agents.defaultAgentId` selects the default agent for new requests and fresh web sessions when the user does not pin an agent explicitly.
+- `hybridai.maxTokens` controls the default HybridAI completion output budget. The shipped default is `4096`, and it can be adjusted live with `hybridclaw config set hybridai.maxTokens <n>`.
 - `skills.disabled` and `skills.channelDisabled.{discord,msteams,whatsapp,email}` control global and per-channel skill availability. Use `hybridclaw skill enable|disable <name> [--channel <kind>]` or the TUI `/skill config` checklist to manage them.
 - `plugins.list[]` controls plugin overrides such as `enabled`, custom `path`, and top-level `config` values. Use `hybridclaw plugin config <plugin-id> [key] [value|--unset]` for focused edits without rewriting the full config file.
+- `observability.*` controls HybridAI observability ingest, including the target base URL, bot and agent ids, flush interval, and batch size for structured audit event forwarding.
 - `adaptiveSkills.*` controls observation, inspection, amendment staging, and rollback for the self-improving skill loop. See [docs/development/extensibility/adaptive-skills.md](./docs/development/extensibility/adaptive-skills.md) for the operator workflow.
 - `email.pollIntervalMs` defaults to `30000` (30 seconds) and is clamped to a minimum of `1000`.
 - `ops.webApiToken` (or `WEB_API_TOKEN`) gates the built-in `/chat`, `/agents`, and `/admin` surfaces plus the admin API. When unset, localhost browser access stays open without a login prompt.
@@ -543,6 +548,7 @@ CLI runtime commands:
 - `hybridclaw auth login [provider] ...` — Namespaced provider setup/login entrypoint
 - `hybridclaw auth status <provider>` — Show provider status for `hybridai`, `codex`, `openrouter`, `local`, or `msteams`
 - `hybridclaw auth logout <provider>` — Clear provider credentials or disable local backends/Teams
+- `hybridclaw config`, `check`, `reload`, `set <key> <value>` — Inspect, validate, hot-reload, or edit the local runtime config file
 - `hybridclaw auth login msteams [--app-id <id>] [--app-password <secret>] [--tenant-id <id>]` — Enable Microsoft Teams, persist the app secret, and print webhook next steps
 - `hybridclaw auth whatsapp reset` — Clear linked WhatsApp auth so the account can be re-paired cleanly
 - `hybridclaw channels discord setup [--token <token>] [--allow-user-id <snowflake>]... [--prefix <prefix>]` — Prepare restricted command-only Discord config and print bot/token next steps
@@ -561,6 +567,7 @@ CLI runtime commands:
 - `hybridclaw skill install <skill> [install-id]` — Run a declared skill dependency installer
 - `hybridclaw plugin list` — Show discovered plugins, enabled state, registered tools/hooks, and load errors
 - `hybridclaw plugin config <plugin-id> [key] [value|--unset]` — Inspect or change one top-level `plugins.list[].config` override
+- `hybridclaw plugin enable <plugin-id>` / `disable <plugin-id>` — Toggle one top-level `plugins.list[].enabled` override for local plugin recovery
 - `hybridclaw plugin install <path|npm-spec>`, `reinstall`, `uninstall` — Manage plugins installed under `~/.hybridclaw/plugins`
 - `hybridclaw update [status|--check] [--yes]` — Check for updates and upgrade global npm installs (source checkouts get git-based update instructions)
 - `hybridclaw audit ...` — Verify and inspect structured audit trail (`recent`, `search`, `approvals`, `verify`, `instructions`)
@@ -603,9 +610,12 @@ Up/Down on an empty prompt recalls earlier prompts. Use `/agent`, `/agent list`,
 the agent/default model chain, and `/model info` to inspect the active scope.
 `/status` shows both the current session and agent; `/compact` handles session
 compaction; `/reset` runs the confirmed workspace reset flow; `/skill config`
-opens the interactive skill availability checklist; `/plugin list`,
-`/plugin config ...`, and `/plugin reload` manage runtime plugins; and
-`/mcp ...` manages runtime MCP servers. Press `Ctrl-C` or `Ctrl-D` twice within
-five seconds to exit. When a TUI session exits, HybridClaw prints the
-input/output token split, tool/file totals, and a ready-to-run
+opens the interactive skill availability checklist; `/config`, `/config check`,
+`/config reload`, and `/config set <key> <value>` manage the local runtime
+config; `/auth status hybridai` shows local HybridAI auth/config state;
+`/plugin list`, `/plugin config ...`, `/plugin enable`, `/plugin disable`,
+`/plugin install`, `/plugin reinstall`, and `/plugin reload` manage runtime
+plugins; and `/mcp ...` manages runtime MCP servers. Press `Ctrl-C` or `Ctrl-D`
+twice within five seconds to exit. When a TUI session exits, HybridClaw prints
+the input/output token split, tool/file totals, and a ready-to-run
 `hybridclaw tui --resume <sessionId>` command for that session.

@@ -41,6 +41,9 @@ hybridclaw auth whatsapp reset
   `~/.hybridclaw/config.json`.
 - `hybridclaw auth login msteams` enables Microsoft Teams and stores the app
   secret for later gateway startup.
+- `hybridclaw auth status hybridai` reports whether HybridAI is authenticated,
+  where the active API key came from, the masked key, the active config file,
+  the configured base URL, and the default model.
 
 ## Where Credentials Live
 

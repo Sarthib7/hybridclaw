@@ -2,6 +2,51 @@
 
 ## [Coming up]
 
+### Added
+
+- **Local runtime config commands**: Added `hybridclaw config`,
+  `hybridclaw config check`, `hybridclaw config reload`, and
+  `hybridclaw config set <key> <value>`, plus matching local `/config`
+  slash commands for TUI and web sessions. The config view now shows the
+  active config file path, `set` validates immediately after saving, and
+  `reload` performs an in-process hot reload from disk.
+- **HybridAI observability ingest**: Added runtime `observability.*` config
+  plus background forwarding of structured audit events such as `bot.set` to
+  the HybridAI observability ingest API with cached ingest tokens and restart
+  handling.
+
+### Changed
+
+- **Host-mode filesystem allowlist**: Host-mode agent access now uses an
+  explicit allowlist rooted at the user home directory, the gateway working
+  directory, `/tmp`, and configured bind or additional-mount host paths,
+  rather than an implicit project-root escape hatch.
+- **Default HybridAI output budget**: Restored the default
+  `hybridai.maxTokens` value to `4096` while keeping it configurable through
+  the runtime config file and the new `config set` command surface.
+- **Browser login profile handling**: Tightened the headed Chromium login flow
+  around the dedicated automation profile, including clearer automation-only
+  password-store intent and deferred Playwright cache directory creation.
+- **Root dependency lockfile refresh**: Updated pinned and transitive npm
+  packages in `package-lock.json`, including `imapflow`, `mailparser`,
+  `nodemailer`, `path-to-regexp`, `picomatch`, `yaml`, and
+  `brace-expansion`.
+
+### Fixed
+
+- **HybridAI recovery and auth-status handling**: Improved empty-completion and
+  retry-path diagnostics, cached parsed provider error bodies, simplified
+  debug serialization, removed unused parsed fields, and tightened
+  `auth status hybridai` output so it reports local auth/config state without
+  exposing the credentials file path.
+- **Local slash-command consistency**: Added `/config` to the startup slash list, and aligned
+  `config check` so it validates only the runtime config file instead of
+  surfacing broader doctor hygiene warnings.
+- **Plugin recovery workflows**: Tightened plugin enable/disable, config, and
+  reload rollback flows so disabling a broken or missing plugin no longer
+  requires discovery, no-op CLI output no longer claims the config changed,
+  and secondary plugin reload failures are surfaced more clearly.
+
 ## [0.9.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.9.4)
 
 ### Added

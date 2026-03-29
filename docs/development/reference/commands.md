@@ -17,6 +17,10 @@ hybridclaw gateway status
 hybridclaw tui
 hybridclaw onboarding
 hybridclaw doctor [--fix|--json|<component>]
+hybridclaw config
+hybridclaw config check
+hybridclaw config reload
+hybridclaw config set <key> <value>
 hybridclaw browser login [--url <url>]
 hybridclaw browser status
 hybridclaw browser reset
@@ -66,6 +70,8 @@ hybridclaw tool enable <tool-name>
 hybridclaw tool disable <tool-name>
 hybridclaw plugin list
 hybridclaw plugin config <plugin-id> [key] [value|--unset]
+hybridclaw plugin enable <plugin-id>
+hybridclaw plugin disable <plugin-id>
 hybridclaw plugin install <path|npm-spec>
 hybridclaw plugin reinstall <path|npm-spec>
 hybridclaw plugin uninstall <plugin-id>
@@ -82,9 +88,13 @@ community imports from `skills-sh`, `clawhub`, `lobehub`,
 
 ## In Session
 
+- Local TUI and web chat sessions expose `/config`, `/config check`,
+  `/config reload`, `/config set <key> <value>`, and
+  `/auth status hybridai` alongside the existing runtime commands
 - TUI and chat surfaces use `/agent`, `/model`, `/mcp`, `/plugin`, `/skill`,
-  `/compact`, `/reset`, `/skill import`, `/skill learn`, and related slash
-  commands
+  `/compact`, `/reset`, `/plugin enable`, `/plugin disable`,
+  `/plugin install`, `/plugin reinstall`, `/skill import`, `/skill learn`,
+  and related slash commands
 - TUI also supports `/paste` to queue a copied local file or clipboard image
 - Discord supports `!claw` plus slash command equivalents for the same core
   actions

@@ -19,6 +19,9 @@ Before creating the release commit or tag:
 2. Refresh `README.md`, `docs/index.html`, and any affected
    `docs/development/**/*.md` pages so the published docs describe the current
    shipped state instead of the previous release.
+   For maintenance-only dependency refreshes with no operator-facing behavior
+   or workflow changes, a changelog entry is still required but broader product
+   docs may remain unchanged.
 3. Bump the root and container package versions plus both lockfiles.
 4. Run the release validation commands from the repo root:
 

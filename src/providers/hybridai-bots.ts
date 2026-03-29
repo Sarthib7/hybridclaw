@@ -222,7 +222,7 @@ export function normalizeHybridAIAccountChatbotId(payload: unknown): string {
   const sources = nested ? [nested, record] : [record];
 
   for (const source of sources) {
-    for (const key of ['id', 'userId', 'user_id', '_id']) {
+    for (const key of ['userId', 'user_id', 'id', '_id']) {
       const value = source[key];
       if (typeof value === 'string' && value.trim()) {
         return value.trim();

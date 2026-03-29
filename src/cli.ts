@@ -591,11 +591,14 @@ async function launchTui(argv: string[]): Promise<void> {
     return;
   }
 
+  const { ensureRuntimeCredentials } = await ensureOnboardingApi();
   const { resolveTuiRunOptions } = await import('./tui-session.js');
   const options = resolveTuiRunOptions({
     resumeSessionId: parsed.resumeSessionId,
     resumeCommand: 'hybridclaw tui --resume',
   });
+  await ensureRuntimeCredentials({ commandName: 'hybridclaw tui' });
+  await ensureRuntimeContainer('hybridclaw tui', true);
   await ensureTuiInstructionApproval('hybridclaw tui', options.sessionId);
   await ensureGatewayForTui('hybridclaw tui');
   const { runTui } = await import('./tui.js');

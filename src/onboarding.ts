@@ -21,6 +21,7 @@ import {
 } from './onboarding-tui-hint.js';
 import { isCodexModel, resolveModelProvider } from './providers/factory.js';
 import {
+  fetchHybridAIAccountChatbotId,
   normalizeBots,
   normalizeHybridAIAccountChatbotId,
 } from './providers/hybridai-bots.js';
@@ -34,6 +35,7 @@ import {
   saveRuntimeSecrets,
 } from './security/runtime-secrets.js';
 import type { HybridAIBot } from './types/hybridai.js';
+import { promptForSecretInput } from './utils/secret-prompt.js';
 
 interface ApiKeyValidationResult {
   ok: boolean;
@@ -313,6 +315,31 @@ function saveDefaultModel(model: string): void {
   });
 }
 
+async function maybeBackfillDefaultHybridAIChatbotId(params: {
+  authMethod: OnboardingOptions['preferredAuth'] | 'hybridai';
+  existingKey: string;
+  forcePrint?: boolean;
+}): Promise<boolean> {
+  if (params.authMethod !== 'hybridai') return false;
+  if (!params.existingKey.trim()) return false;
+
+  const configuredChatbotId =
+    getRuntimeConfig().hybridai.defaultChatbotId.trim();
+  if (configuredChatbotId) return false;
+
+  try {
+    const chatbotId = (await fetchHybridAIAccountChatbotId()).trim();
+    if (!chatbotId) return false;
+    saveDefaultChatbotId(chatbotId);
+    if (params.forcePrint) {
+      printSuccess(`Default bot set to: ${chatbotId}`);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function defaultHybridAIModel(): string {
   const config = getRuntimeConfig();
   const current = config.hybridai.defaultModel.trim();
@@ -404,11 +431,13 @@ async function promptRequired(
   rl: readline.Interface,
   question: string,
   icon = ICON_PROMPT,
+  secret = false,
 ): Promise<string> {
   while (true) {
-    const value = (
-      await rl.question(styledPromptWithIcon(question, icon))
-    ).trim();
+    const prompt = styledPromptWithIcon(question, icon);
+    const value = secret
+      ? await promptForSecretInput({ prompt, rl })
+      : (await rl.question(prompt)).trim();
     if (value) return value;
     printWarn('Please enter a value.');
   }
@@ -418,8 +447,12 @@ async function promptOptional(
   rl: readline.Interface,
   question: string,
   icon = ICON_PROMPT,
+  secret = false,
 ): Promise<string> {
-  return (await rl.question(styledPromptWithIcon(question, icon))).trim();
+  const prompt = styledPromptWithIcon(question, icon);
+  return secret
+    ? await promptForSecretInput({ prompt, rl })
+    : (await rl.question(prompt)).trim();
 }
 
 async function promptYesNo(
@@ -696,6 +729,7 @@ async function runHybridAIApiKeyOnboarding(params: {
     rl,
     'Paste API key or URL containing it (or press Enter to continue): ',
     ICON_KEY,
+    true,
   );
   if (pasted) {
     seededApiKey = extractApiKeyFromInput(pasted) || '';
@@ -720,7 +754,12 @@ async function runHybridAIApiKeyOnboarding(params: {
   };
   while (true) {
     if (!apiKey) {
-      const entered = await promptRequired(rl, 'HybridAI API key: ', ICON_KEY);
+      const entered = await promptRequired(
+        rl,
+        'HybridAI API key: ',
+        ICON_KEY,
+        true,
+      );
       apiKey = extractApiKeyFromInput(entered) || entered;
     }
 
@@ -965,7 +1004,13 @@ export async function ensureRuntimeCredentials(
         : currentAuth === 'huggingface'
           ? !!existingHuggingFaceKey
           : !!existingKey;
-  if (!needsSecurityAcceptance && hasRequiredCredentials) return;
+  if (!needsSecurityAcceptance && hasRequiredCredentials) {
+    await maybeBackfillDefaultHybridAIChatbotId({
+      authMethod: currentAuth,
+      existingKey,
+    });
+    return;
+  }
 
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     if (!securityAccepted) {
@@ -1038,6 +1083,11 @@ export async function ensureRuntimeCredentials(
     }
 
     if (hasRequiredCredentials && !force) {
+      await maybeBackfillDefaultHybridAIChatbotId({
+        authMethod: currentAuth,
+        existingKey,
+        forcePrint: true,
+      });
       printSuccess(
         'Security trust model already accepted and the active model provider is configured.',
       );

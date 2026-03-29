@@ -2513,7 +2513,7 @@ describe('CLI hybridai commands', () => {
     expect(gatewayModuleLoaded).toHaveBeenCalledTimes(1);
   });
 
-  it('launches tui without local runtime preflight when gateway is already reachable', async () => {
+  it('runs tui preflight before reusing a reachable gateway', async () => {
     const {
       cli,
       ensureRuntimeCredentials,
@@ -2531,8 +2531,10 @@ describe('CLI hybridai commands', () => {
     await cli.main(['tui']);
 
     expect(gatewayHealth).toHaveBeenCalled();
-    expect(ensureRuntimeCredentials).not.toHaveBeenCalled();
-    expect(ensureContainerImageReady).not.toHaveBeenCalled();
+    expect(ensureRuntimeCredentials).toHaveBeenCalledWith({
+      commandName: 'hybridclaw tui',
+    });
+    expect(ensureContainerImageReady).toHaveBeenCalledTimes(1);
     expect(ensureHostRuntimeReady).not.toHaveBeenCalled();
     expect(logSpy).toHaveBeenCalledWith(
       'hybridclaw tui: Gateway found at http://127.0.0.1:9090.',
@@ -2575,6 +2577,43 @@ describe('CLI hybridai commands', () => {
     });
     expect(ensureHostRuntimeReady).toHaveBeenCalledTimes(1);
     expect(ensureContainerImageReady).not.toHaveBeenCalled();
+  });
+
+  it('offers to switch to host mode before reusing a reachable gateway when docker access is blocked', async () => {
+    const startupError = Object.assign(
+      new Error(
+        'hybridclaw tui: Required container image `hybridclaw-agent` not found. HybridClaw could not pull a published runtime image automatically. Check Docker connectivity and the published image tag, or set `container.sandboxMode` to `host` to run without Docker. Details: permission denied while trying to connect to the Docker daemon socket.',
+      ),
+      {
+        name: 'DockerAccessError',
+        kind: 'permission-denied',
+      },
+    );
+
+    const {
+      cli,
+      ensureRuntimeCredentials,
+      ensureContainerImageReady,
+      ensureHostRuntimeReady,
+      updateRuntimeConfig,
+      runTui,
+    } = await importFreshCli({
+      gatewayReachable: true,
+      sandboxMode: 'container',
+      sandboxModeExplicit: false,
+      ensureContainerImageReadyError: startupError,
+      promptResponses: ['y'],
+    });
+
+    await cli.main(['tui']);
+
+    expect(ensureRuntimeCredentials).toHaveBeenCalledWith({
+      commandName: 'hybridclaw tui',
+    });
+    expect(ensureContainerImageReady).toHaveBeenCalledTimes(1);
+    expect(ensureHostRuntimeReady).not.toHaveBeenCalled();
+    expect(updateRuntimeConfig).toHaveBeenCalledTimes(1);
+    expect(runTui).toHaveBeenCalledTimes(1);
   });
 
   it('passes an explicit session id through tui --resume', async () => {

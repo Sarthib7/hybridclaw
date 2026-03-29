@@ -454,6 +454,13 @@ function hasApiAuth(
   return gatewayTokenMatch;
 }
 
+function hasApiTokenValue(token: string): boolean {
+  const trimmed = token.trim();
+  if (!trimmed) return false;
+  if (WEB_API_TOKEN && trimmed === WEB_API_TOKEN) return true;
+  return Boolean(GATEWAY_API_TOKEN) && trimmed === GATEWAY_API_TOKEN;
+}
+
 function resolveApiMediaUploadQuotaKey(req: IncomingMessage): string {
   const authHeader = req.headers.authorization || '';
   if (WEB_API_TOKEN && authHeader === `Bearer ${WEB_API_TOKEN}`) {
@@ -2556,14 +2563,23 @@ export function startGatewayHttpServer(): void {
       return;
     }
 
-    const authenticated =
-      hasApiAuth(req, url, { allowQueryToken: true }) || hasSessionAuth(req);
-    if (!authenticated) {
+    const sessionAuthenticated = hasSessionAuth(req);
+    if (
+      !sessionAuthenticated &&
+      !WEB_API_TOKEN &&
+      !GATEWAY_API_TOKEN &&
+      !hasApiAuth(req, url, { allowQueryToken: false })
+    ) {
       writeUpgradeError(socket, 401, 'Unauthorized');
       return;
     }
 
-    if (!terminalManager.handleUpgrade(req, socket, head, url)) {
+    if (
+      !terminalManager.handleUpgrade(req, socket, head, url, {
+        hasSessionAuth: sessionAuthenticated,
+        validateToken: hasApiTokenValue,
+      })
+    ) {
       writeUpgradeError(socket, 404, 'Not Found');
     }
   });

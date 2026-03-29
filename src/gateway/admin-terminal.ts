@@ -30,6 +30,10 @@ export interface AdminTerminalStartResponse {
 
 type ClientMessage =
   | {
+      type: 'auth';
+      token: string;
+    }
+  | {
       type: 'input';
       data: string;
     }
@@ -153,6 +157,12 @@ function parseClientMessage(raw: WebSocket.Data): ClientMessage | null {
   }
   if (!parsed || typeof parsed !== 'object') return null;
   const candidate = parsed as Record<string, unknown>;
+  if (candidate.type === 'auth' && typeof candidate.token === 'string') {
+    return {
+      type: 'auth',
+      token: candidate.token,
+    };
+  }
   if (candidate.type === 'input' && typeof candidate.data === 'string') {
     return {
       type: 'input',
@@ -187,6 +197,10 @@ export function createAdminTerminalManager(): {
     socket: Duplex,
     head: Buffer,
     url: URL,
+    auth?: {
+      hasSessionAuth?: boolean;
+      validateToken?: (token: string) => boolean;
+    },
   ) => boolean;
   dispose: () => void;
 } {
@@ -407,7 +421,7 @@ export function createAdminTerminalManager(): {
       return cleanupSession(sessionId);
     },
 
-    handleUpgrade(req, socket, head, url) {
+    handleUpgrade(req, socket, head, url, auth) {
       if (url.pathname !== '/api/admin/terminal/stream') {
         return false;
       }
@@ -423,24 +437,67 @@ export function createAdminTerminalManager(): {
       }
 
       wss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
-        if (session.attachTimer) {
-          clearTimeout(session.attachTimer);
-          session.attachTimer = null;
-        }
+        let authenticated = auth?.hasSessionAuth === true;
+        let authTimer: NodeJS.Timeout | null = null;
+        const closeUnauthorized = () => {
+          if (authTimer) {
+            clearTimeout(authTimer);
+            authTimer = null;
+          }
+          try {
+            ws.close(4401, 'Unauthorized');
+          } catch {
+            ws.close();
+          }
+        };
+        const attachSocket = () => {
+          if (session.attachTimer) {
+            clearTimeout(session.attachTimer);
+            session.attachTimer = null;
+          }
+          if (authTimer) {
+            clearTimeout(authTimer);
+            authTimer = null;
+          }
+          session.socket = ws;
+          flushBufferedOutput(session);
+          if (session.exited) {
+            sendMessage(session, {
+              type: 'exit',
+              exitCode: session.exitCode,
+              signal: session.signal,
+            });
+          }
+        };
 
-        session.socket = ws;
-        flushBufferedOutput(session);
-        if (session.exited) {
-          sendMessage(session, {
-            type: 'exit',
-            exitCode: session.exitCode,
-            signal: session.signal,
-          });
+        if (authenticated) {
+          attachSocket();
+        } else {
+          authTimer = setTimeout(() => {
+            closeUnauthorized();
+          }, ATTACH_TIMEOUT_MS);
         }
 
         ws.on('message', (raw: WebSocket.Data) => {
           const message = parseClientMessage(raw);
           if (!message || session.closed) return;
+          if (!authenticated) {
+            if (message.type !== 'auth') {
+              closeUnauthorized();
+              return;
+            }
+            const token = message.token.trim();
+            if (!token || !auth?.validateToken?.(token)) {
+              closeUnauthorized();
+              return;
+            }
+            authenticated = true;
+            attachSocket();
+            return;
+          }
+          if (message.type === 'auth') {
+            return;
+          }
           if (message.type === 'input') {
             session.pty.write(message.data);
             return;
@@ -452,8 +509,14 @@ export function createAdminTerminalManager(): {
         });
 
         ws.on('close', () => {
-          session.socket = null;
-          cleanupSession(sessionId);
+          if (authTimer) {
+            clearTimeout(authTimer);
+            authTimer = null;
+          }
+          if (session.socket === ws) {
+            session.socket = null;
+            cleanupSession(sessionId);
+          }
         });
 
         ws.on('error', (error: Error) => {

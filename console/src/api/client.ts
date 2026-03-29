@@ -149,7 +149,7 @@ export function stopAdminTerminal(
 }
 
 export function adminTerminalSocketUrl(
-  token: string,
+  _token: string,
   sessionId: string,
 ): string {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -158,10 +158,6 @@ export function adminTerminalSocketUrl(
     `${protocol}//${window.location.host}`,
   );
   url.searchParams.set('sessionId', sessionId);
-  const trimmed = token.trim();
-  if (trimmed) {
-    url.searchParams.set('token', trimmed);
-  }
   return url.toString();
 }
 

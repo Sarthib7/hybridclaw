@@ -29,6 +29,21 @@ type TerminalSocketEvent =
       signal: number | null;
     };
 
+type TerminalClientMessage =
+  | {
+      type: 'auth';
+      token: string;
+    }
+  | {
+      type: 'input';
+      data: string;
+    }
+  | {
+      type: 'resize';
+      cols: number;
+      rows: number;
+    };
+
 function disposeSocket(socketRef: MutableRefObject<WebSocket | null>): void {
   const socket = socketRef.current;
   socketRef.current = null;
@@ -72,13 +87,12 @@ function refitTerminal(
   fit.fit();
   const socket = socketRef.current;
   if (!socket || socket.readyState !== WebSocket.OPEN) return;
-  socket.send(
-    JSON.stringify({
-      type: 'resize',
-      cols: terminal.cols,
-      rows: terminal.rows,
-    }),
-  );
+  const message: TerminalClientMessage = {
+    type: 'resize',
+    cols: terminal.cols,
+    rows: terminal.rows,
+  };
+  socket.send(JSON.stringify(message));
 }
 
 export function TerminalPage() {
@@ -213,12 +227,11 @@ export function TerminalPage() {
     terminal.onData((data) => {
       const socket = socketRef.current;
       if (!socket || socket.readyState !== WebSocket.OPEN) return;
-      socket.send(
-        JSON.stringify({
-          type: 'input',
-          data,
-        }),
-      );
+      const message: TerminalClientMessage = {
+        type: 'input',
+        data,
+      };
+      socket.send(JSON.stringify(message));
     });
 
     const resizeTerminal = () => {
@@ -255,8 +268,16 @@ export function TerminalPage() {
         adminTerminalSocketUrl(auth.token, started.sessionId),
       );
       socketRef.current = socket;
+      const authToken = auth.token.trim();
 
       socket.addEventListener('open', () => {
+        if (authToken) {
+          const message: TerminalClientMessage = {
+            type: 'auth',
+            token: authToken,
+          };
+          socket.send(JSON.stringify(message));
+        }
         setState('running');
         requestAnimationFrame(() => {
           refitTerminal(terminalRef, fitAddonRef, socketRef);

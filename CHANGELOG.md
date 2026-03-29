@@ -2,6 +2,16 @@
 
 ## [Coming up]
 
+## [0.9.6](https://github.com/HybridAIOne/hybridclaw/tree/v0.9.6)
+
+### Changed
+
+- **Release and docs alignment**: Refreshed the public README install section
+  with direct changelog and docs links, updated the static docs landing page so
+  its release highlights match the current shipped feature set, and aligned the
+  maintainer release guide with the changelog's `Coming up` workflow and the
+  docs surfaces that should be refreshed before a release.
+
 ## [0.9.5](https://github.com/HybridAIOne/hybridclaw/tree/v0.9.5)
 
 ### Added

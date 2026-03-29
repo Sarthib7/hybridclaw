@@ -803,30 +803,30 @@
 <!-- RELEASE -->
 <section id="release">
   <div class="section-center">
-    <div class="section-label">Coming Up</div>
-    <h2 class="section-title">Since Version 0.9.3</h2>
-    <p class="section-desc">Mainline updates focus on agent startup and packaging: richer agent profiles, packaged GitHub install sources, proactive first-session openings, and more reliable default-agent/chatbot routing.</p>
+    <div class="section-label">Latest Release</div>
+    <h2 class="section-title">Current shipped highlights</h2>
+    <p class="section-desc">Recent HybridClaw releases focused on operator-facing runtime control: dual-backend iMessage support, a browser-based admin terminal, richer local config commands, and tighter observability and recovery flows.</p>
   </div>
   <div class="features-grid">
     <div class="feature-card">
-      <div class="feature-icon">&#x1f9d1;</div>
-      <h3>Agent profiles with images</h3>
-      <p>Agent configs and packaged <code>.claw</code> manifests can now carry a display name plus a workspace image asset so web chat can show the active agent identity with an avatar.</p>
+      <div class="feature-icon">&#x1f4f1;</div>
+      <h3>Dual-backend iMessage delivery</h3>
+      <p><code>hybridclaw channels imessage setup</code> supports either a local macOS <code>imsg</code> + Messages <code>chat.db</code> path or a remote BlueBubbles relay, so operators can choose the delivery model that fits their deployment.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f4e6;</div>
-      <h3>Packaged agent installs from GitHub</h3>
-      <p><code>hybridclaw agent install</code> now accepts <code>official:&lt;agent-dir&gt;</code> and <code>github:owner/repo[/&lt;ref&gt;]/&lt;agent-dir&gt;</code> sources, and <code>agent activate</code> can set the default agent for new requests.</p>
+      <div class="feature-icon">&#x1f5a5;&#xfe0f;</div>
+      <h3>Embedded admin terminal</h3>
+      <p>The built-in admin console includes a live <code>/admin/terminal</code> page, giving operators a browser-based PTY alongside gateway, session, job, audit, and config views.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f95a;</div>
-      <h3>Proactive startup openings</h3>
-      <p>Fresh sessions can now proactively start from <code>BOOTSTRAP.md</code> or the new <code>OPENING.md</code>, so onboarding and custom opening instructions appear before the first manual prompt.</p>
+      <div class="feature-icon">&#9881;&#xfe0f;</div>
+      <h3>Local runtime config controls</h3>
+      <p><code>hybridclaw config</code>, <code>config check</code>, <code>config reload</code>, and <code>config set &lt;key&gt; &lt;value&gt;</code> cover the local runtime config lifecycle, with matching <code>/config</code> flows in TUI and web chat.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f6e1;&#xfe0f;</div>
-      <h3>Safer routing and fallback resolution</h3>
-      <p>Gateway chat, scheduler runs, and startup autostart can recover chatbot ids from HybridAI account metadata, while web chat follows the configured default agent more consistently.</p>
+      <h3>Observability and recovery hardening</h3>
+      <p>HybridAI observability ingest, clearer browser-tool diagnostics, safer plugin recovery, and stricter host-mode allowlisting all tighten day-to-day operations without widening the default trust boundary.</p>
     </div>
   </div>
 </section>

@@ -44,6 +44,9 @@ hybridclaw onboarding
 Prerequisites: Node.js 22. Docker is recommended when you want the default
 container sandbox. The published install bootstraps the packaged container
 runtime dependencies during `npm install -g`.
+Release notes live in [CHANGELOG.md](./CHANGELOG.md), and the browsable
+operator and maintainer manual lives under
+[docs/development/README.md](./docs/development/README.md).
 
 ## HybridAI Advantage
 

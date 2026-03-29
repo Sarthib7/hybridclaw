@@ -110,23 +110,22 @@ describe('iMessage runtime', () => {
     const backend = backendFactory.mock.results[0]?.value as {
       start: () => Promise<void>;
     };
-    const onInbound = backendFactory.mock.calls[0]?.[0]?.onInbound as (
-      message: {
-        sessionId: string;
-        guildId: null;
-        channelId: string;
-        userId: string;
-        username: string;
-        content: string;
-        media: [];
-        messageId: string;
-        conversationId: string;
-        handle: string;
-        isGroup: boolean;
-        backend: 'local';
-        rawEvent: unknown;
-      },
-    ) => Promise<void>;
+    const onInbound = backendFactory.mock.calls[0]?.[0]
+      ?.onInbound as (message: {
+      sessionId: string;
+      guildId: null;
+      channelId: string;
+      userId: string;
+      username: string;
+      content: string;
+      media: [];
+      messageId: string;
+      conversationId: string;
+      handle: string;
+      isGroup: boolean;
+      backend: 'local';
+      rawEvent: unknown;
+    }) => Promise<void>;
     void backend;
 
     const inbound = {
@@ -159,23 +158,22 @@ describe('iMessage runtime', () => {
 
     await runtime.initIMessage(handler);
 
-    const onInbound = backendFactory.mock.calls[0]?.[0]?.onInbound as (
-      message: {
-        sessionId: string;
-        guildId: null;
-        channelId: string;
-        userId: string;
-        username: string;
-        content: string;
-        media: [];
-        messageId: string;
-        conversationId: string;
-        handle: string;
-        isGroup: boolean;
-        backend: 'local';
-        rawEvent: unknown;
-      },
-    ) => Promise<void>;
+    const onInbound = backendFactory.mock.calls[0]?.[0]
+      ?.onInbound as (message: {
+      sessionId: string;
+      guildId: null;
+      channelId: string;
+      userId: string;
+      username: string;
+      content: string;
+      media: [];
+      messageId: string;
+      conversationId: string;
+      handle: string;
+      isGroup: boolean;
+      backend: 'local';
+      rawEvent: unknown;
+    }) => Promise<void>;
 
     await onInbound({
       sessionId: 'session-1',
@@ -245,23 +243,22 @@ describe('iMessage runtime', () => {
 
     await runtime.initIMessage(handler);
 
-    const onInbound = backendFactory.mock.calls[0]?.[0]?.onInbound as (
-      message: {
-        sessionId: string;
-        guildId: null;
-        channelId: string;
-        userId: string;
-        username: string;
-        content: string;
-        media: [];
-        messageId: string;
-        conversationId: string;
-        handle: string;
-        isGroup: boolean;
-        backend: 'local';
-        rawEvent: unknown;
-      },
-    ) => Promise<void>;
+    const onInbound = backendFactory.mock.calls[0]?.[0]
+      ?.onInbound as (message: {
+      sessionId: string;
+      guildId: null;
+      channelId: string;
+      userId: string;
+      username: string;
+      content: string;
+      media: [];
+      messageId: string;
+      conversationId: string;
+      handle: string;
+      isGroup: boolean;
+      backend: 'local';
+      rawEvent: unknown;
+    }) => Promise<void>;
 
     await onInbound({
       sessionId: 'session-mirror-1',
@@ -328,23 +325,22 @@ describe('iMessage runtime', () => {
       'Hello from agent',
     );
 
-    const onInbound = backendFactory.mock.calls[0]?.[0]?.onInbound as (
-      message: {
-        sessionId: string;
-        guildId: null;
-        channelId: string;
-        userId: string;
-        username: string;
-        content: string;
-        media: [];
-        messageId: string;
-        conversationId: string;
-        handle: string;
-        isGroup: boolean;
-        backend: 'local';
-        rawEvent: unknown;
-      },
-    ) => Promise<void>;
+    const onInbound = backendFactory.mock.calls[0]?.[0]
+      ?.onInbound as (message: {
+      sessionId: string;
+      guildId: null;
+      channelId: string;
+      userId: string;
+      username: string;
+      content: string;
+      media: [];
+      messageId: string;
+      conversationId: string;
+      handle: string;
+      isGroup: boolean;
+      backend: 'local';
+      rawEvent: unknown;
+    }) => Promise<void>;
 
     await onInbound({
       sessionId: 'session-2',
@@ -389,23 +385,22 @@ describe('iMessage runtime', () => {
 
     await runtime.initIMessage(handler);
 
-    const onInbound = backendFactory.mock.calls[0]?.[0]?.onInbound as (
-      message: {
-        sessionId: string;
-        guildId: null;
-        channelId: string;
-        userId: string;
-        username: string;
-        content: string;
-        media: [];
-        messageId: string;
-        conversationId: string;
-        handle: string;
-        isGroup: boolean;
-        backend: 'local';
-        rawEvent: unknown;
-      },
-    ) => Promise<void>;
+    const onInbound = backendFactory.mock.calls[0]?.[0]
+      ?.onInbound as (message: {
+      sessionId: string;
+      guildId: null;
+      channelId: string;
+      userId: string;
+      username: string;
+      content: string;
+      media: [];
+      messageId: string;
+      conversationId: string;
+      handle: string;
+      isGroup: boolean;
+      backend: 'local';
+      rawEvent: unknown;
+    }) => Promise<void>;
 
     await onInbound({
       sessionId: 'session-3',
@@ -429,9 +424,10 @@ describe('iMessage runtime', () => {
       },
     });
 
-    expect(sendText).toHaveBeenCalledWith('imessage:+14155551212', [
-      '[hybridclaw] hello from the bot',
-    ][0]);
+    expect(sendText).toHaveBeenCalledWith(
+      'imessage:+14155551212',
+      ['[hybridclaw] hello from the bot'][0],
+    );
   });
 
   test('drops reflected local self-chat messages that come back with a marker prefix fragment', async () => {
@@ -442,23 +438,22 @@ describe('iMessage runtime', () => {
 
     await runtime.initIMessage(handler);
 
-    const onInbound = backendFactory.mock.calls[0]?.[0]?.onInbound as (
-      message: {
-        sessionId: string;
-        guildId: null;
-        channelId: string;
-        userId: string;
-        username: string;
-        content: string;
-        media: [];
-        messageId: string;
-        conversationId: string;
-        handle: string;
-        isGroup: boolean;
-        backend: 'local';
-        rawEvent: unknown;
-      },
-    ) => Promise<void>;
+    const onInbound = backendFactory.mock.calls[0]?.[0]
+      ?.onInbound as (message: {
+      sessionId: string;
+      guildId: null;
+      channelId: string;
+      userId: string;
+      username: string;
+      content: string;
+      media: [];
+      messageId: string;
+      conversationId: string;
+      handle: string;
+      isGroup: boolean;
+      backend: 'local';
+      rawEvent: unknown;
+    }) => Promise<void>;
 
     await onInbound({
       sessionId: 'session-4',
@@ -545,23 +540,22 @@ describe('iMessage runtime', () => {
 
     await runtime.initIMessage(handler);
 
-    const onInbound = backendFactory.mock.calls[0]?.[0]?.onInbound as (
-      message: {
-        sessionId: string;
-        guildId: null;
-        channelId: string;
-        userId: string;
-        username: string;
-        content: string;
-        media: [];
-        messageId: string;
-        conversationId: string;
-        handle: string;
-        isGroup: boolean;
-        backend: 'local';
-        rawEvent: unknown;
-      },
-    ) => Promise<void>;
+    const onInbound = backendFactory.mock.calls[0]?.[0]
+      ?.onInbound as (message: {
+      sessionId: string;
+      guildId: null;
+      channelId: string;
+      userId: string;
+      username: string;
+      content: string;
+      media: [];
+      messageId: string;
+      conversationId: string;
+      handle: string;
+      isGroup: boolean;
+      backend: 'local';
+      rawEvent: unknown;
+    }) => Promise<void>;
 
     await onInbound({
       sessionId: 'session-5',
@@ -607,26 +601,26 @@ describe('iMessage runtime', () => {
 
     await runtime.initIMessage(handler);
 
-    const onInbound = backendFactory.mock.calls[0]?.[0]?.onInbound as (
-      message: {
-        sessionId: string;
-        guildId: null;
-        channelId: string;
-        userId: string;
-        username: string;
-        content: string;
-        media: [];
-        messageId: string;
-        conversationId: string;
-        handle: string;
-        isGroup: boolean;
-        backend: 'local';
-        rawEvent: unknown;
-      },
-    ) => Promise<void>;
+    const onInbound = backendFactory.mock.calls[0]?.[0]
+      ?.onInbound as (message: {
+      sessionId: string;
+      guildId: null;
+      channelId: string;
+      userId: string;
+      username: string;
+      content: string;
+      media: [];
+      messageId: string;
+      conversationId: string;
+      handle: string;
+      isGroup: boolean;
+      backend: 'local';
+      rawEvent: unknown;
+    }) => Promise<void>;
 
     await onInbound({
-      sessionId: 'agent:charly:channel:imessage:chat:dm:peer:imessage%3A%2B14155551212',
+      sessionId:
+        'agent:charly:channel:imessage:chat:dm:peer:imessage%3A%2B14155551212',
       guildId: null,
       channelId: 'imessage:+14155551212',
       userId: '+14155551212',
@@ -669,26 +663,26 @@ describe('iMessage runtime', () => {
 
     await runtime.initIMessage(handler);
 
-    const onInbound = backendFactory.mock.calls[0]?.[0]?.onInbound as (
-      message: {
-        sessionId: string;
-        guildId: null;
-        channelId: string;
-        userId: string;
-        username: string;
-        content: string;
-        media: [];
-        messageId: string;
-        conversationId: string;
-        handle: string;
-        isGroup: boolean;
-        backend: 'local';
-        rawEvent: unknown;
-      },
-    ) => Promise<void>;
+    const onInbound = backendFactory.mock.calls[0]?.[0]
+      ?.onInbound as (message: {
+      sessionId: string;
+      guildId: null;
+      channelId: string;
+      userId: string;
+      username: string;
+      content: string;
+      media: [];
+      messageId: string;
+      conversationId: string;
+      handle: string;
+      isGroup: boolean;
+      backend: 'local';
+      rawEvent: unknown;
+    }) => Promise<void>;
 
     await onInbound({
-      sessionId: 'agent:main:channel:imessage:chat:dm:peer:imessage%3A%2B14155551212',
+      sessionId:
+        'agent:main:channel:imessage:chat:dm:peer:imessage%3A%2B14155551212',
       guildId: null,
       channelId: 'imessage:+14155551212',
       userId: '+14155551212',
@@ -728,26 +722,26 @@ describe('iMessage runtime', () => {
 
     await runtime.initIMessage(handler);
 
-    const onInbound = backendFactory.mock.calls[0]?.[0]?.onInbound as (
-      message: {
-        sessionId: string;
-        guildId: null;
-        channelId: string;
-        userId: string;
-        username: string;
-        content: string;
-        media: [];
-        messageId: string;
-        conversationId: string;
-        handle: string;
-        isGroup: boolean;
-        backend: 'local';
-        rawEvent: unknown;
-      },
-    ) => Promise<void>;
+    const onInbound = backendFactory.mock.calls[0]?.[0]
+      ?.onInbound as (message: {
+      sessionId: string;
+      guildId: null;
+      channelId: string;
+      userId: string;
+      username: string;
+      content: string;
+      media: [];
+      messageId: string;
+      conversationId: string;
+      handle: string;
+      isGroup: boolean;
+      backend: 'local';
+      rawEvent: unknown;
+    }) => Promise<void>;
 
     await onInbound({
-      sessionId: 'agent:main:channel:imessage:chat:dm:peer:imessage%3A%2B14155551212',
+      sessionId:
+        'agent:main:channel:imessage:chat:dm:peer:imessage%3A%2B14155551212',
       guildId: null,
       channelId: 'imessage:+14155551212',
       userId: '+14155551212',

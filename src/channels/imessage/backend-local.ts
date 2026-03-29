@@ -57,7 +57,7 @@ function canonicalizeLocalSelfChatLine(line: string): string {
   if (normalized.startsWith('/')) {
     return normalized;
   }
-  const plusMarkerMatch = normalized.match(/^\+[^\s](?=[\[/\p{L}\p{N}])/u);
+  const plusMarkerMatch = normalized.match(/^\+[^\s](?=[[/\p{L}\p{N}])/u);
   if (plusMarkerMatch) {
     return normalized.slice(2).trim();
   }
@@ -82,7 +82,9 @@ function normalizeLocalSelfChatText(value: string): string {
     return canonicalizeLocalSelfChatLine(normalized);
   }
 
-  const canonicalLines = lines.map((line) => canonicalizeLocalSelfChatLine(line));
+  const canonicalLines = lines.map((line) =>
+    canonicalizeLocalSelfChatLine(line),
+  );
   if (canonicalLines.length > 1 && new Set(canonicalLines).size === 1) {
     return canonicalLines[0];
   }

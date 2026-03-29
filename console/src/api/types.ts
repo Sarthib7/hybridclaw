@@ -85,6 +85,15 @@ export interface AdminSession {
   lastActive: string;
 }
 
+export interface AdminTerminalStartResponse {
+  sessionId: string;
+  websocketPath: string;
+}
+
+export interface AdminTerminalStopResponse {
+  stopped: boolean;
+}
+
 export interface AdminUsageSummary {
   totalInputTokens: number;
   totalOutputTokens: number;

@@ -7,6 +7,7 @@ WORKDIR /app
 COPY package*.json ./
 COPY console/package*.json console/
 RUN npm ci
+RUN find node_modules/node-pty/prebuilds -name spawn-helper -exec chmod 755 {} \; 2>/dev/null || true
 
 # Install container agent deps (cached separately from source)
 COPY container/package*.json container/
@@ -32,6 +33,7 @@ WORKDIR /app
 COPY package*.json ./
 COPY console/package*.json console/
 RUN npm ci --omit=dev
+RUN find node_modules/node-pty/prebuilds -name spawn-helper -exec chmod 755 {} \; 2>/dev/null || true
 
 # Production deps — container agent
 COPY container/package*.json container/

@@ -51,6 +51,10 @@ import {
 import type { MediaContextItem } from '../types/container.js';
 import type { PendingApproval, ToolProgressEvent } from '../types/execution.js';
 import {
+  type AdminTerminalStartOptions,
+  createAdminTerminalManager,
+} from './admin-terminal.js';
+import {
   hasSessionAuth,
   setSessionCookie,
   verifyLaunchToken,
@@ -179,6 +183,10 @@ const ALLOWED_MEDIA_UPLOAD_MIME_TYPES = new Set([
 type ApiChatRequestBody = GatewayChatRequestBody & { stream?: boolean };
 type ApiChatBranchRequestBody = Partial<GatewayChatBranchRequestBody>;
 type ApiMessageActionRequestBody = Partial<DiscordToolActionRequest>;
+type ApiAdminTerminalRequestBody = {
+  cols?: unknown;
+  rows?: unknown;
+};
 
 // Keep this local instead of importing the container helper. The gateway and
 // container ship as separate packages and intentionally normalize request
@@ -233,6 +241,21 @@ function parsePositiveInteger(value: unknown): number | null {
   if (!/^\d+$/.test(normalized)) return null;
   const parsed = Number(normalized);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function parseTerminalDimension(
+  value: unknown,
+  fallback: number,
+): number | undefined {
+  if (value == null) return fallback;
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? Math.floor(value) : fallback;
+  }
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim();
+  if (!/^\d+$/.test(normalized)) return fallback;
+  const parsed = Number(normalized);
+  return Number.isSafeInteger(parsed) ? parsed : fallback;
 }
 
 function generateDefaultWebSessionId(agentId?: string | null): string {
@@ -2157,7 +2180,52 @@ function handleApiArtifact(
   });
 }
 
+async function handleApiAdminTerminal(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+  terminalManager: ReturnType<typeof createAdminTerminalManager>,
+): Promise<void> {
+  if (req.method === 'POST') {
+    const body = (await readJsonBody(req)) as ApiAdminTerminalRequestBody;
+    const options: AdminTerminalStartOptions = {
+      cols: parseTerminalDimension(body.cols, 120),
+      rows: parseTerminalDimension(body.rows, 32),
+    };
+    sendJson(res, 200, terminalManager.startSession(options));
+    return;
+  }
+
+  if (req.method === 'DELETE') {
+    const sessionId = normalizeOptionalString(
+      url.searchParams.get('sessionId'),
+    );
+    if (!sessionId) {
+      sendJson(res, 400, { error: 'Missing `sessionId`.' });
+      return;
+    }
+    sendJson(res, 200, {
+      stopped: terminalManager.stopSession(sessionId),
+    });
+    return;
+  }
+
+  sendJson(res, 405, { error: 'Method Not Allowed' });
+}
+
+function writeUpgradeError(
+  socket: NodeJS.WritableStream & { destroy: () => void },
+  statusCode: number,
+  statusText: string,
+): void {
+  socket.write(
+    `HTTP/1.1 ${statusCode} ${statusText}\r\nConnection: close\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${statusText}`,
+  );
+  socket.destroy();
+}
+
 export function startGatewayHttpServer(): void {
+  const terminalManager = createAdminTerminalManager();
   const server = http.createServer((req, res) => {
     const method = req.method || 'GET';
     const url = new URL(req.url || '/', 'http://localhost');
@@ -2395,6 +2463,10 @@ export function startGatewayHttpServer(): void {
             handleApiAdminJobsContext(res);
             return;
           }
+          if (pathname === '/api/admin/terminal') {
+            await handleApiAdminTerminal(req, res, url, terminalManager);
+            return;
+          }
           if (pathname === '/api/history' && method === 'GET') {
             await handleApiHistory(res, url);
             return;
@@ -2473,6 +2545,27 @@ export function startGatewayHttpServer(): void {
 
     if (serveStatic(pathname, res)) return;
     sendText(res, 404, 'Not Found');
+  });
+
+  server.on('upgrade', (req, socket, head) => {
+    const host = String(req.headers.host || 'localhost');
+    const url = new URL(req.url || '/', `http://${host}`);
+
+    if (url.pathname !== '/api/admin/terminal/stream') {
+      writeUpgradeError(socket, 404, 'Not Found');
+      return;
+    }
+
+    const authenticated =
+      hasApiAuth(req, url, { allowQueryToken: true }) || hasSessionAuth(req);
+    if (!authenticated) {
+      writeUpgradeError(socket, 401, 'Unauthorized');
+      return;
+    }
+
+    if (!terminalManager.handleUpgrade(req, socket, head, url)) {
+      writeUpgradeError(socket, 404, 'Not Found');
+    }
   });
 
   server.listen(HEALTH_PORT, HEALTH_HOST, () => {

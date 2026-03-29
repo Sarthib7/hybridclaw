@@ -70,7 +70,10 @@ code {
 }
 
 .main-panel {
+  display: flex;
+  flex-direction: column;
   padding: 24px;
+  min-height: 100dvh;
   min-width: 0;
 }
 
@@ -86,6 +89,11 @@ code {
   gap: 12px;
 }
 
+.page-content {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 .brand-block {
   padding: 4px 8px;
 }
@@ -98,7 +106,6 @@ code {
 
 .brand-block h1,
 .topbar h2,
-.page-header h3,
 .panel h4,
 .login-card h1 {
   margin: 0;
@@ -111,11 +118,7 @@ code {
 }
 
 .topbar h2 {
-  font-size: 1.5rem;
-}
-
-.page-header h3 {
-  font-size: clamp(1.6rem, 2vw, 2rem);
+  font-size: clamp(1.9rem, 2.4vw, 2.35rem);
 }
 
 .panel h4 {
@@ -225,8 +228,8 @@ code {
 
 .nav-group {
   display: grid;
-  gap: 4px;
-  margin-top: 20px;
+  gap: 2px;
+  margin-top: 16px;
 }
 
 .nav-section {
@@ -243,7 +246,7 @@ code {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 12px;
+  padding: 8px 12px;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   color: var(--text);
@@ -296,22 +299,19 @@ code {
 
 .topbar {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid var(--line);
-  margin-bottom: 24px;
+  padding-bottom: 12px;
+  margin-bottom: 14px;
 }
 
-.topbar.topbar-compact {
-  justify-content: flex-end;
+.topbar-title {
+  min-width: 0;
 }
 
-.topbar-actions {
-  display: grid;
-  gap: 10px;
-  justify-items: end;
+.topbar-title h2 {
+  line-height: 1.05;
 }
 
 .view-switch {
@@ -399,9 +399,13 @@ code {
 
 .page-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 18px;
+}
+
+.page-header-description {
+  max-width: 62ch;
 }
 
 .panel {
@@ -409,6 +413,116 @@ code {
   border-radius: var(--radius-lg);
   border: 1px solid var(--line);
   background: var(--panel-bg);
+}
+
+.terminal-page {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  gap: 10px;
+}
+
+.terminal-panel-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+  min-width: 0;
+}
+
+.terminal-page .page-header .button-row {
+  justify-content: flex-end;
+}
+
+.terminal-page .page-header .status-pill {
+  margin-right: 6px;
+}
+
+.terminal-page .page-header .header-actions {
+  justify-content: flex-end;
+  width: 100%;
+}
+
+.terminal-page .page-header {
+  justify-content: flex-end;
+}
+
+.terminal-page .page-header > span:first-child {
+  display: none;
+}
+
+.terminal-page .page-header .button-row {
+  margin-bottom: 4px;
+}
+
+.terminal-shell {
+  display: flex;
+  flex: 1 1 auto;
+  position: relative;
+  min-height: 320px;
+  width: 100%;
+  overflow: hidden;
+  background: #0f172a;
+  border-radius: 12px;
+}
+
+.terminal-host {
+  flex: 1 1 auto;
+  height: calc(100% - 12px);
+  min-height: 0;
+  min-width: 0;
+  margin-bottom: 12px;
+  padding: 4px 6px;
+  overflow: hidden;
+}
+
+.terminal-host .xterm {
+  height: 100%;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.terminal-host .xterm-viewport {
+  overflow-x: hidden;
+}
+
+.terminal-host .xterm-screen {
+  width: 100%;
+  max-width: 100%;
+}
+
+.terminal-empty-state {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  text-align: center;
+  color: #cbd5e1;
+  background: linear-gradient(
+    180deg,
+    rgba(15, 23, 42, 0.76),
+    rgba(15, 23, 42, 0.92)
+  );
+}
+
+.terminal-empty-copy {
+  white-space: nowrap;
+}
+
+.terminal-error-banner {
+  margin-top: 16px;
+}
+
+@media (max-width: 960px) {
+  .terminal-panel-body {
+    gap: 12px;
+  }
 }
 
 .panel.warm,
@@ -1308,5 +1422,10 @@ th {
 
   .jobs-header-search {
     min-width: 0;
+  }
+
+  .terminal-shell,
+  .terminal-host {
+    min-height: 60vh;
   }
 }

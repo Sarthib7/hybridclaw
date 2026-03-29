@@ -326,11 +326,28 @@ async function importFreshHealth(options?: {
         res: Parameters<Parameters<typeof createServer>[0]>[1],
       ) => void)
     | null = null;
+  let upgradeHandler:
+    | ((req: unknown, socket: unknown, head: unknown) => void)
+    | null = null;
   let listenArgs: { port: number; host: string } | null = null;
+  const startTerminalSession = vi.fn(() => ({
+    sessionId: 'terminal-session-1',
+    websocketPath: '/api/admin/terminal/stream?sessionId=terminal-session-1',
+  }));
+  const stopTerminalSession = vi.fn(() => true);
+  const handleTerminalUpgrade = vi.fn(() => true);
+  const disposeTerminalManager = vi.fn();
 
   const createServer = vi.fn((nextHandler) => {
     handler = nextHandler;
     return {
+      on: vi.fn(
+        (event: string, nextUpgradeHandler: (...args: unknown[]) => void) => {
+          if (event === 'upgrade') {
+            upgradeHandler = nextUpgradeHandler;
+          }
+        },
+      ),
       listen: vi.fn((port: number, host: string, callback?: () => void) => {
         listenArgs = { port, host };
         callback?.();
@@ -918,6 +935,14 @@ async function importFreshHealth(options?: {
   vi.doMock('../src/gateway/media-upload-quota.ts', () => ({
     consumeGatewayMediaUploadQuota,
   }));
+  vi.doMock('../src/gateway/admin-terminal.ts', () => ({
+    createAdminTerminalManager: vi.fn(() => ({
+      startSession: startTerminalSession,
+      stopSession: stopTerminalSession,
+      handleUpgrade: handleTerminalUpgrade,
+      dispose: disposeTerminalManager,
+    })),
+  }));
 
   const gatewayHttpServer = await import(
     '../src/gateway/gateway-http-server.js'
@@ -952,6 +977,10 @@ async function importFreshHealth(options?: {
     getGatewayAdminSkills,
     getGatewayAdminJobsContext,
     getGatewayAdminTools,
+    startTerminalSession,
+    stopTerminalSession,
+    handleTerminalUpgrade,
+    upgradeHandler,
     moveGatewayAdminSchedulerJob,
     createGatewayAdminAgent,
     updateGatewayAdminAgent,
@@ -2176,6 +2205,178 @@ describe('gateway HTTP server', () => {
         },
       ],
     });
+  });
+
+  test('starts an admin terminal session for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/terminal',
+      body: {
+        cols: 140,
+        rows: 40,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.startTerminalSession).toHaveBeenCalledWith({
+      cols: 140,
+      rows: 40,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      sessionId: 'terminal-session-1',
+      websocketPath: '/api/admin/terminal/stream?sessionId=terminal-session-1',
+    });
+  });
+
+  test('stops an admin terminal session for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'DELETE',
+      url: '/api/admin/terminal?sessionId=terminal-session-1',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.stopTerminalSession).toHaveBeenCalledWith(
+      'terminal-session-1',
+    );
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      stopped: true,
+    });
+  });
+
+  test('returns 404 for unsupported admin terminal methods at the route layer', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'GET',
+      url: '/api/admin/terminal',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.startTerminalSession).not.toHaveBeenCalled();
+    expect(state.stopTerminalSession).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(404);
+    expect(JSON.parse(res.body)).toEqual({ error: 'Not Found' });
+  });
+
+  test('returns 429 when the admin terminal session cap is reached', async () => {
+    const state = await importFreshHealth();
+    state.startTerminalSession.mockImplementationOnce(() => {
+      throw new state.GatewayRequestError(
+        429,
+        'Too many active admin terminal sessions.',
+      );
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/terminal',
+      body: {
+        cols: 140,
+        rows: 40,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(429);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Too many active admin terminal sessions.',
+    });
+  });
+
+  test('rejects terminal websocket upgrades without session auth or direct request auth', async () => {
+    const state = await importFreshHealth();
+    const socket = {
+      write: vi.fn(),
+      destroy: vi.fn(),
+    };
+
+    state.upgradeHandler?.(
+      makeRequest({
+        method: 'GET',
+        url: '/api/admin/terminal/stream?sessionId=terminal-session-1',
+        remoteAddress: '10.0.0.5',
+      }) as never,
+      socket as never,
+      Buffer.alloc(0) as never,
+    );
+
+    expect(state.handleTerminalUpgrade).not.toHaveBeenCalled();
+    expect(String(socket.write.mock.calls[0]?.[0] || '')).toContain(
+      '401 Unauthorized',
+    );
+  });
+
+  test('allows loopback terminal websocket upgrades to attach immediately', async () => {
+    const state = await importFreshHealth();
+    const socket = {
+      write: vi.fn(),
+      destroy: vi.fn(),
+    };
+
+    state.upgradeHandler?.(
+      makeRequest({
+        method: 'GET',
+        url: '/api/admin/terminal/stream?sessionId=terminal-session-1',
+      }) as never,
+      socket as never,
+      Buffer.alloc(0) as never,
+    );
+
+    expect(state.handleTerminalUpgrade).toHaveBeenCalledWith(
+      expect.anything(),
+      socket,
+      expect.any(Buffer),
+      expect.any(URL),
+      expect.objectContaining({
+        hasSessionAuth: false,
+        hasRequestAuth: true,
+        validateToken: expect.any(Function),
+      }),
+    );
+    expect(socket.write).not.toHaveBeenCalled();
+  });
+
+  test('allows terminal websocket upgrades to authenticate with a first-frame token', async () => {
+    const state = await importFreshHealth({ webApiToken: 'web-token' });
+    const socket = {
+      write: vi.fn(),
+      destroy: vi.fn(),
+    };
+
+    state.upgradeHandler?.(
+      makeRequest({
+        method: 'GET',
+        url: '/api/admin/terminal/stream?sessionId=terminal-session-1',
+      }) as never,
+      socket as never,
+      Buffer.alloc(0) as never,
+    );
+
+    expect(state.handleTerminalUpgrade).toHaveBeenCalledWith(
+      expect.anything(),
+      socket,
+      expect.any(Buffer),
+      expect.any(URL),
+      expect.objectContaining({
+        hasSessionAuth: false,
+        validateToken: expect.any(Function),
+      }),
+    );
+    expect(socket.write).not.toHaveBeenCalled();
   });
 
   test('rejects invalid scheduler move boardStatus values', async () => {

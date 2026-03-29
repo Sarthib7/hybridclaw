@@ -308,6 +308,52 @@ test('checkConfig does not flag a single unused browser subtool when other brows
   expect(unusedTools?.message).not.toContain('browser_close');
 });
 
+test('checkConfig describes a grouped browser warning as a toolset when singular', async () => {
+  const dir = createTempDir('hybridclaw-doctor-config-browser-grouped-');
+  const configPath = path.join(dir, 'config.json');
+  fs.writeFileSync(
+    configPath,
+    `${JSON.stringify({ version: 17, hybridai: { defaultModel: 'gpt-5-nano' }, ops: { dbPath: '/tmp/hybridclaw.db' }, container: { image: 'hybridclaw-agent' } }, null, 2)}\n`,
+    'utf-8',
+  );
+
+  vi.doMock('../src/agent/tool-summary.js', () => ({
+    listKnownToolNames: () => ['read', 'browser_close', 'browser_navigate'],
+  }));
+  vi.doMock('../src/config/runtime-config.js', () => ({
+    CONFIG_VERSION: 17,
+    ensureRuntimeConfigFile: vi.fn(),
+    getRuntimeConfig: () => ({
+      hybridai: { defaultModel: 'gpt-5-nano' },
+      ops: { dbPath: '/tmp/hybridclaw.db' },
+      container: { image: 'hybridclaw-agent' },
+      tools: { disabled: [] as string[] },
+      mcpServers: {},
+    }),
+    getRuntimeDisabledToolNames: () => new Set<string>(),
+    runtimeConfigPath: () => configPath,
+    setRuntimeToolEnabled: vi.fn(),
+    updateRuntimeConfig: vi.fn(),
+  }));
+  vi.doMock('../src/memory/db.js', () => ({
+    getToolUsageSummary: () => [
+      {
+        toolName: 'read',
+        callsSinceCutoff: 2,
+        lastUsedAt: '2026-03-20T10:00:00.000Z',
+      },
+    ],
+  }));
+
+  const { checkConfig } = await import('../src/doctor/checks/config.ts');
+  const results = await checkConfig();
+  const unusedTools = results.find((result) => result.label === 'Unused tools');
+
+  expect(unusedTools?.severity).toBe('warn');
+  expect(unusedTools?.message).toContain('1 enabled tool or toolset unused');
+  expect(unusedTools?.message).toContain('browser tools');
+});
+
 test('checkConfigFile ignores unused tool and MCP hygiene warnings', async () => {
   const dir = createTempDir('hybridclaw-doctor-config-file-only-');
   const configPath = path.join(dir, 'config.json');

@@ -114,7 +114,7 @@ function buildUnusedToolsResult(usage: ToolUsageSummary[]): DiagResult | null {
     'config',
     'Unused tools',
     'warn',
-    `${unused.length} enabled tool${unused.length === 1 ? '' : 's'} unused in the last ${DEFAULT_UNUSED_WINDOW_DAYS} days: ${formatUnusedEntries(unused)}. Re-enable individual tools with \`hybridclaw tool enable <name>\`.`,
+    `${unused.length} enabled ${unused.length === 1 ? 'tool or toolset' : 'tools or toolsets'} unused in the last ${DEFAULT_UNUSED_WINDOW_DAYS} days: ${formatUnusedEntries(unused)}. Re-enable individual tools with \`hybridclaw tool enable <name>\`.`,
     {
       summary: `Disable unused tools: ${displayNames.join(', ')}`,
       apply: async () => {

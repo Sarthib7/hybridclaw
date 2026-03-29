@@ -18,6 +18,8 @@ import type {
   AdminSchedulerResponse,
   AdminSession,
   AdminSkillsResponse,
+  AdminTerminalStartResponse,
+  AdminTerminalStopResponse,
   AdminToolsResponse,
   AgentsOverview,
   AgentsOverviewResponse,
@@ -119,6 +121,44 @@ export function fetchHealth(): Promise<GatewayStatus> {
 
 export function fetchOverview(token: string): Promise<AdminOverview> {
   return requestJson<AdminOverview>('/api/admin/overview', { token });
+}
+
+export function startAdminTerminal(
+  token: string,
+  payload?: { cols?: number; rows?: number },
+): Promise<AdminTerminalStartResponse> {
+  return requestJson<AdminTerminalStartResponse>('/api/admin/terminal', {
+    token,
+    method: 'POST',
+    body: payload ?? {},
+  });
+}
+
+export function stopAdminTerminal(
+  token: string,
+  sessionId: string,
+): Promise<AdminTerminalStopResponse> {
+  const params = new URLSearchParams({ sessionId });
+  return requestJson<AdminTerminalStopResponse>(
+    `/api/admin/terminal?${params.toString()}`,
+    {
+      token,
+      method: 'DELETE',
+    },
+  );
+}
+
+export function adminTerminalSocketUrl(
+  _token: string,
+  sessionId: string,
+): string {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const url = new URL(
+    `/api/admin/terminal/stream`,
+    `${protocol}//${window.location.host}`,
+  );
+  url.searchParams.set('sessionId', sessionId);
+  return url.toString();
 }
 
 export function fetchAgentsOverview(token: string): Promise<AgentsOverview> {

@@ -4,6 +4,7 @@ import {
   createRouter,
   Outlet,
 } from '@tanstack/react-router';
+import { lazy, Suspense } from 'react';
 import { AppShell } from './components/app-shell';
 import { AuditPage } from './routes/audit';
 import { ChannelsPage } from './routes/channels';
@@ -18,6 +19,19 @@ import { SchedulerPage } from './routes/scheduler';
 import { SessionsPage } from './routes/sessions';
 import { SkillsPage } from './routes/skills';
 import { ToolsPage } from './routes/tools';
+
+const LazyTerminalPage = lazy(async () => {
+  const mod = await import('./routes/terminal');
+  return { default: mod.TerminalPage };
+});
+
+function TerminalRouteComponent() {
+  return (
+    <Suspense fallback={<div className="empty-state">Loading terminal…</div>}>
+      <LazyTerminalPage />
+    </Suspense>
+  );
+}
 
 function RootLayout() {
   return (
@@ -35,6 +49,12 @@ const dashboardRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
   component: DashboardPage,
+});
+
+const terminalRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/terminal',
+  component: TerminalRouteComponent,
 });
 
 const gatewayRoute = createRoute({
@@ -111,6 +131,7 @@ const toolsRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   dashboardRoute,
+  terminalRoute,
   gatewayRoute,
   sessionsRoute,
   channelsRoute,

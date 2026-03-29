@@ -145,7 +145,7 @@ describe('local iMessage backend', () => {
     await backend.shutdown();
   });
 
-  test('skips attributedBody-only rows and logs a warning', async () => {
+  test('decodes supported attributedBody-only rows', async () => {
     vi.useFakeTimers();
     const { createLocalIMessageBackend, warn } = await importFreshLocalBackend({
       rows: [
@@ -172,11 +172,45 @@ describe('local iMessage backend', () => {
     await backend.start();
     await vi.advanceTimersByTimeAsync(2500);
 
+    expect(onInbound).toHaveBeenCalledTimes(1);
+    expect(onInbound).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: '/status',
+      }),
+    );
+    expect(warn).not.toHaveBeenCalled();
+    await backend.shutdown();
+  });
+
+  test('skips unsupported attributedBody-only rows and logs a warning', async () => {
+    vi.useFakeTimers();
+    const { createLocalIMessageBackend, warn } = await importFreshLocalBackend({
+      rows: [
+        {
+          rowid: 22,
+          messageGuid: null,
+          messageDate: 123456790,
+          text: null,
+          attributedBody: Buffer.from([0x01, 0x02, 0x03, 0x04]),
+          isFromMe: 0,
+          handle: '+14155551212',
+          chatGuid: null,
+          chatIdentifier: '+14155551212',
+          chatDisplayName: null,
+        },
+      ],
+    });
+    const onInbound = vi.fn(async () => {});
+    const backend = createLocalIMessageBackend({ onInbound });
+
+    await backend.start();
+    await vi.advanceTimersByTimeAsync(2500);
+
     expect(onInbound).not.toHaveBeenCalled();
     expect(warn).toHaveBeenCalledWith(
       expect.objectContaining({
-        rowid: 2,
-        attributedBodyBytes: expect.any(Number),
+        rowid: 22,
+        attributedBodyBytes: 4,
       }),
       'Skipping local iMessage row without plain text; attributedBody decoding is not supported',
     );

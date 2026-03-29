@@ -72,9 +72,51 @@ function normalizeLocalInboundText(value: string): string {
   return trimmed;
 }
 
+function decodeAttributedBodyText(value: Buffer | null): string | null {
+  if (!Buffer.isBuffer(value) || value.length === 0) return null;
+
+  const utf8 = value.toString('utf8').replace(/\uFFFD/g, '');
+  if (!utf8) return null;
+
+  const nsStringIndex = utf8.indexOf('NSString');
+  if (nsStringIndex < 0) {
+    return null;
+  }
+
+  let candidate = utf8.slice(nsStringIndex + 'NSString'.length);
+  candidate = candidate
+    .replace(/^[^\p{L}\p{N}/#@([{\-"'+]+/u, '')
+    .replace(
+      /(?:NSDictionary|NSNumber|NSValue|__kIMMessagePartAttributeName).*$/su,
+      '',
+    );
+
+  const typedStreamMarker = `${String.fromCharCode(2)}iI${String.fromCharCode(1)}`;
+  const typedStreamMarkerIndex = candidate.indexOf(typedStreamMarker);
+  if (typedStreamMarkerIndex >= 0) {
+    candidate = candidate.slice(0, typedStreamMarkerIndex);
+  }
+
+  candidate = Array.from(candidate, (char) =>
+    char.charCodeAt(0) < 32 ? ' ' : char,
+  )
+    .join('')
+    .trim();
+
+  return candidate || null;
+}
+
 function resolveMessageText(row: LocalMessageRow): string {
   const direct = normalizeLocalInboundText(String(row.text || ''));
   if (direct) return direct;
+
+  const decodedAttributedBody = normalizeLocalInboundText(
+    decodeAttributedBodyText(row.attributedBody) || '',
+  );
+  if (decodedAttributedBody) {
+    return decodedAttributedBody;
+  }
+
   if (Buffer.isBuffer(row.attributedBody) && row.attributedBody.length > 0) {
     logger.warn(
       {

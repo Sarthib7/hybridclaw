@@ -2253,6 +2253,50 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('returns 404 for unsupported admin terminal methods at the route layer', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'GET',
+      url: '/api/admin/terminal',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.startTerminalSession).not.toHaveBeenCalled();
+    expect(state.stopTerminalSession).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(404);
+    expect(JSON.parse(res.body)).toEqual({ error: 'Not Found' });
+  });
+
+  test('returns 429 when the admin terminal session cap is reached', async () => {
+    const state = await importFreshHealth();
+    state.startTerminalSession.mockImplementationOnce(() => {
+      throw new state.GatewayRequestError(
+        429,
+        'Too many active admin terminal sessions.',
+      );
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/terminal',
+      body: {
+        cols: 140,
+        rows: 40,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(429);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Too many active admin terminal sessions.',
+    });
+  });
+
   test('rejects terminal websocket upgrades without session auth or direct request auth', async () => {
     const state = await importFreshHealth();
     const socket = {
@@ -2274,6 +2318,36 @@ describe('gateway HTTP server', () => {
     expect(String(socket.write.mock.calls[0]?.[0] || '')).toContain(
       '401 Unauthorized',
     );
+  });
+
+  test('allows loopback terminal websocket upgrades to attach immediately', async () => {
+    const state = await importFreshHealth();
+    const socket = {
+      write: vi.fn(),
+      destroy: vi.fn(),
+    };
+
+    state.upgradeHandler?.(
+      makeRequest({
+        method: 'GET',
+        url: '/api/admin/terminal/stream?sessionId=terminal-session-1',
+      }) as never,
+      socket as never,
+      Buffer.alloc(0) as never,
+    );
+
+    expect(state.handleTerminalUpgrade).toHaveBeenCalledWith(
+      expect.anything(),
+      socket,
+      expect.any(Buffer),
+      expect.any(URL),
+      expect.objectContaining({
+        hasSessionAuth: false,
+        hasRequestAuth: true,
+        validateToken: expect.any(Function),
+      }),
+    );
+    expect(socket.write).not.toHaveBeenCalled();
   });
 
   test('allows terminal websocket upgrades to authenticate with a first-frame token', async () => {

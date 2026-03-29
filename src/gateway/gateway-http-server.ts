@@ -51,6 +51,7 @@ import {
 import type { MediaContextItem } from '../types/container.js';
 import type { PendingApproval, ToolProgressEvent } from '../types/execution.js';
 import {
+  AdminTerminalCapacityError,
   type AdminTerminalStartOptions,
   createAdminTerminalManager,
 } from './admin-terminal.js';
@@ -184,8 +185,8 @@ type ApiChatRequestBody = GatewayChatRequestBody & { stream?: boolean };
 type ApiChatBranchRequestBody = Partial<GatewayChatBranchRequestBody>;
 type ApiMessageActionRequestBody = Partial<DiscordToolActionRequest>;
 type ApiAdminTerminalRequestBody = {
-  cols?: unknown;
-  rows?: unknown;
+  cols?: number;
+  rows?: number;
 };
 
 // Keep this local instead of importing the container helper. The gateway and
@@ -241,21 +242,6 @@ function parsePositiveInteger(value: unknown): number | null {
   if (!/^\d+$/.test(normalized)) return null;
   const parsed = Number(normalized);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
-}
-
-function parseTerminalDimension(
-  value: unknown,
-  fallback: number,
-): number | undefined {
-  if (value == null) return fallback;
-  if (typeof value === 'number') {
-    return Number.isFinite(value) ? Math.floor(value) : fallback;
-  }
-  if (typeof value !== 'string') return fallback;
-  const normalized = value.trim();
-  if (!/^\d+$/.test(normalized)) return fallback;
-  const parsed = Number(normalized);
-  return Number.isSafeInteger(parsed) ? parsed : fallback;
 }
 
 function generateDefaultWebSessionId(agentId?: string | null): string {
@@ -2196,8 +2182,8 @@ async function handleApiAdminTerminal(
   if (req.method === 'POST') {
     const body = (await readJsonBody(req)) as ApiAdminTerminalRequestBody;
     const options: AdminTerminalStartOptions = {
-      cols: parseTerminalDimension(body.cols, 120),
-      rows: parseTerminalDimension(body.rows, 32),
+      cols: body.cols,
+      rows: body.rows,
     };
     sendJson(res, 200, terminalManager.startSession(options));
     return;
@@ -2336,7 +2322,8 @@ export function startGatewayHttpServer(): void {
           const errorText = err instanceof Error ? err.message : String(err);
           const statusCode =
             err instanceof HttpRequestError ||
-            err instanceof GatewayRequestError
+            err instanceof GatewayRequestError ||
+            err instanceof AdminTerminalCapacityError
               ? err.statusCode
               : 500;
           sendJson(res, statusCode, { error: errorText });
@@ -2470,7 +2457,10 @@ export function startGatewayHttpServer(): void {
             handleApiAdminJobsContext(res);
             return;
           }
-          if (pathname === '/api/admin/terminal') {
+          if (
+            pathname === '/api/admin/terminal' &&
+            (method === 'POST' || method === 'DELETE')
+          ) {
             await handleApiAdminTerminal(req, res, url, terminalManager);
             return;
           }
@@ -2564,11 +2554,14 @@ export function startGatewayHttpServer(): void {
     }
 
     const sessionAuthenticated = hasSessionAuth(req);
+    const requestAuthenticated = hasApiAuth(req, url, {
+      allowQueryToken: false,
+    });
     if (
       !sessionAuthenticated &&
       !WEB_API_TOKEN &&
       !GATEWAY_API_TOKEN &&
-      !hasApiAuth(req, url, { allowQueryToken: false })
+      !requestAuthenticated
     ) {
       writeUpgradeError(socket, 401, 'Unauthorized');
       return;
@@ -2577,6 +2570,7 @@ export function startGatewayHttpServer(): void {
     if (
       !terminalManager.handleUpgrade(req, socket, head, url, {
         hasSessionAuth: sessionAuthenticated,
+        hasRequestAuth: requestAuthenticated,
         validateToken: hasApiTokenValue,
       })
     ) {

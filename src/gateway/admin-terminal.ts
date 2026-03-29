@@ -8,15 +8,40 @@ import type WebSocket from 'ws';
 import * as wsModule from 'ws';
 import { resolveInstallRoot } from '../infra/install-root.js';
 import { logger } from '../logger.js';
+import type {
+  AdminTerminalClientMessage,
+  AdminTerminalServerMessage,
+} from './admin-terminal-protocol.js';
 
+const INSTALL_ROOT = resolveInstallRoot();
 const DEFAULT_COLS = 120;
 const DEFAULT_ROWS = 32;
 const MIN_COLS = 24;
 const MAX_COLS = 320;
 const MIN_ROWS = 10;
 const MAX_ROWS = 120;
+const MAX_ACTIVE_SESSIONS = 4;
 const ATTACH_TIMEOUT_MS = 15_000;
-const OUTPUT_BUFFER_LIMIT_BYTES = 256 * 1024;
+const OUTPUT_BUFFER_LIMIT_BYTES = 64 * 1024;
+
+type WebSocketServerLike = {
+  handleUpgrade: (
+    req: IncomingMessage,
+    socket: Duplex,
+    head: Buffer,
+    cb: (socket: WebSocket) => void,
+  ) => void;
+  close: () => void;
+};
+
+export class AdminTerminalCapacityError extends Error {
+  readonly statusCode = 429;
+
+  constructor(message = 'Too many active admin terminal sessions.') {
+    super(message);
+    this.name = 'AdminTerminalCapacityError';
+  }
+}
 
 export interface AdminTerminalStartOptions {
   cols?: number;
@@ -27,32 +52,6 @@ export interface AdminTerminalStartResponse {
   sessionId: string;
   websocketPath: string;
 }
-
-type ClientMessage =
-  | {
-      type: 'auth';
-      token: string;
-    }
-  | {
-      type: 'input';
-      data: string;
-    }
-  | {
-      type: 'resize';
-      cols: number;
-      rows: number;
-    };
-
-type ServerMessage =
-  | {
-      type: 'output';
-      data: string;
-    }
-  | {
-      type: 'exit';
-      exitCode: number | null;
-      signal: number | null;
-    };
 
 type TerminalSession = {
   id: string;
@@ -67,16 +66,6 @@ type TerminalSession = {
   closed: boolean;
 };
 
-type WebSocketServerInstance = {
-  handleUpgrade: (
-    req: IncomingMessage,
-    socket: Duplex,
-    head: Buffer,
-    cb: (socket: WebSocket) => void,
-  ) => void;
-  close: () => void;
-};
-
 function clampDimension(
   value: number | undefined,
   fallback: number,
@@ -88,19 +77,20 @@ function clampDimension(
 }
 
 function resolveTuiLaunchCommand(): { command: string; args: string[] } {
-  const installRoot = resolveInstallRoot();
-  const builtEntrypoint = path.join(installRoot, 'dist', 'cli.js');
+  const builtEntrypoint = path.join(INSTALL_ROOT, 'dist', 'cli.js');
   if (fs.existsSync(builtEntrypoint)) {
     return { command: process.execPath, args: [builtEntrypoint, 'tui'] };
   }
 
-  const sourceEntrypoint = path.join(installRoot, 'src', 'cli.ts');
-  const tsxPackageDir = path.join(installRoot, 'node_modules', 'tsx');
-  if (fs.existsSync(sourceEntrypoint) && fs.existsSync(tsxPackageDir)) {
-    return {
-      command: process.execPath,
-      args: ['--import', 'tsx', sourceEntrypoint, 'tui'],
-    };
+  if (process.env.NODE_ENV !== 'production') {
+    const sourceEntrypoint = path.join(INSTALL_ROOT, 'src', 'cli.ts');
+    const tsxPackageDir = path.join(INSTALL_ROOT, 'node_modules', 'tsx');
+    if (fs.existsSync(sourceEntrypoint) && fs.existsSync(tsxPackageDir)) {
+      return {
+        command: process.execPath,
+        args: ['--import', 'tsx', sourceEntrypoint, 'tui'],
+      };
+    }
   }
 
   throw new Error(
@@ -119,7 +109,11 @@ function ensureNodePtySpawnHelpersExecutable(installRoot: string): void {
   let entries: string[];
   try {
     entries = fs.readdirSync(prebuildsDir);
-  } catch {
+  } catch (error) {
+    logger.warn(
+      { error, prebuildsDir },
+      'Unable to inspect node-pty prebuilds for spawn-helper permissions',
+    );
     return;
   }
 
@@ -133,13 +127,22 @@ function ensureNodePtySpawnHelpersExecutable(installRoot: string): void {
     }
     if (!stat.isFile()) continue;
     if ((stat.mode & 0o111) !== 0) continue;
-    fs.chmodSync(helperPath, stat.mode | 0o755);
-    logger.warn(
-      { helperPath },
-      'Restored execute bit on node-pty spawn-helper',
-    );
+    try {
+      fs.chmodSync(helperPath, stat.mode | 0o755);
+      logger.warn(
+        { helperPath },
+        'Restored execute bit on node-pty spawn-helper',
+      );
+    } catch (error) {
+      logger.warn(
+        { error, helperPath },
+        'Unable to restore execute bit on node-pty spawn-helper',
+      );
+    }
   }
 }
+
+ensureNodePtySpawnHelpersExecutable(INSTALL_ROOT);
 
 function formatLaunchCommand(command: string, args: string[]): string {
   return [command, ...args]
@@ -147,7 +150,9 @@ function formatLaunchCommand(command: string, args: string[]): string {
     .join(' ');
 }
 
-function parseClientMessage(raw: WebSocket.Data): ClientMessage | null {
+function parseClientMessage(
+  raw: WebSocket.Data,
+): AdminTerminalClientMessage | null {
   const text = Buffer.isBuffer(raw) ? raw.toString('utf8') : String(raw);
   let parsed: unknown;
   try {
@@ -183,7 +188,7 @@ function parseClientMessage(raw: WebSocket.Data): ClientMessage | null {
   return null;
 }
 
-function encodeServerMessage(message: ServerMessage): string {
+function encodeServerMessage(message: AdminTerminalServerMessage): string {
   return JSON.stringify(message);
 }
 
@@ -199,30 +204,21 @@ export function createAdminTerminalManager(): {
     url: URL,
     auth?: {
       hasSessionAuth?: boolean;
+      hasRequestAuth?: boolean;
       validateToken?: (token: string) => boolean;
     },
   ) => boolean;
   dispose: () => void;
 } {
   const sessions = new Map<string, TerminalSession>();
-  const WebSocketServerCtor =
-    (
-      wsModule as unknown as {
-        WebSocketServer?: new (options: {
-          noServer: true;
-        }) => WebSocketServerInstance;
-        Server?: new (options: { noServer: true }) => WebSocketServerInstance;
-      }
-    ).WebSocketServer ||
-    (
-      wsModule as unknown as {
-        Server?: new (options: { noServer: true }) => WebSocketServerInstance;
-      }
-    ).Server;
-  if (!WebSocketServerCtor) {
-    throw new Error('ws WebSocketServer constructor is unavailable.');
-  }
-  const wss = new WebSocketServerCtor({ noServer: true });
+  const WebSocketServerCtor = (
+    wsModule as unknown as {
+      WebSocketServer: new (options: { noServer: true }) => WebSocketServerLike;
+    }
+  ).WebSocketServer;
+  const wss = new WebSocketServerCtor({
+    noServer: true,
+  });
 
   const cleanupSession = (
     sessionId: string,
@@ -256,7 +252,7 @@ export function createAdminTerminalManager(): {
 
   const sendMessage = (
     session: TerminalSession,
-    message: ServerMessage,
+    message: AdminTerminalServerMessage,
   ): void => {
     const socket = session.socket;
     if (!socket || socket.readyState !== socket.OPEN) return;
@@ -278,18 +274,20 @@ export function createAdminTerminalManager(): {
 
   const flushBufferedOutput = (session: TerminalSession): void => {
     if (session.outputBuffer.length === 0) return;
-    for (const chunk of session.outputBuffer) {
-      sendMessage(session, {
-        type: 'output',
-        data: chunk,
-      });
-    }
+    sendMessage(session, {
+      type: 'output',
+      data: session.outputBuffer.join(''),
+    });
     session.outputBuffer = [];
     session.outputBufferBytes = 0;
   };
 
   return {
     startSession(options) {
+      if (sessions.size >= MAX_ACTIVE_SESSIONS) {
+        throw new AdminTerminalCapacityError();
+      }
+
       const cols = clampDimension(
         options?.cols,
         DEFAULT_COLS,
@@ -302,8 +300,6 @@ export function createAdminTerminalManager(): {
         MIN_ROWS,
         MAX_ROWS,
       );
-      const installRoot = resolveInstallRoot();
-      ensureNodePtySpawnHelpersExecutable(installRoot);
       const launch = resolveTuiLaunchCommand();
       const sessionId = randomUUID();
       const launchCwd = process.cwd();
@@ -315,7 +311,7 @@ export function createAdminTerminalManager(): {
             cols,
             rows,
             cwd: launchCwd,
-            installRoot,
+            installRoot: INSTALL_ROOT,
             command: launch.command,
             args: launch.args,
             launchText: formatLaunchCommand(launch.command, launch.args),
@@ -341,7 +337,7 @@ export function createAdminTerminalManager(): {
             cols,
             rows,
             cwd: launchCwd,
-            installRoot,
+            installRoot: INSTALL_ROOT,
             command: launch.command,
             args: launch.args,
             launchText: formatLaunchCommand(launch.command, launch.args),
@@ -399,12 +395,10 @@ export function createAdminTerminalManager(): {
           } catch {
             // Ignore close races; the close handler performs final cleanup.
           }
-        } else {
-          setTimeout(() => {
-            cleanupSession(sessionId, {
-              killPty: false,
-            });
-          }, 1_000);
+        } else if (!session.attachTimer) {
+          cleanupSession(sessionId, {
+            killPty: false,
+          });
         }
       });
 
@@ -437,7 +431,8 @@ export function createAdminTerminalManager(): {
       }
 
       wss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
-        let authenticated = auth?.hasSessionAuth === true;
+        let authenticated =
+          auth?.hasSessionAuth === true || auth?.hasRequestAuth === true;
         let authTimer: NodeJS.Timeout | null = null;
         const closeUnauthorized = () => {
           if (authTimer) {
@@ -467,6 +462,11 @@ export function createAdminTerminalManager(): {
               exitCode: session.exitCode,
               signal: session.signal,
             });
+            try {
+              ws.close();
+            } catch {
+              // Ignore close races; the close handler performs final cleanup.
+            }
           }
         };
 

@@ -416,13 +416,20 @@ code {
 }
 
 .terminal-page {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  height: 100%;
   min-height: 0;
   gap: 10px;
 }
 
 .terminal-panel-body {
-  display: grid;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
   gap: 16px;
+  min-height: 0;
   min-width: 0;
 }
 
@@ -452,8 +459,10 @@ code {
 }
 
 .terminal-shell {
+  display: flex;
+  flex: 1 1 auto;
   position: relative;
-  min-height: 0;
+  min-height: 320px;
   width: 100%;
   overflow: hidden;
   background: #0f172a;
@@ -461,6 +470,7 @@ code {
 }
 
 .terminal-host {
+  flex: 1 1 auto;
   height: calc(100% - 12px);
   min-height: 0;
   min-width: 0;

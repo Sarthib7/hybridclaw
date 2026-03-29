@@ -15,34 +15,12 @@ import {
 } from '../api/client';
 import { useAuth } from '../auth';
 import { PageHeader } from '../components/ui';
+import type {
+  AdminTerminalClientMessage,
+  AdminTerminalServerMessage,
+} from '../../../src/gateway/admin-terminal-protocol.js';
 
 type TerminalState = 'idle' | 'starting' | 'running' | 'stopping' | 'closed';
-
-type TerminalSocketEvent =
-  | {
-      type: 'output';
-      data: string;
-    }
-  | {
-      type: 'exit';
-      exitCode: number | null;
-      signal: number | null;
-    };
-
-type TerminalClientMessage =
-  | {
-      type: 'auth';
-      token: string;
-    }
-  | {
-      type: 'input';
-      data: string;
-    }
-  | {
-      type: 'resize';
-      cols: number;
-      rows: number;
-    };
 
 function disposeSocket(socketRef: MutableRefObject<WebSocket | null>): void {
   const socket = socketRef.current;
@@ -87,7 +65,7 @@ function refitTerminal(
   fit.fit();
   const socket = socketRef.current;
   if (!socket || socket.readyState !== WebSocket.OPEN) return;
-  const message: TerminalClientMessage = {
+  const message: AdminTerminalClientMessage = {
     type: 'resize',
     cols: terminal.cols,
     rows: terminal.rows,
@@ -98,67 +76,23 @@ function refitTerminal(
 export function TerminalPage() {
   const auth = useAuth();
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const shellRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
-  const windowResizeHandlerRef = useRef<(() => void) | null>(null);
   const sessionIdRef = useRef<string | null>(null);
+  const closeExpectedRef = useRef(false);
   const [state, setState] = useState<TerminalState>('idle');
-  const stateRef = useRef<TerminalState>('idle');
   const [error, setError] = useState<string | null>(null);
-  const [shellHeight, setShellHeight] = useState(420);
-
-  useEffect(() => {
-    stateRef.current = state;
-  }, [state]);
-
-  useEffect(() => {
-    const updateShellHeight = () => {
-      const shell = shellRef.current;
-      if (!shell) return;
-      const rect = shell.getBoundingClientRect();
-      const nextHeight = Math.max(
-        320,
-        Math.floor(window.innerHeight - rect.top - 10),
-      );
-      setShellHeight((current) =>
-        current === nextHeight ? current : nextHeight,
-      );
-    };
-
-    updateShellHeight();
-
-    const resizeTarget =
-      shellRef.current?.closest('.main-panel') || document.body;
-    const layoutObserver =
-      typeof ResizeObserver !== 'undefined'
-        ? new ResizeObserver(() => {
-            requestAnimationFrame(updateShellHeight);
-          })
-        : null;
-
-    layoutObserver?.observe(resizeTarget);
-    window.addEventListener('resize', updateShellHeight);
-
-    return () => {
-      layoutObserver?.disconnect();
-      window.removeEventListener('resize', updateShellHeight);
-    };
-  }, []);
 
   const disconnect = useCallback(
     async (stopOnServer: boolean): Promise<void> => {
+      closeExpectedRef.current = true;
       const activeSessionId = sessionIdRef.current;
       sessionIdRef.current = null;
 
       resizeObserverRef.current?.disconnect();
       resizeObserverRef.current = null;
-      if (windowResizeHandlerRef.current) {
-        window.removeEventListener('resize', windowResizeHandlerRef.current);
-        windowResizeHandlerRef.current = null;
-      }
       disposeSocket(socketRef);
 
       if (stopOnServer && activeSessionId) {
@@ -227,7 +161,7 @@ export function TerminalPage() {
     terminal.onData((data) => {
       const socket = socketRef.current;
       if (!socket || socket.readyState !== WebSocket.OPEN) return;
-      const message: TerminalClientMessage = {
+      const message: AdminTerminalClientMessage = {
         type: 'input',
         data,
       };
@@ -238,16 +172,11 @@ export function TerminalPage() {
       refitTerminal(terminalRef, fitAddonRef, socketRef);
     };
 
-    if (typeof ResizeObserver !== 'undefined') {
-      const observer = new ResizeObserver(() => {
-        resizeTerminal();
-      });
-      observer.observe(host);
-      resizeObserverRef.current = observer;
-    } else {
-      windowResizeHandlerRef.current = resizeTerminal;
-      window.addEventListener('resize', resizeTerminal);
-    }
+    const observer = new ResizeObserver(() => {
+      resizeTerminal();
+    });
+    observer.observe(host);
+    resizeObserverRef.current = observer;
 
     return { cols: terminal.cols, rows: terminal.rows };
   };
@@ -268,11 +197,12 @@ export function TerminalPage() {
         adminTerminalSocketUrl(auth.token, started.sessionId),
       );
       socketRef.current = socket;
+      closeExpectedRef.current = false;
       const authToken = auth.token.trim();
 
       socket.addEventListener('open', () => {
         if (authToken) {
-          const message: TerminalClientMessage = {
+          const message: AdminTerminalClientMessage = {
             type: 'auth',
             token: authToken,
           };
@@ -289,9 +219,9 @@ export function TerminalPage() {
       });
 
       socket.addEventListener('message', (event) => {
-        let parsed: TerminalSocketEvent | null = null;
+        let parsed: AdminTerminalServerMessage | null = null;
         try {
-          parsed = JSON.parse(String(event.data)) as TerminalSocketEvent;
+          parsed = JSON.parse(String(event.data)) as AdminTerminalServerMessage;
         } catch {
           parsed = null;
         }
@@ -314,7 +244,9 @@ export function TerminalPage() {
       socket.addEventListener('close', () => {
         socketRef.current = null;
         sessionIdRef.current = null;
-        if (stateRef.current !== 'stopping') {
+        const wasExpected = closeExpectedRef.current;
+        closeExpectedRef.current = false;
+        if (!wasExpected) {
           setState((current) => (current === 'idle' ? current : 'closed'));
         }
       });
@@ -325,6 +257,7 @@ export function TerminalPage() {
     } catch (err) {
       await disconnect(true);
       disposeTerminal(terminalRef, fitAddonRef);
+      closeExpectedRef.current = false;
       setState('idle');
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -390,11 +323,7 @@ export function TerminalPage() {
       />
 
       <div className="terminal-panel-body">
-        <div
-          className="terminal-shell"
-          ref={shellRef}
-          style={{ height: `${shellHeight}px` }}
-        >
+        <div className="terminal-shell">
           <div className="terminal-host" ref={containerRef} />
           {state === 'idle' ? (
             <div className="terminal-empty-state">

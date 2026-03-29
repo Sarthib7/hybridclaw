@@ -218,11 +218,10 @@ describe('local iMessage backend', () => {
 
   test('prepares the local poll query once and reuses it across poll cycles', async () => {
     vi.useFakeTimers();
-    const { createLocalIMessageBackend, prepare } = await importFreshLocalBackend(
-      {
+    const { createLocalIMessageBackend, prepare } =
+      await importFreshLocalBackend({
         rows: [],
-      },
-    );
+      });
     const onInbound = vi.fn(async () => {});
     const backend = createLocalIMessageBackend({ onInbound });
 
@@ -240,5 +239,4 @@ describe('local iMessage backend', () => {
     ).toHaveLength(1);
     await backend.shutdown();
   });
-
 });

@@ -173,10 +173,26 @@ test('exports an opentraces/ATIF-compatible JSONL trace from stored session data
   const steps = (record.steps as Array<Record<string, unknown>>) || [];
   expect(record.schema_version).toBe('0.1.0');
   expect(record.session_id).toBe(session.id);
+  expect(record.task).toMatchObject({
+    repository: null,
+    base_commit: null,
+  });
   expect(record.agent).toMatchObject({
     name: 'hybridclaw',
     model: 'hybridai/gpt-5-nano',
   });
+  expect(record.environment).toMatchObject({
+    vcs: {
+      type: 'none',
+      base_commit: null,
+      branch: null,
+      diff: null,
+    },
+    language_ecosystem: [],
+  });
+  expect(
+    typeof (record.environment as Record<string, unknown>)?.os === 'string',
+  ).toBe(true);
   expect(record.metadata.compatibility).toMatchObject({
     atif_version: '1.6',
   });
@@ -194,9 +210,19 @@ test('exports an opentraces/ATIF-compatible JSONL trace from stored session data
     signal_source: 'deterministic',
   });
   expect(record.content_hash).toMatch(/^[a-f0-9]{64}$/);
-  expect(record.system_prompts).toEqual({
-    [runId]: 'You are a focused coding assistant.',
+  expect(record.security).toEqual({
+    scanned: true,
+    flags_reviewed: 0,
+    redactions_applied: 0,
+    classifier_version: null,
   });
+  const systemPrompts = record.system_prompts as Record<string, string>;
+  const systemPromptHashes = Object.keys(systemPrompts);
+  expect(systemPromptHashes).toHaveLength(1);
+  expect(systemPrompts[systemPromptHashes[0] || '']).toBe(
+    'You are a focused coding assistant.',
+  );
+  expect(record.tool_definitions).toEqual([{ name: 'bash' }]);
   expect(steps).toHaveLength(2);
   const firstStep = steps[0] || {};
   const secondStep = steps[1] || {};
@@ -210,6 +236,7 @@ test('exports an opentraces/ATIF-compatible JSONL trace from stored session data
     role: 'agent',
     content: 'I updated the parser test and verified the failure path.',
     model: 'hybridai/gpt-5-nano',
+    system_prompt_hash: systemPromptHashes[0],
     call_type: 'main',
     agent_role: 'main',
     token_usage: {
@@ -235,6 +262,230 @@ test('exports an opentraces/ATIF-compatible JSONL trace from stored session data
       error: null,
     },
   ]);
+});
+
+test('trace export fills repository, dependencies, security, and attribution from workspace context', async () => {
+  setupHome();
+
+  const {
+    getSessionById,
+    getOrCreateSession,
+    getSessionUsageTotals,
+    initDatabase,
+    recordUsageEvent,
+    storeMessage,
+  } = await import('../src/memory/db.ts');
+  const { emitToolExecutionAuditEvents, recordAuditEvent } = await import(
+    '../src/audit/audit-events.ts'
+  );
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
+  const { exportSessionTraceAtifJsonl } = await import(
+    '../src/session/session-trace-export.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const session = getOrCreateSession(
+    'session-trace-context',
+    null,
+    'channel-trace-context',
+  );
+  const workspaceDir = agentWorkspaceDir(session.agent_id);
+  const sourceDir = `${workspaceDir}/src`;
+  const parserPath = `${sourceDir}/parser.ts`;
+  fs.mkdirSync(sourceDir, { recursive: true });
+  fs.writeFileSync(
+    `${workspaceDir}/requirements.txt`,
+    'requests==2.32.3\n',
+    'utf-8',
+  );
+  fs.writeFileSync(
+    `${workspaceDir}/package.json`,
+    JSON.stringify(
+      {
+        name: 'demo-workspace',
+        repository: {
+          type: 'git',
+          url: 'git@github.com:acme/demo-workspace.git',
+        },
+        dependencies: {
+          react: '^19.0.0',
+        },
+        devDependencies: {
+          typescript: '^5.0.0',
+          vitest: '^4.0.0',
+        },
+      },
+      null,
+      2,
+    ),
+    'utf-8',
+  );
+  fs.mkdirSync(`${workspaceDir}/.git`, { recursive: true });
+  fs.writeFileSync(
+    `${workspaceDir}/.git/config`,
+    '[remote "origin"]\n\turl = git@github.com:acme/demo-workspace.git\n',
+    'utf-8',
+  );
+  fs.writeFileSync(
+    `${workspaceDir}/.git/HEAD`,
+    'ref: refs/heads/main\n',
+    'utf-8',
+  );
+  fs.mkdirSync(`${workspaceDir}/.git/refs/heads`, { recursive: true });
+  fs.writeFileSync(
+    `${workspaceDir}/.git/refs/heads/main`,
+    '2e8d6a2d6f7f7c1c4d0b2f0a8d0d3f4f5a6b7c8d\n',
+    'utf-8',
+  );
+
+  storeMessage(session.id, 'user-1', 'alice', 'user', 'Update parser.ts');
+  storeMessage(session.id, 'assistant', null, 'assistant', 'Updated parser.ts');
+
+  const runId = 'turn_trace_context_1';
+  recordAuditEvent({
+    sessionId: session.id,
+    runId,
+    event: {
+      type: 'turn.start',
+      turnIndex: 1,
+      userInput: 'Update parser.ts',
+      source: 'gateway.chat',
+    },
+  });
+  recordAuditEvent({
+    sessionId: session.id,
+    runId,
+    event: {
+      type: 'agent.start',
+      provider: 'hybridai',
+      model: 'gpt-5-nano',
+      systemPrompt: 'You are a focused coding assistant.',
+      promptMessages: 2,
+      scheduledTaskCount: 0,
+    },
+  });
+  emitToolExecutionAuditEvents({
+    sessionId: session.id,
+    runId,
+    toolExecutions: [
+      {
+        name: 'write',
+        arguments: JSON.stringify({
+          path: parserPath,
+          content: 'export const parser = true;\nexport const updated = true;',
+        }),
+        result: 'Updated parser.ts',
+        durationMs: 12,
+        isError: false,
+      },
+    ],
+  });
+  recordAuditEvent({
+    sessionId: session.id,
+    runId,
+    event: {
+      type: 'turn.end',
+      turnIndex: 1,
+      finishReason: 'completed',
+    },
+  });
+  recordUsageEvent({
+    sessionId: session.id,
+    agentId: session.agent_id,
+    model: 'gpt-5-nano',
+    inputTokens: 10,
+    outputTokens: 5,
+    totalTokens: 15,
+    toolCalls: 1,
+    costUsd: 0.01,
+  });
+
+  const refreshedSession = getSessionById(session.id);
+  if (!refreshedSession) {
+    throw new Error('Expected refreshed session to exist');
+  }
+
+  const exported = await exportSessionTraceAtifJsonl({
+    agentId: refreshedSession.agent_id,
+    session: refreshedSession,
+    messages: [
+      {
+        id: 1,
+        session_id: session.id,
+        user_id: 'user-1',
+        username: 'alice',
+        role: 'user',
+        content: 'Update parser.ts',
+        created_at: new Date().toISOString(),
+      },
+      {
+        id: 2,
+        session_id: session.id,
+        user_id: 'assistant',
+        username: null,
+        role: 'assistant',
+        content: 'Updated parser.ts',
+        created_at: new Date().toISOString(),
+      },
+    ],
+    auditEntries: (
+      await import('../src/memory/db.ts')
+    ).getStructuredAuditForSession(session.id),
+    usageTotals: getSessionUsageTotals(session.id),
+  });
+
+  expect(exported).not.toBeNull();
+  const raw = fs.readFileSync(exported?.path || '', 'utf-8').trim();
+  const record = JSON.parse(raw) as Record<string, unknown>;
+  expect(record.task).toMatchObject({
+    repository: 'acme/demo-workspace',
+    base_commit: '2e8d6a2d6f7f7c1c4d0b2f0a8d0d3f4f5a6b7c8d',
+  });
+  expect(record.environment).toMatchObject({
+    vcs: {
+      type: 'git',
+      base_commit: '2e8d6a2d6f7f7c1c4d0b2f0a8d0d3f4f5a6b7c8d',
+      branch: 'main',
+      diff: null,
+    },
+    language_ecosystem: ['javascript', 'python', 'typescript'],
+  });
+  expect(record.dependencies).toEqual([
+    'react',
+    'requests',
+    'typescript',
+    'vitest',
+  ]);
+  expect(record.tool_definitions).toEqual([{ name: 'write' }]);
+  expect(record.security).toEqual({
+    scanned: true,
+    flags_reviewed: 0,
+    redactions_applied: 0,
+    classifier_version: null,
+  });
+  expect(record.attribution).toEqual({
+    version: '0.1.0',
+    experimental: true,
+    files: [
+      {
+        path: 'src/parser.ts',
+        conversations: [
+          {
+            contributor: { type: 'ai' },
+            url: 'opentraces://trace/step_1',
+            ranges: [
+              {
+                start_line: 1,
+                end_line: 2,
+                content_hash: expect.stringMatching(/^[a-f0-9]{8}$/),
+                confidence: 'high',
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  });
 });
 
 test('gateway export trace command writes the ATIF-compatible trace file', async () => {
@@ -469,6 +720,120 @@ test('trace export preserves multiline task descriptions', async () => {
   const raw = fs.readFileSync(exported?.path || '', 'utf-8').trim();
   const record = JSON.parse(raw) as Record<string, unknown>;
   expect((record.task as Record<string, unknown>)?.description).toBe(prompt);
+});
+
+test('trace export enriches outcome with commit metadata from bash tool results', async () => {
+  setupHome();
+
+  const { getOrCreateSession, getSessionById, initDatabase, storeMessage } =
+    await import('../src/memory/db.ts');
+  const { emitToolExecutionAuditEvents, recordAuditEvent } = await import(
+    '../src/audit/audit-events.ts'
+  );
+  const { exportSessionTraceAtifJsonl } = await import(
+    '../src/session/session-trace-export.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const session = getOrCreateSession(
+    'session-trace-commit',
+    null,
+    'channel-trace-commit',
+  );
+  storeMessage(session.id, 'user-1', 'alice', 'user', 'Commit the change');
+  storeMessage(
+    session.id,
+    'assistant',
+    null,
+    'assistant',
+    'Committed the fix.',
+  );
+
+  const runId = 'turn_trace_commit_1';
+  recordAuditEvent({
+    sessionId: session.id,
+    runId,
+    event: {
+      type: 'turn.start',
+      turnIndex: 1,
+      userInput: 'Commit the change',
+      source: 'gateway.chat',
+    },
+  });
+  emitToolExecutionAuditEvents({
+    sessionId: session.id,
+    runId,
+    toolExecutions: [
+      {
+        name: 'bash',
+        arguments: JSON.stringify({ command: 'git commit -m "fix parser"' }),
+        result: '[main abc1234] fix parser',
+        durationMs: 250,
+        isError: false,
+      },
+    ],
+  });
+  recordAuditEvent({
+    sessionId: session.id,
+    runId,
+    event: {
+      type: 'turn.end',
+      turnIndex: 1,
+      finishReason: 'completed',
+    },
+  });
+
+  const refreshedSession = getSessionById(session.id);
+  if (!refreshedSession) {
+    throw new Error('Expected refreshed session to exist');
+  }
+
+  const exported = await exportSessionTraceAtifJsonl({
+    agentId: refreshedSession.agent_id,
+    session: refreshedSession,
+    messages: [
+      {
+        id: 1,
+        session_id: session.id,
+        user_id: 'user-1',
+        username: 'alice',
+        role: 'user',
+        content: 'Commit the change',
+        created_at: new Date().toISOString(),
+      },
+      {
+        id: 2,
+        session_id: session.id,
+        user_id: 'assistant',
+        username: null,
+        role: 'assistant',
+        content: 'Committed the fix.',
+        created_at: new Date().toISOString(),
+      },
+    ],
+    auditEntries: (
+      await import('../src/memory/db.ts')
+    ).getStructuredAuditForSession(session.id),
+    usageTotals: {
+      total_input_tokens: 0,
+      total_output_tokens: 0,
+      total_tokens: 0,
+      total_tool_calls: 1,
+      total_cost_usd: 0,
+      call_count: 0,
+    },
+  });
+
+  expect(exported).not.toBeNull();
+  const raw = fs.readFileSync(exported?.path || '', 'utf-8').trim();
+  const record = JSON.parse(raw) as Record<string, unknown>;
+
+  expect(record.outcome).toMatchObject({
+    success: true,
+    committed: true,
+    commit_sha: 'abc1234',
+    description: 'fix parser',
+  });
 });
 
 test('gateway export trace all writes per-session ATIF-compatible trace files', async () => {
@@ -783,12 +1148,12 @@ test('trace export redacts secrets and anonymizes absolute-path usernames', asyn
   expect(observationContent).toContain('***DISCORD_WEBHOOK_REDACTED***');
   expect(observationContent).toContain('***PYPI_TOKEN_REDACTED***');
   expect(observationContent).toContain('C:/Users/user_');
-  expect(
-    String((record.system_prompts as Record<string, unknown>)?.[runId] || ''),
-  ).toContain('***EMAIL_REDACTED***');
-  expect(
-    String((record.system_prompts as Record<string, unknown>)?.[runId] || ''),
-  ).toContain('***PHONE_REDACTED***');
+  const systemPromptValues = Object.values(
+    (record.system_prompts as Record<string, unknown>) || {},
+  );
+  expect(systemPromptValues).toHaveLength(1);
+  expect(String(systemPromptValues[0] || '')).toContain('***EMAIL_REDACTED***');
+  expect(String(systemPromptValues[0] || '')).toContain('***PHONE_REDACTED***');
 });
 
 test('trace export preserves tool call linkage ids even when they look random', async () => {

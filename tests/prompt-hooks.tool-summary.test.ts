@@ -188,13 +188,7 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
     'For structured documents, extracted fields, and comparisons, prefer complete field coverage over extreme brevity.',
   );
   expect(prompt).toContain(
-    'Default response style: brief, direct, and low-fluff.',
-  );
-  expect(prompt).toContain(
-    'Lead with the answer or result. Do not add praise, filler, or repeated restatement of the request.',
-  );
-  expect(prompt).toContain(
-    'Prefer a short paragraph or a few bullets over long structured essays.',
+    'Default response style: brief and direct. Lead with the answer, skip filler, and expand only when depth, risk, tradeoffs, or structured deliverables require it.',
   );
 });
 

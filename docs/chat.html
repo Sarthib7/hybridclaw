@@ -1984,6 +1984,13 @@
       chatEl.classList.toggle('is-empty', !hasMessages);
     }
 
+    function isScrolledNearBottom(element, threshold = 64) {
+      if (!element) return true;
+      const remaining =
+        element.scrollHeight - element.scrollTop - element.clientHeight;
+      return remaining <= threshold;
+    }
+
     function buildArtifactUrl(filePath) {
       const params = new URLSearchParams({ path: filePath || '' });
       if (apiToken) {
@@ -2325,6 +2332,7 @@
       const meta = getMessageMeta(block);
       if (!meta || meta.role !== 'assistant') return;
 
+      const shouldAutoScroll = isScrolledNearBottom(messagesEl);
       const nextContent = String(content || '');
       const nextArtifacts = Array.isArray(artifacts) ? artifacts : meta.artifacts || [];
       const contentEl = meta.contentEl || meta.itemEl?.querySelector?.('.msg-content');
@@ -2353,7 +2361,9 @@
         replayRequest: options.replayRequest || meta.replayRequest || null,
       });
 
-      messagesEl.scrollTop = messagesEl.scrollHeight;
+      if (shouldAutoScroll) {
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+      }
     }
 
     function addThinkingMessage() {

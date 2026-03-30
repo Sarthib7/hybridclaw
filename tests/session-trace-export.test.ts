@@ -34,13 +34,7 @@ test('exports an opentraces/ATIF-compatible JSONL trace from stored session data
     'channel-trace-export',
   );
   updateSessionModel(session.id, 'gpt-5-nano');
-  storeMessage(
-    session.id,
-    'user-1',
-    'alice',
-    'user',
-    'Fix the parser test',
-  );
+  storeMessage(session.id, 'user-1', 'alice', 'user', 'Fix the parser test');
   storeMessage(
     session.id,
     'assistant',
@@ -160,9 +154,9 @@ test('exports an opentraces/ATIF-compatible JSONL trace from stored session data
         created_at: new Date().toISOString(),
       },
     ],
-    auditEntries: (await import('../src/memory/db.ts')).getStructuredAuditForSession(
-      session.id,
-    ),
+    auditEntries: (
+      await import('../src/memory/db.ts')
+    ).getStructuredAuditForSession(session.id),
     usageTotals: getSessionUsageTotals(session.id),
   });
 
@@ -521,9 +515,9 @@ test('trace export redacts secrets and anonymizes absolute-path usernames', asyn
         created_at: new Date().toISOString(),
       },
     ],
-    auditEntries: (await import('../src/memory/db.ts')).getStructuredAuditForSession(
-      session.id,
-    ),
+    auditEntries: (
+      await import('../src/memory/db.ts')
+    ).getStructuredAuditForSession(session.id),
     usageTotals: {
       total_input_tokens: 0,
       total_output_tokens: 0,

@@ -2258,13 +2258,15 @@
     function addMessage(role, content, artifacts, options = {}) {
       const item = document.createElement('div');
       item.className = `msg ${role}`;
+      let contentEl = null;
+      let artifactsBlock = null;
       if (role === 'assistant') {
         item.classList.add('markdown');
         appendAssistantPresentation(
           item,
           options.assistantPresentation || activeAssistantPresentation,
         );
-        const contentEl = document.createElement('div');
+        contentEl = document.createElement('div');
         contentEl.className = 'msg-content';
         contentEl.innerHTML = renderMarkdown(content || '');
         item.appendChild(contentEl);
@@ -2279,7 +2281,7 @@
       block.appendChild(item);
 
       if (role === 'assistant') {
-        const artifactsBlock = renderArtifactCards(artifacts);
+        artifactsBlock = renderArtifactCards(artifacts);
         if (artifactsBlock) {
           block.appendChild(artifactsBlock);
         }
@@ -2292,6 +2294,7 @@
         setMessageMeta(block, {
           block,
           itemEl: item,
+          contentEl,
           actionsEl: actions,
           role,
           sessionId: options.sessionId || activeSessionId,
@@ -2300,6 +2303,8 @@
           copyText: options.copyText ?? content ?? '',
           rawContent: options.rawContent ?? content ?? '',
           media: cloneMediaList(options.media),
+          artifacts: Array.isArray(artifacts) ? artifacts : [],
+          artifactsEl: role === 'assistant' ? artifactsBlock || null : null,
           replayRequest: options.replayRequest || null,
           branchKey: options.branchKey || null,
           isEditing: false,
@@ -2314,6 +2319,41 @@
         block,
         item,
       };
+    }
+
+    function updateAssistantMessage(block, content, artifacts, options = {}) {
+      const meta = getMessageMeta(block);
+      if (!meta || meta.role !== 'assistant') return;
+
+      const nextContent = String(content || '');
+      const nextArtifacts = Array.isArray(artifacts) ? artifacts : meta.artifacts || [];
+      const contentEl = meta.contentEl || meta.itemEl?.querySelector?.('.msg-content');
+      if (contentEl) {
+        contentEl.innerHTML = renderMarkdown(nextContent);
+      }
+
+      if (meta.artifactsEl?.isConnected) {
+        meta.artifactsEl.remove();
+      }
+      const nextArtifactsEl = renderArtifactCards(nextArtifacts);
+      if (nextArtifactsEl) {
+        block.insertBefore(nextArtifactsEl, meta.actionsEl || null);
+      }
+
+      setMessageMeta(block, {
+        sessionId: options.sessionId || meta.sessionId || activeSessionId,
+        messageId:
+          normalizeMessageId(options.messageId) ||
+          meta.messageId ||
+          null,
+        content: nextContent,
+        copyText: options.copyText ?? nextContent,
+        artifacts: nextArtifacts,
+        artifactsEl: nextArtifactsEl,
+        replayRequest: options.replayRequest || meta.replayRequest || null,
+      });
+
+      messagesEl.scrollTop = messagesEl.scrollHeight;
     }
 
     function addThinkingMessage() {
@@ -2455,6 +2495,124 @@
         throw new Error(payload.error || `${response.status} ${response.statusText}`);
       }
       return payload;
+    }
+
+    async function requestChatStream(url, options = {}) {
+      const { onEvent: rawOnEvent, ...requestOptions } = options;
+      const response = await fetch(url, requestOptions);
+      if (!response.ok) {
+        const errorText = (await response.text().catch(() => '')).trim();
+        let errorMessage = `${response.status} ${response.statusText}`;
+        if (errorText) {
+          try {
+            const payload = JSON.parse(errorText);
+            errorMessage = payload.error || payload.text || errorText;
+          } catch {
+            errorMessage = errorText;
+          }
+        }
+        throw new Error(errorMessage);
+      }
+
+      const onEvent =
+        typeof rawOnEvent === 'function'
+          ? rawOnEvent
+          : () => {};
+
+      const parseLine = (line) => {
+        const trimmed = String(line || '').trim();
+        if (!trimmed) return null;
+
+        let payload;
+        try {
+          payload = JSON.parse(trimmed);
+        } catch {
+          return null;
+        }
+
+        if (!payload || typeof payload !== 'object') {
+          return null;
+        }
+
+        if (payload.type === 'text' && typeof payload.delta === 'string') {
+          onEvent(payload);
+          return null;
+        }
+
+        if (
+          payload.type === 'tool' &&
+          typeof payload.toolName === 'string' &&
+          (payload.phase === 'start' || payload.phase === 'finish')
+        ) {
+          onEvent(payload);
+          return null;
+        }
+
+        if (
+          payload.type === 'approval' &&
+          typeof payload.approvalId === 'string' &&
+          typeof payload.prompt === 'string'
+        ) {
+          onEvent(payload);
+          return null;
+        }
+
+        if (payload.type === 'result' && payload.result && typeof payload.result === 'object') {
+          return payload.result;
+        }
+
+        if (typeof payload.status === 'string' && Array.isArray(payload.toolsUsed)) {
+          return payload;
+        }
+
+        return null;
+      };
+
+      if (!response.body) {
+        const text = await response.text().catch(() => '');
+        const result = parseLine(text);
+        if (!result) {
+          throw new Error('Chat stream ended without a result payload.');
+        }
+        return result;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let finalResult = null;
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            const result = parseLine(line);
+            if (result) {
+              finalResult = result;
+            }
+          }
+        }
+
+        if (buffer.trim()) {
+          const result = parseLine(buffer);
+          if (result) {
+            finalResult = result;
+          }
+        }
+      } finally {
+        reader.releaseLock();
+        decoder.decode();
+      }
+
+      if (!finalResult) {
+        throw new Error('Chat stream ended without a result payload.');
+      }
+      return finalResult;
     }
 
     function buildClipboardUploadFilename(file) {
@@ -2732,6 +2890,8 @@
         thinkingItem,
         queuedMedia,
         userBlock: userView?.block || null,
+        assistantBlock: null,
+        assistantText: '',
         stopRequested: false,
         stopping: false,
       };
@@ -2739,18 +2899,53 @@
       updateComposerState();
 
       try {
-        const payload = await requestJson('/api/chat', {
+        const ensureAssistantBlock = () => {
+          if (requestState.assistantBlock?.isConnected) {
+            return requestState.assistantBlock;
+          }
+          if (requestState.thinkingItem?.isConnected) {
+            requestState.thinkingItem.remove();
+          }
+          const assistantView = addMessage('assistant', '', [], {
+            sessionId: requestState.sessionId,
+            replayRequest: {
+              content,
+              media: queuedMedia,
+            },
+          });
+          requestState.assistantBlock = assistantView?.block || null;
+          return requestState.assistantBlock;
+        };
+
+        const payload = await requestChatStream('/api/chat', {
           method: 'POST',
-          headers: apiHeaders(),
+          headers: {
+            ...apiHeaders(),
+            Accept: 'application/x-ndjson',
+          },
           body: JSON.stringify({
             sessionId: requestState.sessionId,
             channelId: 'web',
             userId: activeUserId,
             username: 'web',
             content,
+            stream: true,
             ...(queuedMedia.length > 0 ? { media: queuedMedia } : {}),
           }),
           signal: requestState.controller.signal,
+          onEvent: (event) => {
+            if (event.type !== 'text' || !event.delta) return;
+            requestState.assistantText += event.delta;
+            const assistantBlock = ensureAssistantBlock();
+            if (!assistantBlock) return;
+            updateAssistantMessage(assistantBlock, requestState.assistantText, [], {
+              sessionId: requestState.sessionId,
+              replayRequest: {
+                content,
+                media: queuedMedia,
+              },
+            });
+          },
         });
         if (payload.status === 'error') {
           throw new Error(payload.error || 'Unknown error');
@@ -2767,14 +2962,24 @@
           });
           renderMessageActions(requestState.userBlock);
         }
-        const assistantView = addMessage('assistant', payload.result || '', payload.artifacts || [], {
-          sessionId: activeSessionId,
-          messageId: normalizeMessageId(payload.assistantMessageId),
-          replayRequest: {
-            content,
-            media: queuedMedia,
-          },
-        });
+        const assistantBlock =
+          requestState.assistantBlock || ensureAssistantBlock();
+        if (assistantBlock) {
+          updateAssistantMessage(
+            assistantBlock,
+            payload.result || requestState.assistantText || '',
+            payload.artifacts || [],
+            {
+              sessionId: activeSessionId,
+              messageId: normalizeMessageId(payload.assistantMessageId),
+              replayRequest: {
+                content,
+                media: queuedMedia,
+              },
+            },
+          );
+          renderMessageActions(assistantBlock);
+        }
         void refreshRecentSessions();
         return {
           payload,
@@ -2782,7 +2987,7 @@
           userMessageId,
           assistantMessageId: normalizeMessageId(payload.assistantMessageId),
           userBlock: requestState.userBlock,
-          assistantBlock: assistantView?.block || null,
+          assistantBlock,
         };
       } catch (err) {
         if (requestState.stopRequested) {

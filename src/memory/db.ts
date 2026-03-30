@@ -20,6 +20,10 @@ import {
   parseSessionKey,
 } from '../session/session-key.js';
 import {
+  buildSessionBoundaryPreview,
+  RECENT_CHAT_SESSION_TITLE_MAX_LENGTH,
+} from '../session/session-preview.js';
+import {
   evaluateSessionExpiry,
   resolveSessionResetChannelKind,
   type SessionExpiryEvaluation,
@@ -3959,14 +3963,6 @@ type RecentUserSessionRow = Pick<
   'id' | 'last_active' | 'message_count'
 >;
 
-function summarizeRecentSessionTitle(raw: unknown): string | null {
-  const text = String(raw || '')
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (!text) return null;
-  return text.length > 120 ? `${text.slice(0, 117)}...` : text;
-}
-
 export function getRecentSessionsForUser(params: {
   userId: string;
   channelId?: string | null;
@@ -4024,6 +4020,16 @@ export function getRecentSessionsForUser(params: {
      ORDER BY id ASC
      LIMIT 1`,
   );
+  const lastMessageForSession = db.prepare<
+    [string],
+    { content: string | null }
+  >(
+    `SELECT content
+     FROM messages
+     WHERE session_id = ?
+     ORDER BY id DESC
+     LIMIT 1`,
+  );
 
   return rows
     .sort((left, right) => {
@@ -4040,14 +4046,18 @@ export function getRecentSessionsForUser(params: {
       const fallbackMessage = firstUserMessage
         ? null
         : firstMessageForSession.get(row.id);
+      const lastMessage = lastMessageForSession.get(row.id);
 
       return {
         sessionId: row.id,
         lastActive: row.last_active,
         messageCount: normalizeUsageNumber(row.message_count),
-        title: summarizeRecentSessionTitle(
-          firstUserMessage?.content || fallbackMessage?.content || null,
-        ),
+        title: buildSessionBoundaryPreview({
+          firstMessage:
+            firstUserMessage?.content || fallbackMessage?.content || null,
+          lastMessage: lastMessage?.content || null,
+          maxLength: RECENT_CHAT_SESSION_TITLE_MAX_LENGTH,
+        }).summary,
       };
     });
 }
@@ -4405,6 +4415,28 @@ export function getRecentMessages(
     boundedLimit,
   );
   return rows.reverse();
+}
+
+export function getSessionBoundaryMessages(sessionId: string): {
+  firstMessage: string | null;
+  lastMessage: string | null;
+} {
+  const resolvedSessionId = resolveSessionIdCompat(sessionId);
+  const firstRow = queryOne<Pick<StoredMessage, 'content'>, [string]>(
+    db,
+    'SELECT content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 1',
+    resolvedSessionId,
+  );
+  const lastRow = queryOne<Pick<StoredMessage, 'content'>, [string]>(
+    db,
+    'SELECT content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 1',
+    resolvedSessionId,
+  );
+
+  return {
+    firstMessage: firstRow?.content || null,
+    lastMessage: lastRow?.content || null,
+  };
 }
 
 export function getSessionMessageCounts(sessionId: string): {
@@ -5942,6 +5974,16 @@ export function getRecentStructuredAuditForSession(
     'SELECT * FROM audit_events WHERE session_id = ? ORDER BY seq DESC LIMIT ?',
     sessionId,
     bounded,
+  );
+}
+
+export function getStructuredAuditForSession(
+  sessionId: string,
+): StructuredAuditEntry[] {
+  return queryAll<StructuredAuditEntry, [string]>(
+    db,
+    'SELECT * FROM audit_events WHERE session_id = ? ORDER BY seq ASC',
+    sessionId,
   );
 }
 

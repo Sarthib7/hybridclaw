@@ -144,6 +144,9 @@ jobs:
       - name: Release bundle check (container)
         run: npm --prefix container run release:check
 
+      - name: Integration tests
+        run: npx vitest run --config vitest.integration.config.ts
+
       - name: Unit tests with coverage
         run: npx vitest run --coverage --config vitest.unit.config.ts
 

@@ -100,6 +100,7 @@ type DevelopmentDocSearchEntry = {
   description: string;
   kind: 'doc' | 'heading';
   label: string;
+  markdownPath: string;
   parentTitle: string;
   routePath: string;
 };
@@ -292,6 +293,22 @@ function routePathForDevelopmentDoc(relativePath: string): string {
 function markdownPathForDevelopmentDoc(relativePath: string): string {
   const normalized = path.posix.normalize(relativePath).replace(/^\/+/, '');
   return `${DOCS_ROUTE}/${normalized}`;
+}
+
+function searchDevelopmentDocs(
+  entries: DevelopmentDocSearchEntry[],
+  query: string,
+  limit = SEARCH_RESULT_LIMIT,
+): DevelopmentDocSearchEntry[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return [];
+
+  return entries
+    .filter((entry) => {
+      const haystack = `${entry.label} ${entry.parentTitle} ${entry.description}`.toLowerCase();
+      return haystack.includes(normalizedQuery);
+    })
+    .slice(0, limit);
 }
 
 function stripMarkdownFormatting(value: string): string {
@@ -664,6 +681,7 @@ function buildSearchIndex(
         description: page.description,
         kind: 'doc',
         label: page.title,
+        markdownPath: markdownPathForDevelopmentDoc(page.relativePath),
         parentTitle: page.title,
         routePath: page.routePath,
       },
@@ -675,6 +693,7 @@ function buildSearchIndex(
         description: page.description,
         kind: 'heading',
         label: heading.text,
+        markdownPath: `${markdownPathForDevelopmentDoc(page.relativePath)}#${heading.id}`,
         parentTitle: page.title,
         routePath: `${page.routePath}#${heading.id}`,
       });
@@ -1074,6 +1093,7 @@ function renderTableOfContents(page: DevelopmentDocPage): string {
 function renderPage(
   page: DevelopmentDocPage,
   snapshot: DevelopmentDocsSnapshot,
+  options?: { markdownPathOverride?: string },
 ): string {
   const sidebarMarkup = renderSidebarNode(snapshot.sidebarTree, page.routePath);
   const breadcrumbsMarkup = renderBreadcrumbs(
@@ -1084,7 +1104,9 @@ function renderPage(
   );
   const tocMarkup = renderTableOfContents(page);
   const markdownHtml = renderMarkdownBody(page);
-  const markdownPath = markdownPathForDevelopmentDoc(page.relativePath);
+  const markdownPath =
+    options?.markdownPathOverride ||
+    markdownPathForDevelopmentDoc(page.relativePath);
   const descriptionMeta = page.description
     ? `<meta name="description" content="${escapeHtml(page.description)}">`
     : '';
@@ -1866,8 +1888,70 @@ function renderPage(
   ${renderMarkdownSourceScript(page.source)}
   ${renderSearchDataScript(snapshot.searchEntries)}
   ${renderInteractiveScript()}
-</body>
+  </body>
 </html>`;
+}
+
+function buildSearchResultMarkdown(params: {
+  query: string;
+  matches: DevelopmentDocSearchEntry[];
+  linkMode: 'markdown' | 'route';
+}): string {
+  const { query, matches, linkMode } = params;
+  const lines = [
+    '---',
+    'title: Docs Search Results',
+    `description: Search results for "${query}" in the HybridClaw documentation.`,
+    '---',
+    '',
+    '# Docs Search Results',
+    '',
+    `Query: \`${query}\``,
+    '',
+  ];
+
+  if (matches.length === 0) {
+    lines.push('No matches found.');
+    return `${lines.join('\n')}\n`;
+  }
+
+  lines.push(`Matches: ${matches.length}`, '');
+  for (const match of matches) {
+    const href =
+      linkMode === 'route' ? match.routePath : match.markdownPath;
+    lines.push(
+      `- [${match.label}](${href})`,
+      `  - Section: ${match.parentTitle}`,
+      ...(match.description ? [`  - ${match.description}`] : []),
+    );
+  }
+
+  return `${lines.join('\n')}\n`;
+}
+
+function buildSearchResultsPage(query: string): DevelopmentDocPage {
+  const snapshot = getDevelopmentDocsSnapshot();
+  const matches = searchDevelopmentDocs(snapshot.searchEntries, query, 25);
+  const body = buildSearchResultMarkdown({
+    query,
+    matches,
+    linkMode: 'route',
+  });
+  const source = buildSearchResultMarkdown({
+    query,
+    matches,
+    linkMode: 'markdown',
+  });
+  return {
+    body,
+    description: `Search results for "${query}" in the HybridClaw documentation.`,
+    headings: extractHeadingsFromMarkdown(body),
+    relativePath: 'agents.md',
+    routePath: `${DOCS_ROUTE}?search=${encodeURIComponent(query)}`,
+    sidebarPosition: null,
+    source,
+    title: `Search: ${query}`,
+  };
 }
 
 function renderDevelopmentDocsErrorPage(message: string): string {
@@ -1924,7 +2008,9 @@ function renderDevelopmentDocsErrorPage(message: string): string {
 </html>`;
 }
 
-export function serveDocs(pathname: string, res: ServerResponse): boolean {
+export function serveDocs(url: URL, res: ServerResponse): boolean {
+  const pathname = url.pathname;
+  const searchQuery = String(url.searchParams.get('search') || '').trim();
   if (
     pathname === LEGACY_DEVELOPMENT_ROUTE ||
     pathname === `${LEGACY_DEVELOPMENT_ROUTE}/` ||
@@ -1934,8 +2020,8 @@ export function serveDocs(pathname: string, res: ServerResponse): boolean {
     if (!wantsMarkdown) {
       const redirectLocation =
         pathname === LEGACY_DEVELOPMENT_ROUTE
-          ? DOCS_ROUTE
-          : pathname.replace(LEGACY_DEVELOPMENT_ROUTE, DOCS_ROUTE);
+          ? `${DOCS_ROUTE}${url.search}`
+          : `${pathname.replace(LEGACY_DEVELOPMENT_ROUTE, DOCS_ROUTE)}${url.search}`;
       res.writeHead(308, {
         'Cache-Control': 'no-cache',
         Location: redirectLocation,
@@ -1950,6 +2036,32 @@ export function serveDocs(pathname: string, res: ServerResponse): boolean {
   const wantsMarkdown = pathname.endsWith('.md');
 
   try {
+    if (searchQuery) {
+      const candidate = resolveDevelopmentDocFile(relativePath);
+      if (!candidate) return false;
+
+      const searchPage = buildSearchResultsPage(searchQuery);
+      if (wantsMarkdown) {
+        res.writeHead(200, {
+          'Cache-Control': 'no-cache',
+          'Content-Type': 'text/markdown; charset=utf-8',
+        });
+        res.end(searchPage.source);
+        return true;
+      }
+
+      const snapshot = getDevelopmentDocsSnapshot(searchPage);
+      const html = renderPage(searchPage, snapshot, {
+        markdownPathOverride: `${DOCS_ROUTE}/agents.md?search=${encodeURIComponent(searchQuery)}`,
+      });
+      res.writeHead(200, {
+        'Cache-Control': 'no-cache',
+        'Content-Type': 'text/html; charset=utf-8',
+      });
+      res.end(html);
+      return true;
+    }
+
     if (wantsMarkdown) {
       const candidate = resolveDevelopmentDocFile(relativePath);
       if (!candidate) return false;

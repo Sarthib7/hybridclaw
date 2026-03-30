@@ -1170,6 +1170,36 @@ describe('gateway HTTP server', () => {
     expect(res.body).not.toContain('<!doctype html>');
   });
 
+  test('renders server-side docs search results for ?search queries', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/docs?search=commands' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['Content-Type']).toBe('text/html; charset=utf-8');
+    expect(res.body).toContain('<title>Search: commands | HybridClaw Docs</title>');
+    expect(res.body).toContain('<h1 id="docs-search-results">Docs Search Results');
+    expect(res.body).toContain('Query: <code>commands</code>');
+    expect(res.body).toContain('href="/docs/reference#commands"');
+  });
+
+  test('serves docs search results as markdown on .md routes', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/docs/README.md?search=guides' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['Content-Type']).toBe('text/markdown; charset=utf-8');
+    expect(res.body).toContain('# Docs Search Results');
+    expect(res.body).toContain('Query: `guides`');
+    expect(res.body).toContain('[Guides](/docs/guides/README.md)');
+    expect(res.body).not.toContain('<!doctype html>');
+  });
+
   test('reuses the cached development docs snapshot across repeated requests', async () => {
     const installRoot = makeTempDocsDir();
     const state = await importFreshHealth({ docsDir: installRoot });

@@ -2905,6 +2905,10 @@
       updateComposerState();
 
       try {
+        const replayRequest = {
+          content,
+          media: queuedMedia,
+        };
         const ensureAssistantBlock = () => {
           if (requestState.assistantBlock?.isConnected) {
             return requestState.assistantBlock;
@@ -2914,10 +2918,7 @@
           }
           const assistantView = addMessage('assistant', '', [], {
             sessionId: requestState.sessionId,
-            replayRequest: {
-              content,
-              media: queuedMedia,
-            },
+            replayRequest,
           });
           requestState.assistantBlock = assistantView?.block || null;
           return requestState.assistantBlock;
@@ -2929,10 +2930,7 @@
           if (!assistantBlock) return;
           updateAssistantMessage(assistantBlock, requestState.assistantText, [], {
             sessionId: requestState.sessionId,
-            replayRequest: {
-              content,
-              media: queuedMedia,
-            },
+            replayRequest,
           });
         };
         const scheduleAssistantRender = () => {
@@ -2996,10 +2994,7 @@
             {
               sessionId: activeSessionId,
               messageId: normalizeMessageId(payload.assistantMessageId),
-              replayRequest: {
-                content,
-                media: queuedMedia,
-              },
+              replayRequest,
             },
           );
           renderMessageActions(assistantBlock);

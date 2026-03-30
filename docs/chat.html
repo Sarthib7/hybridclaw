@@ -2907,6 +2907,8 @@
         userBlock: userView?.block || null,
         assistantBlock: null,
         assistantText: '',
+        assistantRenderFrame: 0,
+        assistantRenderScheduled: false,
         stopRequested: false,
         stopping: false,
       };
@@ -2931,6 +2933,31 @@
           requestState.assistantBlock = assistantView?.block || null;
           return requestState.assistantBlock;
         };
+        const renderStreamedAssistant = () => {
+          requestState.assistantRenderScheduled = false;
+          requestState.assistantRenderFrame = 0;
+          const assistantBlock = ensureAssistantBlock();
+          if (!assistantBlock) return;
+          updateAssistantMessage(assistantBlock, requestState.assistantText, [], {
+            sessionId: requestState.sessionId,
+            replayRequest: {
+              content,
+              media: queuedMedia,
+            },
+          });
+        };
+        const scheduleAssistantRender = () => {
+          if (requestState.assistantRenderScheduled) return;
+          requestState.assistantRenderScheduled = true;
+          requestState.assistantRenderFrame = window.requestAnimationFrame(() => {
+            renderStreamedAssistant();
+          });
+        };
+        const flushAssistantRender = () => {
+          if (!requestState.assistantRenderScheduled) return;
+          window.cancelAnimationFrame(requestState.assistantRenderFrame);
+          renderStreamedAssistant();
+        };
 
         const payload = await requestChatStream('/api/chat', {
           method: 'POST',
@@ -2951,15 +2978,7 @@
           onEvent: (event) => {
             if (event.type !== 'text' || !event.delta) return;
             requestState.assistantText += event.delta;
-            const assistantBlock = ensureAssistantBlock();
-            if (!assistantBlock) return;
-            updateAssistantMessage(assistantBlock, requestState.assistantText, [], {
-              sessionId: requestState.sessionId,
-              replayRequest: {
-                content,
-                media: queuedMedia,
-              },
-            });
+            scheduleAssistantRender();
           },
         });
         if (payload.status === 'error') {
@@ -2977,6 +2996,7 @@
           });
           renderMessageActions(requestState.userBlock);
         }
+        flushAssistantRender();
         const assistantBlock =
           requestState.assistantBlock || ensureAssistantBlock();
         if (assistantBlock) {
@@ -3005,6 +3025,11 @@
           assistantBlock,
         };
       } catch (err) {
+        if (requestState.assistantRenderScheduled) {
+          window.cancelAnimationFrame(requestState.assistantRenderFrame);
+          requestState.assistantRenderScheduled = false;
+          requestState.assistantRenderFrame = 0;
+        }
         if (requestState.stopRequested) {
           setError('');
           return null;

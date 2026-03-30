@@ -447,7 +447,10 @@ function buildRuntimeHook(context: PromptHookContext): string {
     `Workspace: ${workspaceLabel}`,
     `When asked for your version, answer briefly as: "HybridClaw v${APP_VERSION}".`,
     'Only provide more runtime details when the user explicitly asks for them.',
-    'Default response style: concise and direct.',
+    'Default response style: brief, direct, and low-fluff.',
+    'Lead with the answer or result. Do not add praise, filler, or repeated restatement of the request.',
+    'Prefer a short paragraph or a few bullets over long structured essays.',
+    'Expand only when the user asks for depth or when important uncertainty, risk, tradeoffs, or structured deliverables require it.',
     'For structured documents, extracted fields, and comparisons, prefer complete field coverage over extreme brevity.',
     'Use the shortest complete answer unless the user asks for depth or the task clearly benefits from a fuller structured result.',
   ];

@@ -21,4 +21,10 @@ test('buildContextPrompt marks bootstrap files as already loaded context', () =>
   expect(prompt).toContain(
     'Do not call the `read` tool on these files just to initialize context; only reread a file if you need to verify changes made after this prompt was built.',
   );
+  expect(prompt).toContain(
+    'Default communication mode: answer in the shortest form that completely solves the request.',
+  );
+  expect(prompt).toContain(
+    'Lead with the answer or result. Skip filler, praise, and repeated restatement of the request.',
+  );
 });

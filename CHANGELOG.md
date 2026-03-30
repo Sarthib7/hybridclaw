@@ -2,6 +2,61 @@
 
 ## [Coming up]
 
+## [0.9.7](https://github.com/HybridAIOne/hybridclaw/tree/v0.9.7)
+
+### Added
+
+- **Mistral provider support**: Added
+  `hybridclaw auth login|status|logout mistral`, support for
+  `mistral/...` model ids in selection commands, runtime credential handling
+  for Mistral requests, discovered model catalog entries with canonical-name,
+  context-window, and vision metadata, and recommended-model coverage in
+  selectors and status output.
+- **ATIF-compatible trace export**: Added `export trace [sessionId|all|--all]`
+  across gateway, TUI, and chat command surfaces so operators can export
+  structured debug trace JSONL with tool calls, token usage, git context,
+  attribution metadata, and compatibility fields for downstream trace tooling.
+- **HybridClaw docs and help retrieval**: Added a searchable `/docs` browser
+  docs shell, raw-markdown `/docs/agents.md`, the bundled
+  `hybridclaw-help` skill, and prompt-hook routing that fetches public docs
+  before answering HybridClaw product questions.
+- **Obsidian bundled skill**: Added a first-party `obsidian` skill plus agent
+  metadata for vault-aware note search, creation, moves, and link-preserving
+  edits.
+
+### Changed
+
+- **Web chat streaming and replay UX**: Simplified stream frame state and
+  replay reuse, added NDJSON fallback handling plus decoder-tail flushing,
+  batched DOM updates, and preserved scroll position during streaming so the
+  built-in web chat behaves more smoothly under live output.
+- **Session previews and export UX**: Shared conversation-preview helpers
+  across sessions and agent cards, added clearer timestamp/snippet output in
+  `/sessions`, and exposed the new `export session` and `export trace`
+  subcommands consistently in help text and slash menus.
+- **Docker images and publish pipeline**: Reworked the gateway and agent
+  Dockerfiles into clearer multi-stage builds, added the agent `runtime-lite`
+  target plus `HYBRIDCLAW_CONTAINER_TARGET`, and added CI Docker preflight
+  builds plus explicit runtime targets in publish workflows.
+- **Public docs routing and landing pages**: Moved the browsable docs shell to
+  `/docs`, kept the legacy `/development` entry as a redirect, refreshed the
+  static docs assets, and added a HybridClaw Cloud callout across the public
+  landing page.
+
+### Fixed
+
+- **Local iMessage self-chat fallback**: Skipped attributed-body-only
+  self-chat rows that look like replayed history or control commands so local
+  iMessage polling no longer injects stale self-chat content.
+- **Trace export and secret redaction hardening**: Expanded redaction coverage
+  for GitHub/npm tokens, emails, IPs, phone numbers, SSNs, credit cards, and
+  high-entropy strings, anonymized runner-home paths in trace exports, and
+  restored paused TTY state after hidden secret prompts.
+- **Mistral discovery and container build polish**: Tightened canonical and
+  deprecated Mistral model handling plus availability checks, and fixed
+  container/gateway Docker builds around native addons, dependency pruning,
+  runtime targets, and npm prune failure modes.
+
 ## [0.9.6](https://github.com/HybridAIOne/hybridclaw/tree/v0.9.6)
 
 ### Changed

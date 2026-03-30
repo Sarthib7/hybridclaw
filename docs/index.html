@@ -886,35 +886,35 @@
 <!-- RELEASE -->
 <section id="release">
   <div class="section-center">
-    <div class="section-label">Latest Release</div>
+    <div class="section-label">Latest Release • v0.9.7</div>
     <h2 class="section-title">Current shipped highlights</h2>
-    <p class="section-desc">Recent HybridClaw releases focused on operator-facing runtime control: dual-backend iMessage support, a browser-based admin terminal, richer local config commands, and tighter observability and recovery flows.</p>
+    <p class="section-desc">HybridClaw v0.9.7 adds first-class Mistral support, ATIF-compatible trace export, a searchable `/docs` help surface, smoother web chat streaming, and refreshed public release docs.</p>
   </div>
   <div class="features-grid">
     <div class="feature-card">
-      <div class="feature-icon">&#x1f4f1;</div>
-      <h3>Dual-backend iMessage delivery</h3>
-      <p><code>hybridclaw channels imessage setup</code> supports either a local macOS <code>imsg</code> + Messages <code>chat.db</code> path or a remote BlueBubbles relay, so operators can choose the delivery model that fits their deployment.</p>
+      <div class="feature-icon">&#x1f9e0;</div>
+      <h3>Mistral provider support</h3>
+      <p><code>hybridclaw auth login mistral</code>, <code>auth status mistral</code>, and <code>mistral/...</code> model selection now work as first-class provider flows, including discovered model metadata in selectors and status output.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f5a5;&#xfe0f;</div>
-      <h3>Embedded admin terminal</h3>
-      <p>The built-in admin console includes a live <code>/admin/terminal</code> page, giving operators a browser-based PTY alongside gateway, session, job, audit, and config views.</p>
+      <div class="feature-icon">&#x1f4be;</div>
+      <h3>ATIF trace export</h3>
+      <p><code>export trace [sessionId|all]</code> writes ATIF-compatible trace JSONL with tool calls, token usage, git context, and attribution metadata so operators can inspect or post-process rich debug traces offline.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#9881;&#xfe0f;</div>
-      <h3>Local runtime config controls</h3>
-      <p><code>hybridclaw config</code>, <code>config check</code>, <code>config reload</code>, and <code>config set &lt;key&gt; &lt;value&gt;</code> cover the local runtime config lifecycle, with matching <code>/config</code> flows in TUI and web chat.</p>
+      <div class="feature-icon">&#x1f4da;</div>
+      <h3>Searchable docs and help skill</h3>
+      <p>The browsable docs shell lives at <code>/docs</code>, raw markdown has an agent-friendly index, and HybridClaw product questions can route through the bundled <code>hybridclaw-help</code> skill before answering.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f6e1;&#xfe0f;</div>
-      <h3>Observability and recovery hardening</h3>
-      <p>HybridAI observability ingest, clearer browser-tool diagnostics, safer plugin recovery, and stricter host-mode allowlisting all tighten day-to-day operations without widening the default trust boundary.</p>
+      <div class="feature-icon">&#x1f4ac;</div>
+      <h3>Smoother web chat streaming</h3>
+      <p>The built-in web chat now batches streaming updates, preserves scroll position, handles NDJSON fallback paths, and simplifies replay state so long live responses feel steadier in the browser.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x2601;&#xfe0f;</div>
       <h3>HybridClaw Cloud</h3>
-      <p>Run HybridClaw as a fully managed cloud agent in a secured Docker container — no local setup required. Sign up, upgrade or redeem a voucher, and your instance is live in seconds.</p>
+      <p>The public landing page now includes a clearer HybridClaw Cloud path for teams that want a managed Docker-hosted agent instead of a local install.</p>
     </div>
   </div>
 </section>

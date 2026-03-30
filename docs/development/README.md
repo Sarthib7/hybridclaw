@@ -17,18 +17,20 @@ If you want a raw-markdown entrypoint that links every docs page directly, use
 
 ## Latest Highlights
 
-- HybridClaw now supports `iMessage` with either a local macOS `imsg` +
-  `chat.db` backend or a remote BlueBubbles relay, plus a dedicated setup
-  guide and `hybridclaw channels imessage setup`.
-- The embedded admin console now includes a live `Terminal` page at
-  `/admin/terminal` so operators can open a browser-based PTY session without
-  leaving the admin shell.
-- `hybridclaw config`, `config check`, `config reload`, and
-  `config set <key> <value>` now cover the local runtime config lifecycle,
-  with matching `/config` slash commands in TUI and web sessions.
-- HybridAI observability export, clearer browser-tool doctor suggestions, and
-  tighter plugin/browser recovery flows all landed for day-to-day operator
-  work.
+- HybridClaw now supports `Mistral` as a first-class provider, including
+  `hybridclaw auth login|status|logout mistral`, `mistral/...` model
+  selection, and discovered catalog metadata in selectors and status output.
+- `export trace [sessionId|all]` now emits `ATIF`-compatible trace JSONL with
+  tool-call, token-usage, and git-context metadata for offline debugging and
+  analysis.
+- The browsable docs shell moved to `/docs`, raw-markdown docs now have a
+  dedicated [Agent Docs Index](./agents.md), and HybridClaw product questions
+  route through a bundled `hybridclaw-help` skill plus public docs retrieval.
+- Built-in web chat streaming is smoother under live output thanks to batched
+  rendering, decoder-tail handling, NDJSON fallback support, and preserved
+  scroll position during stream updates.
+- The bundled `obsidian` skill adds first-party vault workflows for searching,
+  creating, and organizing notes while preserving existing wikilink patterns.
 
 ## Browse By Section
 

@@ -36,13 +36,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Production deps — copy from builder and prune dev deps
-# (node-pty requires python3/node-gyp to compile; copying pre-built
-# binaries from the builder avoids needing build tools at runtime)
+# (better-sqlite3 and node-pty may require native compilation;
+# copying pre-built artifacts from the builder avoids needing
+# build tools at runtime)
 COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/console/package*.json console/
 COPY --from=builder /app/node_modules/ node_modules/
-RUN npm prune --omit=dev \
-    && find node_modules/node-pty/prebuilds -name spawn-helper -exec chmod 755 {} \; 2>/dev/null || true
+RUN npm prune --omit=dev
+RUN find node_modules/node-pty/prebuilds -name spawn-helper -exec chmod 755 {} \; 2>/dev/null || true
 
 # Production deps — container agent
 COPY --from=builder /app/container/package*.json container/

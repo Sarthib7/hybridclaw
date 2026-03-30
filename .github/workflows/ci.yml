@@ -44,77 +44,24 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.name }}-preflight
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}-preflight
 
-      - name: Smoke-test gateway image
+      - name: Setup Node.js (gateway e2e)
         if: matrix.name == 'gateway'
-        shell: bash
-        run: |
-          set -euo pipefail
-          IMAGE="hybridclaw-gateway:preflight"
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
 
-          # Verify runtime-critical files exist inside the image
-          echo "Checking required runtime files…"
-          docker run --rm "${IMAGE}" sh -c '
-            set -e
-            files="
-              docs/development/README.md
-              docs/development/getting-started/README.md
-              docs/development/getting-started/installation.md
-              docs/development/getting-started/quickstart.md
-              docs/index.html
-              docs/chat.html
-              docs/agents.html
-              templates/SOUL.md
-              skills/hybridclaw-help/SKILL.md
-            "
-            missing=0
-            for f in $files; do
-              if [ ! -f "$f" ]; then
-                echo "MISSING: $f"
-                missing=1
-              fi
-            done
-            if [ "$missing" -eq 1 ]; then
-              echo "::error::Required runtime files are missing from the Docker image"
-              exit 1
-            fi
-            echo "All required files present."
-          '
+      - name: Install test dependencies (gateway e2e)
+        if: matrix.name == 'gateway'
+        run: npm install
 
-          # Boot the gateway and verify key routes return content
-          echo "Starting gateway container…"
-          docker run -d --name gw-smoke \
-            -p 9099:9090 \
-            -e HYBRIDCLAW_ACCEPT_TRUST=true \
-            "${IMAGE}"
-
-          # Wait for the health endpoint (up to 30s)
-          for i in $(seq 1 30); do
-            if curl -sf http://localhost:9099/health > /dev/null 2>&1; then
-              echo "Gateway healthy after ${i}s"
-              break
-            fi
-            if [ "$i" -eq 30 ]; then
-              echo "::error::Gateway failed to become healthy within 30s"
-              docker logs gw-smoke
-              docker rm -f gw-smoke
-              exit 1
-            fi
-            sleep 1
-          done
-
-          # Verify docs render with content
-          echo "Checking /docs returns Getting Started content…"
-          BODY="$(curl -sf http://localhost:9099/docs)"
-          if ! echo "${BODY}" | grep -q "Getting Started"; then
-            echo "::error::/docs page does not contain 'Getting Started'"
-            echo "${BODY}" | head -50
-            docker rm -f gw-smoke
-            exit 1
-          fi
-          echo "/docs OK"
-
-          docker rm -f gw-smoke
-          echo "Gateway smoke test passed."
+      - name: Gateway e2e tests
+        if: matrix.name == 'gateway'
+        env:
+          HYBRIDCLAW_RUN_DOCKER_E2E: '1'
+          HYBRIDCLAW_E2E_IMAGE: hybridclaw-gateway:preflight
+          HYBRIDAI_API_KEY: ${{ secrets.HYBRIDAI_API_KEY }}
+        run: npx vitest run --config vitest.e2e.config.ts
 
   unit-tests:
     runs-on: ubuntu-latest

@@ -27,7 +27,6 @@ const TRACE_PRESERVED_IDENTIFIER_KEYS = new Set([
 ]);
 const TRACE_SYSTEM_USERNAMES = new Set([
   'Shared',
-  'runner',
   'lib',
   'admin',
   'root',

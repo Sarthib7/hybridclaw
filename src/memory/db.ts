@@ -4407,6 +4407,41 @@ export function getRecentMessages(
   return rows.reverse();
 }
 
+function summarizeSessionMessagePreview(
+  raw: string | null | undefined,
+  maxLength = 60,
+): string | null {
+  const compact = String(raw || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!compact) return null;
+  return compact.length > maxLength
+    ? `${compact.slice(0, maxLength - 3).trimEnd()}...`
+    : compact;
+}
+
+export function getSessionBoundaryMessagePreviews(sessionId: string): {
+  firstMessage: string | null;
+  lastMessage: string | null;
+} {
+  const resolvedSessionId = resolveSessionIdCompat(sessionId);
+  const firstRow = queryOne<Pick<StoredMessage, 'content'>, [string]>(
+    db,
+    'SELECT content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 1',
+    resolvedSessionId,
+  );
+  const lastRow = queryOne<Pick<StoredMessage, 'content'>, [string]>(
+    db,
+    'SELECT content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 1',
+    resolvedSessionId,
+  );
+
+  return {
+    firstMessage: summarizeSessionMessagePreview(firstRow?.content),
+    lastMessage: summarizeSessionMessagePreview(lastRow?.content),
+  };
+}
+
 export function getSessionMessageCounts(sessionId: string): {
   totalMessages: number;
   userMessages: number;
@@ -5942,6 +5977,16 @@ export function getRecentStructuredAuditForSession(
     'SELECT * FROM audit_events WHERE session_id = ? ORDER BY seq DESC LIMIT ?',
     sessionId,
     bounded,
+  );
+}
+
+export function getStructuredAuditForSession(
+  sessionId: string,
+): StructuredAuditEntry[] {
+  return queryAll<StructuredAuditEntry, [string]>(
+    db,
+    'SELECT * FROM audit_events WHERE session_id = ? ORDER BY seq ASC',
+    sessionId,
   );
 }
 

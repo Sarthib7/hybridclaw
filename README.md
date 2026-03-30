@@ -615,6 +615,7 @@ In Discord, use `!claw help` or the slash commands. Key ones:
 - `!claw audit approvals [n] [--denied]` — Show policy approval decisions
 - `!claw usage [summary|daily|monthly|model [daily|monthly] [agentId]]` — Show token/cost aggregates
 - `!claw export session [sessionId]` — Export session snapshot as JSONL
+- `!claw export trace [sessionId|all]` — Export ATIF-compatible trace JSONL for one session or every session
 - `!claw mcp list` — List configured MCP servers
 - `!claw mcp add <name> <json>` — Add or update an MCP server config
 - `!claw schedule add "<cron>" <prompt>` — Add cron scheduled task

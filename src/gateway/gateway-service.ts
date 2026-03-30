@@ -111,7 +111,9 @@ import {
   getSessionFileChangeCounts,
   getSessionMessageCounts,
   getSessionToolCallBreakdown,
+  getSessionUsageTotals,
   getSessionUsageTotalsSince,
+  getStructuredAuditForSession,
   getTasksForSession,
   getUsageTotals,
   listStructuredAuditEntries,
@@ -221,6 +223,7 @@ import {
   type SessionExpiryEvaluation,
   type SessionResetPolicy,
 } from '../session/session-reset.js';
+import { exportSessionTraceAtifJsonl } from '../session/session-trace-export.js';
 import { appendSessionTranscript } from '../session/session-transcripts.js';
 import {
   estimateTokenCountFromMessages,
@@ -6288,6 +6291,12 @@ export async function handleGatewayCommand(
             scope: 'bare',
           },
           {
+            command: 'export trace [sessionId|all|--all]',
+            description:
+              'Export ATIF-compatible debug trace JSONL for a session',
+            scope: 'bare',
+          },
+          {
             command: 'audit [sessionId]',
             description: 'Show recent structured audit events for a session',
             scope: 'bare',
@@ -7992,12 +8001,72 @@ export async function handleGatewayCommand(
 
       case 'export': {
         const sub = (req.args[1] || 'session').toLowerCase();
-        if (sub !== 'session') {
-          return badCommand('Usage', 'Usage: `export session [sessionId]`');
+        if (sub !== 'session' && sub !== 'trace') {
+          return badCommand(
+            'Usage',
+            'Usage: `export session [sessionId]` or `export trace [sessionId|all|--all]`',
+          );
         }
-        const targetSessionId = (req.args[2] || session.id || '').trim();
-        if (!targetSessionId) {
-          return badCommand('Usage', 'Usage: `export session [sessionId]`');
+        const traceTarget = (req.args[2] || '').trim();
+        const exportAllTraces =
+          sub === 'trace' &&
+          (traceTarget.toLowerCase() === 'all' || traceTarget === '--all');
+        const targetSessionId = exportAllTraces
+          ? ''
+          : (traceTarget || session.id || '').trim();
+        if (!exportAllTraces && !targetSessionId) {
+          return badCommand(
+            'Usage',
+            sub === 'trace'
+              ? 'Usage: `export trace [sessionId|all|--all]`'
+              : 'Usage: `export session [sessionId]`',
+          );
+        }
+        if (exportAllTraces) {
+          const targetSessions = getAllSessions();
+          if (targetSessions.length === 0) {
+            return plainCommand('No sessions available to export.');
+          }
+          const exportedPaths: string[] = [];
+          let totalSteps = 0;
+          for (const targetSession of targetSessions) {
+            const exportAgentId = resolveSessionAgentId(targetSession);
+            const messages = memoryService.getRecentMessages(targetSession.id);
+            const exported = exportSessionTraceAtifJsonl({
+              agentId: exportAgentId,
+              session: targetSession,
+              messages,
+              auditEntries: getStructuredAuditForSession(targetSession.id),
+              usageTotals: getSessionUsageTotals(targetSession.id),
+            });
+            if (!exported) continue;
+            exportedPaths.push(exported.path);
+            totalSteps += exported.stepCount;
+          }
+          if (exportedPaths.length === 0) {
+            return badCommand(
+              'Export Failed',
+              'Failed to write ATIF-compatible trace exports for any session. Check gateway logs for details.',
+            );
+          }
+          const previewLimit = 10;
+          const pathLines = exportedPaths
+            .slice(0, previewLimit)
+            .map((filePath) => `- ${filePath}`);
+          if (exportedPaths.length > previewLimit) {
+            pathLines.push(
+              `- ...and ${exportedPaths.length - previewLimit} more`,
+            );
+          }
+          return infoCommand(
+            'Trace Exports Created',
+            [
+              `Sessions exported: ${exportedPaths.length}/${targetSessions.length}`,
+              `Total steps: ${totalSteps}`,
+              'Files:',
+              ...pathLines,
+            ].join('\n'),
+          );
         }
         const targetSession = memoryService.getSessionById(targetSessionId);
         if (!targetSession) {
@@ -8008,6 +8077,30 @@ export async function handleGatewayCommand(
         }
         const exportAgentId = resolveSessionAgentId(targetSession);
         const messages = memoryService.getRecentMessages(targetSessionId);
+        if (sub === 'trace') {
+          const exported = exportSessionTraceAtifJsonl({
+            agentId: exportAgentId,
+            session: targetSession,
+            messages,
+            auditEntries: getStructuredAuditForSession(targetSessionId),
+            usageTotals: getSessionUsageTotals(targetSessionId),
+          });
+          if (!exported) {
+            return badCommand(
+              'Export Failed',
+              'Failed to write ATIF-compatible trace export JSONL file. Check gateway logs for details.',
+            );
+          }
+          return infoCommand(
+            'Trace Exported',
+            [
+              `File: ${exported.path}`,
+              `Trace ID: ${exported.traceId}`,
+              `Steps: ${exported.stepCount}`,
+              `Messages: ${messages.length}`,
+            ].join('\n'),
+          );
+        }
         const exported = exportSessionSnapshotJsonl({
           agentId: exportAgentId,
           sessionId: targetSessionId,

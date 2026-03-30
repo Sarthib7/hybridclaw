@@ -113,6 +113,9 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
     'docs/agents.html',
     // Admin console
     'console/dist/index.html',
+    // Container runtime
+    'container/dist/index.js',
+    'container/shared/model-names.js',
     // Agent templates and skills
     'templates/SOUL.md',
     'templates/TOOLS.md',
@@ -125,6 +128,13 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
   test.each(requiredFiles)('image contains %s', (filePath) => {
     const result = dockerExec(`test -f ${filePath} && echo exists`);
     expect(result).toBe('exists');
+  });
+
+  // ── Native module checks ────────────────────────────────────────────
+
+  test('node-pty native binary loads', () => {
+    const result = dockerExec("node -e \"require('node-pty')\" && echo ok");
+    expect(result).toBe('ok');
   });
 
   // ── HTTP endpoint checks ─────────────────────────────────────────────

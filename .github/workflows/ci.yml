@@ -12,7 +12,7 @@ permissions:
 jobs:
   # Build Docker images (no push) to catch Dockerfile regressions before merge.
   docker-preflight:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

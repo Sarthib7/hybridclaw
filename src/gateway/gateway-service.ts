@@ -182,6 +182,11 @@ import {
   resolveLocalModelContextWindow,
 } from '../providers/local-discovery.js';
 import { localBackendsProbe } from '../providers/local-health.js';
+import {
+  discoverMistralModels,
+  getDiscoveredMistralModelContextWindow,
+  resolveDiscoveredMistralModelCanonicalName,
+} from '../providers/mistral-discovery.js';
 import { readMistralApiKey } from '../providers/mistral-utils.js';
 import {
   getAvailableModelList,
@@ -1046,9 +1051,19 @@ function resolveKnownModelContextWindow(model: string): number | null {
     resolveLocalModelContextWindow(model) ??
     getDiscoveredHuggingFaceModelContextWindow(model) ??
     getDiscoveredHybridAIModelContextWindow(model) ??
+    getDiscoveredMistralModelContextWindow(model) ??
     getDiscoveredOpenRouterModelContextWindow(model) ??
     resolveModelContextWindowFallback(model)
   );
+}
+
+function resolveDisplayedModelName(model: string): string {
+  const normalized = String(model || '').trim();
+  if (!normalized) return normalized;
+  if (normalized.toLowerCase().startsWith('mistral/')) {
+    return resolveDiscoveredMistralModelCanonicalName(normalized);
+  }
+  return normalized;
 }
 
 function mapAdminSession(session: Session): GatewayAdminSession {
@@ -6843,7 +6858,7 @@ export async function handleGatewayCommand(
                   }),
                   gatewayStatus.providerHealth,
                 );
-          const current = runtime.model;
+          const current = resolveDisplayedModelName(runtime.model);
           const modelCatalog = listedModels.map((model) => {
             const label = formatModelForDisplay(model);
             return {
@@ -6887,8 +6902,9 @@ export async function handleGatewayCommand(
               .join('\n');
             return infoCommand('Default Model', `${defaultLine}\n\n${list}`);
           }
-          const normalizedModelName =
-            normalizeHybridAIModelForRuntime(modelName);
+          const normalizedModelName = resolveDisplayedModelName(
+            normalizeHybridAIModelForRuntime(modelName),
+          );
           if (
             availableModels.length > 0 &&
             !availableModels.includes(normalizedModelName)
@@ -6910,8 +6926,9 @@ export async function handleGatewayCommand(
           const modelName = req.args[2];
           if (!modelName)
             return badCommand('Usage', 'Usage: `model set <name>`');
-          const normalizedModelName =
-            normalizeHybridAIModelForRuntime(modelName);
+          const normalizedModelName = resolveDisplayedModelName(
+            normalizeHybridAIModelForRuntime(modelName),
+          );
           if (
             availableModels.length > 0 &&
             !availableModels.includes(normalizedModelName)
@@ -6951,10 +6968,11 @@ export async function handleGatewayCommand(
         }
 
         if (sub === 'info') {
+          const currentModel = resolveDisplayedModelName(runtime.model);
           const modelCatalog = availableModels.map((model) => ({
             value: model,
             label:
-              model === runtime.model
+              model === currentModel
                 ? `${formatModelForDisplay(model)} (current)`
                 : formatModelForDisplay(model),
             isFree: isAvailableModelFree(model),
@@ -7942,6 +7960,9 @@ export async function handleGatewayCommand(
         }
         if (sessionModel.trim().toLowerCase().startsWith('openrouter/')) {
           await discoverOpenRouterModels();
+        }
+        if (sessionModel.trim().toLowerCase().startsWith('mistral/')) {
+          await discoverMistralModels();
         }
         const modelContextWindowTokens =
           resolveKnownModelContextWindow(sessionModel);

@@ -14,6 +14,13 @@ import {
   discoverAllLocalModels,
   getDiscoveredLocalModelNames,
 } from './local-discovery.js';
+import {
+  discoverMistralModels,
+  getDiscoveredMistralModelNames,
+  isDiscoveredDeprecatedMistralModel,
+  isDiscoveredMistralModelVisionCapable,
+  resolveDiscoveredMistralModelCanonicalName,
+} from './mistral-discovery.js';
 import { MISTRAL_MODEL_PREFIX } from './mistral-utils.js';
 import { formatModelForDisplay } from './model-names.js';
 import { OPENAI_CODEX_MODEL_PREFIX } from './openai.js';
@@ -155,8 +162,18 @@ function dedupeModelList(models: string[]): string[] {
   for (const rawModel of models) {
     const model = String(rawModel || '').trim();
     if (!model || seen.has(model)) continue;
-    seen.add(model);
-    deduped.push(model);
+    const canonicalModel = hasModelPrefix(model, MISTRAL_MODEL_PREFIX)
+      ? resolveDiscoveredMistralModelCanonicalName(model)
+      : model;
+    if (!canonicalModel || seen.has(canonicalModel)) continue;
+    if (
+      hasModelPrefix(canonicalModel, MISTRAL_MODEL_PREFIX) &&
+      isDiscoveredDeprecatedMistralModel(canonicalModel)
+    ) {
+      continue;
+    }
+    seen.add(canonicalModel);
+    deduped.push(canonicalModel);
   }
   return deduped;
 }
@@ -174,6 +191,7 @@ export function getAvailableModelListWithOptions(
     ...getDiscoveredHuggingFaceModelNames(),
     ...getDiscoveredHybridAIModelNames(),
     ...getDiscoveredLocalModelNames(),
+    ...getDiscoveredMistralModelNames(),
     ...getDiscoveredOpenRouterModelNames(),
   ]);
   const normalizedProvider = normalizeModelCatalogProviderFilter(provider);
@@ -195,6 +213,7 @@ export async function refreshAvailableModelCatalogs(opts?: {
   await Promise.allSettled([
     discoverAllLocalModels(),
     discoverHuggingFaceModels(),
+    discoverMistralModels(),
     discoverOpenRouterModels(),
     ...(opts?.includeHybridAI ? [discoverHybridAIModels()] : []),
   ]);
@@ -208,6 +227,7 @@ export function isModelVisionCapable(model: string): boolean {
   const normalized = String(model || '').trim();
   if (!normalized) return false;
   return (
+    isDiscoveredMistralModelVisionCapable(normalized) ||
     isDiscoveredOpenRouterModelVisionCapable(normalized) ||
     isStaticModelVisionCapable(normalized)
   );

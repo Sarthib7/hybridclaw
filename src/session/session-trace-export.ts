@@ -17,6 +17,8 @@ const OPENTRACES_SCHEMA_VERSION = '0.1.0';
 const ATIF_COMPAT_VERSION = '1.6';
 const TRACE_USERNAME_HASH_LENGTH = 8;
 const TRACE_PRESERVED_IDENTIFIER_KEYS = new Set([
+  'session_id',
+  'trace_id',
   'tool_call_id',
   'source_call_id',
 ]);
@@ -30,6 +32,14 @@ const TRACE_SYSTEM_USERNAMES = new Set([
   'Public',
   'Guest',
 ]);
+const TRACE_SLASH_USERNAME_PATH_RE =
+  /(?:\/Users\/|\/home\/|[A-Za-z]:\/Users\/|\/mnt\/[A-Za-z]\/Users\/|\/\/wsl\.localhost\/[^/]+\/home\/)([A-Za-z0-9][A-Za-z0-9_-]{2,})\//g;
+const TRACE_BACKSLASH_USERNAME_PATH_RE =
+  /(?:[A-Za-z]:\\Users\\|\\\\wsl\.localhost\\[^\\]+\\home\\)([A-Za-z0-9][A-Za-z0-9_-]{2,})\\/g;
+const TRACE_SLASH_USERNAME_PATH_PREFIX_RE =
+  /((?:\/Users\/|\/home\/|[A-Za-z]:\/Users\/|\/mnt\/[A-Za-z]\/Users\/|\/\/wsl\.localhost\/[^/]+\/home\/))([^/\s]+)(\/)/g;
+const TRACE_BACKSLASH_USERNAME_PATH_PREFIX_RE =
+  /((?:[A-Za-z]:\\Users\\|\\\\wsl\.localhost\\[^\\]+\\home\\))([^\\\s]+)(\\)/g;
 
 const TRACE_EXPORT_EXTRA_REDACTION_PATTERNS: ReadonlyArray<{
   match: RegExp;
@@ -48,11 +58,32 @@ const TRACE_EXPORT_EXTRA_REDACTION_PATTERNS: ReadonlyArray<{
     replace: '***DISCORD_WEBHOOK_REDACTED***',
   },
 ]);
+const TRACE_EXPORT_BASE_LIMITATIONS = Object.freeze([
+  'Tool observations use structured audit summaries because full tool stdout/stderr is not retained in the audit trail.',
+  'Environment metadata fields such as os and shell are exported as runtime host information and are not anonymized.',
+]);
+const TRACE_EXPORT_FALLBACK_LIMITATION =
+  'Structured turn audit was unavailable, so steps were reconstructed directly from stored session messages.';
 
 interface TurnGroup {
   runId: string;
   rows: StructuredAuditEntry[];
   turnStart: StructuredAuditEntry;
+}
+
+interface ToolResultSummary {
+  durationMs: number | null;
+  content: string | null;
+  isError: boolean | null;
+}
+
+interface TurnRowSummary {
+  agentStart: StructuredAuditEntry | null;
+  usageRow: StructuredAuditEntry | null;
+  turnEnd: StructuredAuditEntry | null;
+  errorRow: StructuredAuditEntry | null;
+  toolCallRows: StructuredAuditEntry[];
+  toolResultRows: StructuredAuditEntry[];
 }
 
 enum TraceRedactionFieldType {
@@ -86,49 +117,29 @@ function sha256Hex(text: string): string {
 }
 
 function stableStringify(value: unknown): string {
-  if (value === null) return 'null';
-  if (typeof value === 'string') return JSON.stringify(value);
-  if (typeof value === 'number') {
-    return Number.isFinite(value) ? String(value) : 'null';
-  }
-  if (typeof value === 'boolean') return value ? 'true' : 'false';
-  if (typeof value === 'bigint') return JSON.stringify(String(value));
-  if (
-    typeof value === 'undefined' ||
-    typeof value === 'function' ||
-    typeof value === 'symbol'
-  ) {
-    return 'null';
-  }
-  if (Array.isArray(value)) {
-    return `[${value.map((entry) => stableStringify(entry)).join(',')}]`;
-  }
-
-  const objectValue = value as Record<string, unknown>;
-  const parts: string[] = [];
-  for (const key of Object.keys(objectValue).sort((left, right) =>
-    left.localeCompare(right),
-  )) {
-    const nextValue = objectValue[key];
-    if (
-      typeof nextValue === 'undefined' ||
-      typeof nextValue === 'function' ||
-      typeof nextValue === 'symbol'
-    ) {
-      continue;
-    }
-    parts.push(`${JSON.stringify(key)}:${stableStringify(nextValue)}`);
-  }
-  return `{${parts.join(',')}}`;
+  return JSON.stringify(value, (_key, entry) =>
+    entry && typeof entry === 'object' && !Array.isArray(entry)
+      ? Object.fromEntries(
+          Object.keys(entry as Record<string, unknown>)
+            .sort((left, right) => left.localeCompare(right))
+            .map((key) => [key, (entry as Record<string, unknown>)[key]]),
+        )
+      : entry,
+  );
 }
 
 function deterministicUuid(seed: string): string {
   const hex = sha256Hex(seed).slice(0, 32);
+  const versionedTimeHigh = `4${hex.slice(13, 16)}`;
+  const variantNibble = ((Number.parseInt(hex[16] || '0', 16) & 0x3) | 0x8)
+    .toString(16)
+    .toLowerCase();
+  const variantClockSeq = `${variantNibble}${hex.slice(17, 20)}`;
   return [
     hex.slice(0, 8),
     hex.slice(8, 12),
-    hex.slice(12, 16),
-    hex.slice(16, 20),
+    versionedTimeHigh,
+    variantClockSeq,
     hex.slice(20, 32),
   ].join('-');
 }
@@ -155,17 +166,10 @@ function getExplicitTraceUsernames(): string[] {
 
 function extractTracePathUsernames(text: string): Set<string> {
   const matches = new Set<string>();
-  const patterns = [
-    /\/Users\/([A-Za-z0-9][A-Za-z0-9_-]{2,})\//g,
-    /\/home\/([A-Za-z0-9][A-Za-z0-9_-]{2,})\//g,
-    /[A-Za-z]:\\Users\\([A-Za-z0-9][A-Za-z0-9_-]{2,})\\/g,
-    /[A-Za-z]:\/Users\/([A-Za-z0-9][A-Za-z0-9_-]{2,})\//g,
-    /\/mnt\/[A-Za-z]\/Users\/([A-Za-z0-9][A-Za-z0-9_-]{2,})\//g,
-    /\\\\wsl\.localhost\\[^\\]+\\home\\([A-Za-z0-9][A-Za-z0-9_-]{2,})\\/g,
-    /\/\/wsl\.localhost\/[^/]+\/home\/([A-Za-z0-9][A-Za-z0-9_-]{2,})\//g,
-  ];
-
-  for (const pattern of patterns) {
+  for (const pattern of [
+    TRACE_SLASH_USERNAME_PATH_RE,
+    TRACE_BACKSLASH_USERNAME_PATH_RE,
+  ]) {
     for (const match of text.matchAll(pattern)) {
       const username = match[1];
       if (username && !TRACE_SYSTEM_USERNAMES.has(username)) {
@@ -195,37 +199,12 @@ function anonymizeExplicitUsernameReferences(
 function anonymizeTracePaths(text: string): string {
   let next = text
     .replace(
-      /(\/Users\/)([^/\s]+)(\/)/g,
+      TRACE_SLASH_USERNAME_PATH_PREFIX_RE,
       (_match, prefix: string, username: string, suffix: string) =>
         `${prefix}${anonymizedPathUsername(username)}${suffix}`,
     )
     .replace(
-      /(\/home\/)([^/\s]+)(\/)/g,
-      (_match, prefix: string, username: string, suffix: string) =>
-        `${prefix}${anonymizedPathUsername(username)}${suffix}`,
-    )
-    .replace(
-      /([A-Za-z]:\\Users\\)([^\\\s]+)(\\)/g,
-      (_match, prefix: string, username: string, suffix: string) =>
-        `${prefix}${anonymizedPathUsername(username)}${suffix}`,
-    )
-    .replace(
-      /([A-Za-z]:\/Users\/)([^/\s]+)(\/)/g,
-      (_match, prefix: string, username: string, suffix: string) =>
-        `${prefix}${anonymizedPathUsername(username)}${suffix}`,
-    )
-    .replace(
-      /(\/mnt\/[A-Za-z]\/Users\/)([^/\s]+)(\/)/g,
-      (_match, prefix: string, username: string, suffix: string) =>
-        `${prefix}${anonymizedPathUsername(username)}${suffix}`,
-    )
-    .replace(
-      /(\\\\wsl\.localhost\\[^\\]+\\home\\)([^\\\s]+)(\\)/g,
-      (_match, prefix: string, username: string, suffix: string) =>
-        `${prefix}${anonymizedPathUsername(username)}${suffix}`,
-    )
-    .replace(
-      /(\/\/wsl\.localhost\/[^/]+\/home\/)([^/\s]+)(\/)/g,
+      TRACE_BACKSLASH_USERNAME_PATH_PREFIX_RE,
       (_match, prefix: string, username: string, suffix: string) =>
         `${prefix}${anonymizedPathUsername(username)}${suffix}`,
     );
@@ -276,37 +255,6 @@ function fieldTypeForChildKey(
   return parentType;
 }
 
-function restorePreservedTraceIdentifiers(
-  source: unknown,
-  target: unknown,
-): void {
-  if (!source || !target) return;
-  if (Array.isArray(source) && Array.isArray(target)) {
-    for (let index = 0; index < source.length; index += 1) {
-      restorePreservedTraceIdentifiers(source[index], target[index]);
-    }
-    return;
-  }
-  if (
-    typeof source !== 'object' ||
-    typeof target !== 'object' ||
-    Array.isArray(source) ||
-    Array.isArray(target)
-  ) {
-    return;
-  }
-
-  const sourceRecord = source as Record<string, unknown>;
-  const targetRecord = target as Record<string, unknown>;
-  for (const [key, value] of Object.entries(sourceRecord)) {
-    if (TRACE_PRESERVED_IDENTIFIER_KEYS.has(key) && typeof value === 'string') {
-      targetRecord[key] = value;
-      continue;
-    }
-    restorePreservedTraceIdentifiers(value, targetRecord[key]);
-  }
-}
-
 function sanitizeTraceExportValue(
   value: unknown,
   fieldType: TraceRedactionFieldType = TraceRedactionFieldType.General,
@@ -330,18 +278,7 @@ function sanitizeTraceExportValue(
 function finalizeTraceRecord(
   record: Record<string, unknown>,
 ): Record<string, unknown> {
-  const sanitizedRecord = sanitizeTraceExportValue(record) as Record<
-    string,
-    unknown
-  >;
-  const serializedRecord = JSON.stringify(sanitizedRecord);
-  const finalSerializedRecord = redactTraceText(
-    serializedRecord,
-    TraceRedactionFieldType.General,
-  );
-  const parsedRecord = JSON.parse(finalSerializedRecord);
-  restorePreservedTraceIdentifiers(sanitizedRecord, parsedRecord);
-  return parsedRecord as Record<string, unknown>;
+  return sanitizeTraceExportValue(record) as Record<string, unknown>;
 }
 
 function readString(
@@ -377,10 +314,9 @@ function readBoolean(
   return typeof value === 'boolean' ? value : null;
 }
 
-function compactText(text: string, maxChars = 12_000): string {
-  const normalized = text.replace(/\s+/g, ' ').trim();
-  if (normalized.length <= maxChars) return normalized;
-  return `${normalized.slice(0, maxChars)}...`;
+function truncateText(text: string, maxChars = 12_000): string {
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, maxChars)}...`;
 }
 
 function groupTurnRows(rows: StructuredAuditEntry[]): TurnGroup[] {
@@ -433,6 +369,199 @@ function buildStepTokenUsage(
   return Object.keys(tokenUsage).length > 0 ? tokenUsage : undefined;
 }
 
+function summarizeTurnRows(rows: StructuredAuditEntry[]): TurnRowSummary {
+  const summary: TurnRowSummary = {
+    agentStart: null,
+    usageRow: null,
+    turnEnd: null,
+    errorRow: null,
+    toolCallRows: [],
+    toolResultRows: [],
+  };
+  for (const row of rows) {
+    switch (row.event_type) {
+      case 'agent.start':
+        summary.agentStart ??= row;
+        break;
+      case 'model.usage':
+        summary.usageRow ??= row;
+        break;
+      case 'turn.end':
+        summary.turnEnd ??= row;
+        break;
+      case 'error':
+        summary.errorRow ??= row;
+        break;
+      case 'tool.call':
+        summary.toolCallRows.push(row);
+        break;
+      case 'tool.result':
+        summary.toolResultRows.push(row);
+        break;
+      default:
+        break;
+    }
+  }
+  return summary;
+}
+
+function buildTraceSystemPrompts(turns: TurnGroup[]): Record<string, string> {
+  const systemPrompts: Record<string, string> = {};
+  for (const turn of turns) {
+    const agentStart = summarizeTurnRows(turn.rows).agentStart;
+    if (!agentStart) continue;
+    const agentStartPayload = parseJsonObject(agentStart.payload);
+    const systemPrompt = readString(agentStartPayload, 'systemPrompt');
+    if (!systemPrompt) continue;
+    systemPrompts[turn.runId] = systemPrompt;
+  }
+  return systemPrompts;
+}
+
+function buildUserTraceStep(
+  turn: TurnGroup,
+  stepIndex: number,
+): Record<string, unknown> | null {
+  const turnStartPayload = parseJsonObject(turn.turnStart.payload);
+  const userInput =
+    readString(turnStartPayload, 'userInput') ||
+    readString(turnStartPayload, 'rawUserInput');
+  if (!userInput) return null;
+  return {
+    step_index: stepIndex,
+    role: 'user',
+    content: userInput,
+    timestamp: turn.turnStart.timestamp,
+  };
+}
+
+function buildToolResultByCallId(
+  toolResultRows: StructuredAuditEntry[],
+): Map<string, ToolResultSummary> {
+  const resultByToolCallId = new Map<string, ToolResultSummary>();
+  for (const row of toolResultRows) {
+    const payload = parseJsonObject(row.payload);
+    const toolCallId = readString(payload, 'toolCallId');
+    if (!toolCallId) continue;
+    resultByToolCallId.set(toolCallId, {
+      durationMs: readNumber(payload, 'durationMs'),
+      content: readString(payload, 'resultSummary'),
+      isError: readBoolean(payload, 'isError'),
+    });
+  }
+  return resultByToolCallId;
+}
+
+function buildToolCallTraceEntries(
+  turn: TurnGroup,
+  toolCallRows: StructuredAuditEntry[],
+  resultByToolCallId: Map<string, ToolResultSummary>,
+): Array<Record<string, unknown>> {
+  return toolCallRows.map((row) => {
+    const payload = parseJsonObject(row.payload);
+    const toolCallId =
+      readString(payload, 'toolCallId') || `${turn.runId}:tool`;
+    const result = resultByToolCallId.get(toolCallId);
+    return {
+      tool_call_id: toolCallId,
+      tool_name: readString(payload, 'toolName') || 'unknown',
+      input: payload.arguments ?? {},
+      ...(result?.durationMs != null ? { duration_ms: result.durationMs } : {}),
+    };
+  });
+}
+
+function buildObservationTraceEntries(
+  turn: TurnGroup,
+  toolResultRows: StructuredAuditEntry[],
+): Array<Record<string, unknown>> {
+  return toolResultRows.map((row) => {
+    const payload = parseJsonObject(row.payload);
+    const resultSummary =
+      readString(payload, 'resultSummary') ||
+      truncateAuditText(JSON.stringify(payload), 280);
+    return {
+      source_call_id: readString(payload, 'toolCallId') || `${turn.runId}:tool`,
+      content: resultSummary,
+      output_summary: resultSummary,
+      error: readBoolean(payload, 'isError') === true ? resultSummary : null,
+    };
+  });
+}
+
+function readTurnModelId(
+  summary: TurnRowSummary,
+  fallbackModel: string,
+): string {
+  const agentStartPayload = summary.agentStart
+    ? parseJsonObject(summary.agentStart.payload)
+    : null;
+  return (
+    formatModelForDisplay(
+      readString(agentStartPayload || {}, 'model') || fallbackModel,
+    ) || formatModelForDisplay(fallbackModel)
+  );
+}
+
+function readTurnTokenUsage(
+  summary: TurnRowSummary,
+): Record<string, number> | undefined {
+  const usagePayload = summary.usageRow
+    ? parseJsonObject(summary.usageRow.payload)
+    : null;
+  return buildStepTokenUsage(usagePayload);
+}
+
+function readTurnFinishReason(summary: TurnRowSummary): string | null {
+  const turnEndPayload = summary.turnEnd
+    ? parseJsonObject(summary.turnEnd.payload)
+    : null;
+  return turnEndPayload ? readString(turnEndPayload, 'finishReason') : null;
+}
+
+function resolveTurnAgentContent(
+  summary: TurnRowSummary,
+  finishReason: string | null,
+  assistantMessages: StoredMessage[],
+  assistantIndex: number,
+): {
+  content: string;
+  nextAssistantIndex: number;
+  completed: boolean;
+  errored: boolean;
+} {
+  if (finishReason === 'completed') {
+    return {
+      content: assistantMessages[assistantIndex]?.content || '',
+      nextAssistantIndex: assistantIndex + 1,
+      completed: true,
+      errored: false,
+    };
+  }
+
+  const errorPayload = summary.errorRow
+    ? parseJsonObject(summary.errorRow.payload)
+    : null;
+  return {
+    content: readString(errorPayload || {}, 'message') || '',
+    nextAssistantIndex: assistantIndex,
+    completed: false,
+    errored: true,
+  };
+}
+
+function readTurnStepTimestamp(
+  turn: TurnGroup,
+  summary: TurnRowSummary,
+): string {
+  return (
+    summary.agentStart?.timestamp ||
+    summary.usageRow?.timestamp ||
+    summary.turnEnd?.timestamp ||
+    turn.turnStart.timestamp
+  );
+}
+
 function buildTraceSteps(params: {
   turns: TurnGroup[];
   messages: StoredMessage[];
@@ -456,95 +585,26 @@ function buildTraceSteps(params: {
   let cacheWriteTokens = 0;
 
   for (const turn of params.turns) {
-    const turnStartPayload = parseJsonObject(turn.turnStart.payload);
-    const userInput =
-      readString(turnStartPayload, 'userInput') ||
-      readString(turnStartPayload, 'rawUserInput');
-    if (userInput) {
-      steps.push({
-        step_index: stepIndex,
-        role: 'user',
-        content: userInput,
-        timestamp: turn.turnStart.timestamp,
-      });
+    const summary = summarizeTurnRows(turn.rows);
+    const userStep = buildUserTraceStep(turn, stepIndex);
+    if (userStep) {
+      steps.push(userStep);
       stepIndex += 1;
     }
 
-    const toolCallRows = turn.rows.filter(
-      (row) => row.event_type === 'tool.call',
+    const resultByToolCallId = buildToolResultByCallId(summary.toolResultRows);
+    const toolCalls = buildToolCallTraceEntries(
+      turn,
+      summary.toolCallRows,
+      resultByToolCallId,
     );
-    const toolResultRows = turn.rows.filter(
-      (row) => row.event_type === 'tool.result',
+    const observations = buildObservationTraceEntries(
+      turn,
+      summary.toolResultRows,
     );
-    const resultByToolCallId = new Map<
-      string,
-      {
-        durationMs: number | null;
-        content: string | null;
-        isError: boolean | null;
-      }
-    >();
-    for (const row of toolResultRows) {
-      const payload = parseJsonObject(row.payload);
-      const toolCallId = readString(payload, 'toolCallId');
-      if (!toolCallId) continue;
-      resultByToolCallId.set(toolCallId, {
-        durationMs: readNumber(payload, 'durationMs'),
-        content: readString(payload, 'resultSummary'),
-        isError: readBoolean(payload, 'isError'),
-      });
-    }
-
-    const toolCalls = toolCallRows.map((row) => {
-      const payload = parseJsonObject(row.payload);
-      const toolCallId =
-        readString(payload, 'toolCallId') || `${turn.runId}:tool`;
-      const result = resultByToolCallId.get(toolCallId);
-      return {
-        tool_call_id: toolCallId,
-        tool_name: readString(payload, 'toolName') || 'unknown',
-        input: payload.arguments ?? {},
-        ...(result?.durationMs != null
-          ? { duration_ms: result.durationMs }
-          : {}),
-      };
-    });
-
-    const observations = toolResultRows.map((row) => {
-      const payload = parseJsonObject(row.payload);
-      const resultSummary =
-        readString(payload, 'resultSummary') ||
-        truncateAuditText(JSON.stringify(payload), 280);
-      return {
-        source_call_id:
-          readString(payload, 'toolCallId') || `${turn.runId}:tool`,
-        content: resultSummary,
-        output_summary: resultSummary,
-        error: readBoolean(payload, 'isError') === true ? resultSummary : null,
-      };
-    });
-
-    const agentStart = turn.rows.find(
-      (row) => row.event_type === 'agent.start',
-    );
-    const agentStartPayload = agentStart
-      ? parseJsonObject(agentStart.payload)
-      : null;
-    const usageRow = turn.rows.find((row) => row.event_type === 'model.usage');
-    const usagePayload = usageRow ? parseJsonObject(usageRow.payload) : null;
-    const turnEnd = turn.rows.find((row) => row.event_type === 'turn.end');
-    const turnEndPayload = turnEnd ? parseJsonObject(turnEnd.payload) : null;
-    const errorRow = turn.rows.find((row) => row.event_type === 'error');
-    const errorPayload = errorRow ? parseJsonObject(errorRow.payload) : null;
-    const finishReason = turnEndPayload
-      ? readString(turnEndPayload, 'finishReason')
-      : null;
-    const modelId =
-      formatModelForDisplay(
-        readString(agentStartPayload || {}, 'model') || params.fallbackModel,
-      ) || formatModelForDisplay(params.fallbackModel);
-
-    const stepTokenUsage = buildStepTokenUsage(usagePayload);
+    const finishReason = readTurnFinishReason(summary);
+    const modelId = readTurnModelId(summary, params.fallbackModel);
+    const stepTokenUsage = readTurnTokenUsage(summary);
     if (stepTokenUsage?.cache_read_tokens) {
       cacheReadTokens += stepTokenUsage.cache_read_tokens;
     }
@@ -552,20 +612,20 @@ function buildTraceSteps(params: {
       cacheWriteTokens += stepTokenUsage.cache_write_tokens;
     }
 
-    let content = '';
-    if (finishReason === 'completed') {
-      content = assistantMessages[assistantIndex]?.content || '';
-      assistantIndex += 1;
-      completedTurns += 1;
-    } else {
-      errorTurns += 1;
-      content = readString(errorPayload || {}, 'message') || '';
-    }
+    const resolvedContent = resolveTurnAgentContent(
+      summary,
+      finishReason,
+      assistantMessages,
+      assistantIndex,
+    );
+    assistantIndex = resolvedContent.nextAssistantIndex;
+    if (resolvedContent.completed) completedTurns += 1;
+    if (resolvedContent.errored) errorTurns += 1;
 
     steps.push({
       step_index: stepIndex,
       role: 'agent',
-      ...(content ? { content } : {}),
+      ...(resolvedContent.content ? { content: resolvedContent.content } : {}),
       model: modelId,
       agent_role: 'main',
       call_type: 'main',
@@ -573,11 +633,7 @@ function buildTraceSteps(params: {
       observations,
       snippets: [],
       ...(stepTokenUsage ? { token_usage: stepTokenUsage } : {}),
-      timestamp:
-        agentStart?.timestamp ||
-        usageRow?.timestamp ||
-        turnEnd?.timestamp ||
-        turn.turnStart.timestamp,
+      timestamp: readTurnStepTimestamp(turn, summary),
     });
     stepIndex += 1;
   }
@@ -591,10 +647,13 @@ function buildTraceSteps(params: {
   };
 }
 
-function writeJsonlFile(filePath: string, rows: unknown[]): boolean {
+async function writeJsonlFile(
+  filePath: string,
+  rows: unknown[],
+): Promise<boolean> {
   try {
     const lines = rows.map((row) => JSON.stringify(row)).join('\n');
-    fs.writeFileSync(filePath, `${lines}\n`, 'utf8');
+    await fs.promises.writeFile(filePath, `${lines}\n`, 'utf8');
     return true;
   } catch (err) {
     logger.warn(
@@ -605,25 +664,25 @@ function writeJsonlFile(filePath: string, rows: unknown[]): boolean {
   }
 }
 
-export function exportSessionTraceAtifJsonl(params: {
+export async function exportSessionTraceAtifJsonl(params: {
   agentId: string;
   session: Session;
   messages: StoredMessage[];
   auditEntries: StructuredAuditEntry[];
   usageTotals: UsageTotals;
-}): {
+}): Promise<{
   path: string;
   lineCount: number;
   traceId: string;
   stepCount: number;
-} | null {
+} | null> {
   const agentId = params.agentId.trim();
   const sessionId = params.session.id.trim();
   if (!agentId || !sessionId) return null;
 
   try {
     const baseDir = exportBaseDir(agentId, sessionId);
-    fs.mkdirSync(baseDir, { recursive: true });
+    await fs.promises.mkdir(baseDir, { recursive: true });
     const filePath = exportFilePath(baseDir);
 
     const turns = groupTurnRows(params.auditEntries);
@@ -671,15 +730,11 @@ export function exportSessionTraceAtifJsonl(params: {
       `${sessionId}:${params.session.created_at}:${agentId}`,
     );
 
-    const limitations = [
-      'System prompts are not persisted in HybridClaw session state, so system_prompts is empty.',
-      'Tool observations use structured audit summaries because full tool stdout/stderr is not retained in the audit trail.',
-    ];
-    if (turns.length > 0) {
-      limitations.push(
-        'Each gateway turn is exported as one synthetic user step followed by one agent step. This is an inference from the stored turn model.',
-      );
-    }
+    const systemPrompts = buildTraceSystemPrompts(turns);
+    const limitations =
+      turns.length === 0
+        ? [...TRACE_EXPORT_BASE_LIMITATIONS, TRACE_EXPORT_FALLBACK_LIMITATION]
+        : [...TRACE_EXPORT_BASE_LIMITATIONS];
 
     const recordWithoutHash: Record<string, unknown> = {
       schema_version: OPENTRACES_SCHEMA_VERSION,
@@ -688,7 +743,7 @@ export function exportSessionTraceAtifJsonl(params: {
       timestamp_start: firstTimestamp,
       timestamp_end: lastTimestamp,
       task: {
-        description: compactText(
+        description: truncateText(
           firstUserContent ||
             params.session.session_summary ||
             `Session ${sessionId}`,
@@ -704,7 +759,7 @@ export function exportSessionTraceAtifJsonl(params: {
         os: os.platform(),
         shell: path.basename(process.env.SHELL || '') || null,
       },
-      system_prompts: {},
+      system_prompts: systemPrompts,
       tool_definitions: [],
       steps,
       outcome: {
@@ -758,7 +813,7 @@ export function exportSessionTraceAtifJsonl(params: {
         },
         ...(params.session.session_summary
           ? {
-              session_summary: compactText(params.session.session_summary),
+              session_summary: truncateText(params.session.session_summary),
             }
           : {}),
         limitations,
@@ -772,7 +827,7 @@ export function exportSessionTraceAtifJsonl(params: {
       content_hash: contentHash,
     };
 
-    if (!writeJsonlFile(filePath, [record])) return null;
+    if (!(await writeJsonlFile(filePath, [record]))) return null;
     return {
       path: filePath,
       lineCount: 1,

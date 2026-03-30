@@ -81,6 +81,7 @@ let db: Database.Database;
 let databaseInitialized = false;
 
 export const DATABASE_SCHEMA_VERSION = 17;
+const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
 
 interface InitDatabaseOptions {
   quiet?: boolean;
@@ -3940,11 +3941,32 @@ export function updateSessionShowMode(
   );
 }
 
-export function getAllSessions(): Session[] {
+export function getAllSessions(options?: {
+  limit?: number;
+  warnLabel?: string;
+}): Session[] {
+  const limit =
+    options?.limit == null ? null : Math.max(1, Math.floor(options.limit));
+  const warnLabel = options?.warnLabel || null;
   const sql = hasSessionCurrentColumn(db)
-    ? 'SELECT * FROM sessions WHERE is_current = 1 ORDER BY last_active DESC'
-    : 'SELECT * FROM sessions ORDER BY last_active DESC';
-  return queryAll<Session>(db, sql);
+    ? `SELECT * FROM sessions WHERE is_current = 1 ORDER BY last_active DESC${limit == null ? '' : ' LIMIT ?'}`
+    : `SELECT * FROM sessions ORDER BY last_active DESC${limit == null ? '' : ' LIMIT ?'}`;
+  const rows =
+    limit == null
+      ? queryAll<Session>(db, sql)
+      : queryAll<Session, [number]>(db, sql, limit + 1);
+  if (limit != null && warnLabel && rows.length > limit) {
+    logger.warn(
+      {
+        limit,
+        returnedRows: rows.length,
+        warnLabel,
+      },
+      'Session query hit safety cap; returning truncated results',
+    );
+    return rows.slice(0, limit);
+  }
+  return rows;
 }
 
 export interface RecentUserSessionSummary {
@@ -5967,39 +5989,20 @@ export function getRecentStructuredAudit(limit = 20): StructuredAuditEntry[] {
   );
 }
 
-export function getRecentStructuredAuditForSession(
-  sessionId: string,
-  limit = 20,
-): StructuredAuditEntry[] {
-  const bounded = Math.max(1, Math.min(limit, 200));
-  return queryAll<StructuredAuditEntry, [string, number]>(
-    db,
-    'SELECT * FROM audit_events WHERE session_id = ? ORDER BY seq DESC LIMIT ?',
-    sessionId,
-    bounded,
-  );
-}
-
-export function getStructuredAuditForSession(
-  sessionId: string,
-): StructuredAuditEntry[] {
-  return queryAll<StructuredAuditEntry, [string]>(
-    db,
-    'SELECT * FROM audit_events WHERE session_id = ? ORDER BY seq ASC',
-    sessionId,
-  );
-}
-
-export function listStructuredAuditEntries(params?: {
+function queryStructuredAuditEntries(params?: {
   sessionId?: string;
   eventType?: string;
   query?: string;
   limit?: number;
+  maxLimit?: number;
+  orderBy?: 'id' | 'seq';
+  sortDirection?: 'ASC' | 'DESC';
 }): StructuredAuditEntry[] {
   const sessionId = String(params?.sessionId || '').trim();
   const eventType = String(params?.eventType || '').trim();
   const query = String(params?.query || '').trim();
-  const bounded = Math.max(1, Math.min(params?.limit ?? 50, 200));
+  const orderBy = params?.orderBy === 'seq' ? 'seq' : 'id';
+  const sortDirection = params?.sortDirection === 'ASC' ? 'ASC' : 'DESC';
 
   const clauses: string[] = [];
   const values: Array<string | number> = [];
@@ -6021,20 +6024,85 @@ export function listStructuredAuditEntries(params?: {
   }
 
   const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+  const maxLimit = Math.max(1, params?.maxLimit ?? 200);
+  const limit =
+    params?.limit == null
+      ? null
+      : Math.max(1, Math.min(params.limit, maxLimit));
   const sql = `
     SELECT *
     FROM audit_events
     ${where}
-    ORDER BY id DESC
-    LIMIT ?
+    ORDER BY ${orderBy} ${sortDirection}
+    ${limit == null ? '' : 'LIMIT ?'}
   `;
+
+  if (limit == null) {
+    return queryAll<StructuredAuditEntry, Array<string | number>>(
+      db,
+      sql,
+      ...values,
+    );
+  }
 
   return queryAll<StructuredAuditEntry, Array<string | number>>(
     db,
     sql,
     ...values,
-    bounded,
+    limit,
   );
+}
+
+export function getRecentStructuredAuditForSession(
+  sessionId: string,
+  limit = 20,
+): StructuredAuditEntry[] {
+  return queryStructuredAuditEntries({
+    sessionId,
+    limit,
+    orderBy: 'seq',
+    sortDirection: 'DESC',
+  });
+}
+
+export function getStructuredAuditForSession(
+  sessionId: string,
+): StructuredAuditEntry[] {
+  const rows = queryStructuredAuditEntries({
+    sessionId,
+    limit: STRUCTURED_AUDIT_SESSION_LIMIT + 1,
+    maxLimit: STRUCTURED_AUDIT_SESSION_LIMIT + 1,
+    orderBy: 'seq',
+    sortDirection: 'ASC',
+  });
+  if (rows.length <= STRUCTURED_AUDIT_SESSION_LIMIT) {
+    return rows;
+  }
+  logger.warn(
+    {
+      sessionId,
+      limit: STRUCTURED_AUDIT_SESSION_LIMIT,
+      returnedRows: rows.length,
+    },
+    'Structured audit query hit safety cap; returning truncated results',
+  );
+  return rows.slice(0, STRUCTURED_AUDIT_SESSION_LIMIT);
+}
+
+export function listStructuredAuditEntries(params?: {
+  sessionId?: string;
+  eventType?: string;
+  query?: string;
+  limit?: number;
+}): StructuredAuditEntry[] {
+  return queryStructuredAuditEntries({
+    sessionId: params?.sessionId,
+    eventType: params?.eventType,
+    query: params?.query,
+    limit: params?.limit ?? 50,
+    orderBy: 'id',
+    sortDirection: 'DESC',
+  });
 }
 
 export function getStructuredAuditAfterId(

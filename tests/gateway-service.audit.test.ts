@@ -314,6 +314,10 @@ test('handleGatewayMessage records agent handoff before agent-side timeouts', as
     type: 'agent.start',
     model: 'vllm/Qwen/Qwen3.5-27B-FP8',
   });
+  expect(
+    typeof records[agentStartIndex]?.event?.systemPrompt === 'string' &&
+      String(records[agentStartIndex]?.event?.systemPrompt).length > 0,
+  ).toBe(true);
   expect(records[errorIndex]?.event).toMatchObject({
     type: 'error',
     errorType: 'agent',

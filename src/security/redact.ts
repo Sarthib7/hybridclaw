@@ -62,9 +62,7 @@ function luhnCheck(value: string): boolean {
 
 function isAllowlistedEmail(value: string): boolean {
   const normalized = value.trim().toLowerCase();
-  return (
-    normalized === 'noreply@github.com' || normalized.endsWith('@example.com')
-  );
+  return normalized === 'noreply@github.com';
 }
 
 function isPublicIpv4(value: string): boolean {
@@ -120,8 +118,24 @@ function replaceSsn(_match: string, value: string): string {
   return isValidSsn(value) ? '***SSN_REDACTED***' : value;
 }
 
+function isLikelyPhoneNumber(value: string): boolean {
+  const trimmed = value.trim();
+  if (
+    /^\d{4}[-/]\d{2}[-/]\d{2}$/.test(trimmed) ||
+    /^\d{2}[-/]\d{2}[-/]\d{2,4}$/.test(trimmed) ||
+    /^\d{3}-\d{2}-\d{4}$/.test(trimmed)
+  ) {
+    return false;
+  }
+
+  const digits = trimmed.replace(/\D/g, '');
+  if (digits.length < 7 || digits.length > 15) return false;
+  if (!/[+()/\s.-]/.test(trimmed) && !trimmed.startsWith('0')) return false;
+  return true;
+}
+
 function replacePhone(_match: string, value: string): string {
-  return /\d/.test(value) ? '***PHONE_REDACTED***' : value;
+  return isLikelyPhoneNumber(value) ? '***PHONE_REDACTED***' : value;
 }
 
 function replaceCreditCard(_match: string, value: string): string {
@@ -266,6 +280,14 @@ export const SECRET_REDACTION_PATTERNS: readonly SecretRedactionPattern[] =
     {
       match:
         /(?<!\w)((?:\+?1[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]\d{3}[\s.-]\d{4})(?!\w)/g,
+      replace: replacePhone,
+    },
+    {
+      match: /(?<!\w)(\+\d{1,3}(?:[\s./-]?\d){6,14})(?!\w)/g,
+      replace: replacePhone,
+    },
+    {
+      match: /(?<!\w)(0\d{1,5}(?:[/\s.-]?\d){5,13})(?!\w)/g,
       replace: replacePhone,
     },
     {

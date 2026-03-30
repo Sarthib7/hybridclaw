@@ -63,6 +63,7 @@ test('exports an opentraces/ATIF-compatible JSONL trace from stored session data
       type: 'agent.start',
       provider: 'hybridai',
       model: 'gpt-5-nano',
+      systemPrompt: 'You are a focused coding assistant.',
       promptMessages: 3,
       scheduledTaskCount: 0,
     },
@@ -132,7 +133,7 @@ test('exports an opentraces/ATIF-compatible JSONL trace from stored session data
     throw new Error('Expected refreshed session to exist');
   }
 
-  const exported = exportSessionTraceAtifJsonl({
+  const exported = await exportSessionTraceAtifJsonl({
     agentId: refreshedSession.agent_id,
     session: refreshedSession,
     messages: [
@@ -179,6 +180,10 @@ test('exports an opentraces/ATIF-compatible JSONL trace from stored session data
   expect(record.metadata.compatibility).toMatchObject({
     atif_version: '1.6',
   });
+  expect(record.metadata.limitations).toEqual([
+    'Tool observations use structured audit summaries because full tool stdout/stderr is not retained in the audit trail.',
+    'Environment metadata fields such as os and shell are exported as runtime host information and are not anonymized.',
+  ]);
   expect(record.metrics).toMatchObject({
     total_steps: 2,
     total_input_tokens: 120,
@@ -189,6 +194,9 @@ test('exports an opentraces/ATIF-compatible JSONL trace from stored session data
     signal_source: 'deterministic',
   });
   expect(record.content_hash).toMatch(/^[a-f0-9]{64}$/);
+  expect(record.system_prompts).toEqual({
+    [runId]: 'You are a focused coding assistant.',
+  });
   expect(steps).toHaveLength(2);
   const firstStep = steps[0] || {};
   const secondStep = steps[1] || {};
@@ -316,6 +324,151 @@ test('gateway export trace command writes the ATIF-compatible trace file', async
 
   expect(getStructuredAuditForSession(session.id)).toHaveLength(2);
   expect(getSessionUsageTotals(session.id).total_tokens).toBe(15);
+});
+
+test('trace export adds a fallback limitation when structured turn audit is unavailable', async () => {
+  setupHome();
+
+  const { getOrCreateSession, getSessionById, initDatabase, storeMessage } =
+    await import('../src/memory/db.ts');
+  const { exportSessionTraceAtifJsonl } = await import(
+    '../src/session/session-trace-export.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const session = getOrCreateSession(
+    'session-trace-fallback',
+    null,
+    'channel-trace-fallback',
+  );
+  storeMessage(session.id, 'user-1', 'alice', 'user', 'Fallback prompt');
+  storeMessage(
+    session.id,
+    'assistant',
+    null,
+    'assistant',
+    'Fallback response.',
+  );
+
+  const refreshedSession = getSessionById(session.id);
+  if (!refreshedSession) {
+    throw new Error('Expected refreshed session to exist');
+  }
+
+  const exported = await exportSessionTraceAtifJsonl({
+    agentId: refreshedSession.agent_id,
+    session: refreshedSession,
+    messages: [
+      {
+        id: 1,
+        session_id: session.id,
+        user_id: 'user-1',
+        username: 'alice',
+        role: 'user',
+        content: 'Fallback prompt',
+        created_at: new Date().toISOString(),
+      },
+      {
+        id: 2,
+        session_id: session.id,
+        user_id: 'assistant',
+        username: null,
+        role: 'assistant',
+        content: 'Fallback response.',
+        created_at: new Date().toISOString(),
+      },
+    ],
+    auditEntries: [],
+    usageTotals: {
+      total_input_tokens: 0,
+      total_output_tokens: 0,
+      total_tokens: 0,
+      total_tool_calls: 0,
+      total_cost_usd: 0,
+      call_count: 0,
+    },
+  });
+
+  expect(exported).not.toBeNull();
+  const raw = fs.readFileSync(exported?.path || '', 'utf-8').trim();
+  const record = JSON.parse(raw) as Record<string, unknown>;
+
+  expect(record.system_prompts).toEqual({});
+  expect(record.metadata.limitations).toEqual([
+    'Tool observations use structured audit summaries because full tool stdout/stderr is not retained in the audit trail.',
+    'Environment metadata fields such as os and shell are exported as runtime host information and are not anonymized.',
+    'Structured turn audit was unavailable, so steps were reconstructed directly from stored session messages.',
+  ]);
+});
+
+test('trace export preserves multiline task descriptions', async () => {
+  setupHome();
+
+  const { getOrCreateSession, getSessionById, initDatabase, storeMessage } =
+    await import('../src/memory/db.ts');
+  const { exportSessionTraceAtifJsonl } = await import(
+    '../src/session/session-trace-export.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const session = getOrCreateSession(
+    'session-trace-multiline-task',
+    null,
+    'channel-trace-multiline-task',
+  );
+  const prompt = 'First paragraph.\n\nSecond paragraph with detail.';
+  storeMessage(session.id, 'user-1', 'alice', 'user', prompt);
+  storeMessage(
+    session.id,
+    'assistant',
+    null,
+    'assistant',
+    'Handled the multiline request.',
+  );
+
+  const refreshedSession = getSessionById(session.id);
+  if (!refreshedSession) {
+    throw new Error('Expected refreshed session to exist');
+  }
+
+  const exported = await exportSessionTraceAtifJsonl({
+    agentId: refreshedSession.agent_id,
+    session: refreshedSession,
+    messages: [
+      {
+        id: 1,
+        session_id: session.id,
+        user_id: 'user-1',
+        username: 'alice',
+        role: 'user',
+        content: prompt,
+        created_at: new Date().toISOString(),
+      },
+      {
+        id: 2,
+        session_id: session.id,
+        user_id: 'assistant',
+        username: null,
+        role: 'assistant',
+        content: 'Handled the multiline request.',
+        created_at: new Date().toISOString(),
+      },
+    ],
+    auditEntries: [],
+    usageTotals: {
+      total_input_tokens: 0,
+      total_output_tokens: 0,
+      total_tokens: 0,
+      total_tool_calls: 0,
+      total_cost_usd: 0,
+      call_count: 0,
+    },
+  });
+
+  expect(exported).not.toBeNull();
+  const raw = fs.readFileSync(exported?.path || '', 'utf-8').trim();
+  const record = JSON.parse(raw) as Record<string, unknown>;
+  expect((record.task as Record<string, unknown>)?.description).toBe(prompt);
 });
 
 test('gateway export trace all writes per-session ATIF-compatible trace files', async () => {
@@ -452,14 +605,14 @@ test('trace export redacts secrets and anonymizes absolute-path usernames', asyn
     'user-1',
     'alice',
     'user',
-    `Inspect /Users/${localUsername}/work/project/.env and token ghs_abcdefghijklmnopqrstuvwxyz1234567890 via ~${localUsername}/docs from -Users-${localUsername}-src-project and ${highEntropySecret}. Contact user@company.com at 203.0.113.42 or (555) 123-4567.`,
+    `Inspect /Users/${localUsername}/work/project/.env and token ghs_abcdefghijklmnopqrstuvwxyz1234567890 via ~${localUsername}/docs from -Users-${localUsername}-src-project and ${highEntropySecret}. Contact user@company.com at 203.0.113.42 or (555) 123-4567. German numbers: +49 170 3330160 and 089/4233232.`,
   );
   storeMessage(
     session.id,
     'assistant',
     null,
     'assistant',
-    `I checked /home/${localUsername}/.config/app and found JWT eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYWRtaW4iLCJzY29wZSI6ImRldiJ9.signaturevalue123. SSN 123-45-6789. Card 4111 1111 1111 1111.`,
+    `I checked /home/${localUsername}/.config/app and found JWT eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYWRtaW4iLCJzY29wZSI6ImRldiJ9.signaturevalue123. Contact anna.meyer@example.com. SSN 123-45-6789. Card 4111 1111 1111 1111.`,
   );
 
   const runId = 'turn_trace_redaction_1';
@@ -469,7 +622,7 @@ test('trace export redacts secrets and anonymizes absolute-path usernames', asyn
     event: {
       type: 'turn.start',
       turnIndex: 1,
-      userInput: `Inspect /Users/${localUsername}/work/project/.env and token ghs_abcdefghijklmnopqrstuvwxyz1234567890 via ~${localUsername}/docs from -Users-${localUsername}-src-project and ${highEntropySecret}. Contact user@company.com at 203.0.113.42 or (555) 123-4567.`,
+      userInput: `Inspect /Users/${localUsername}/work/project/.env and token ghs_abcdefghijklmnopqrstuvwxyz1234567890 via ~${localUsername}/docs from -Users-${localUsername}-src-project and ${highEntropySecret}. Contact user@company.com at 203.0.113.42 or (555) 123-4567. German numbers: +49 170 3330160 and 089/4233232.`,
       username: 'alice',
       source: 'gateway.chat',
     },
@@ -481,6 +634,8 @@ test('trace export redacts secrets and anonymizes absolute-path usernames', asyn
       type: 'agent.start',
       provider: 'hybridai',
       model: 'gpt-5-nano',
+      systemPrompt:
+        'You are a focused coding assistant. Email ops@example.com or call +491701234567 for escalations.',
       promptMessages: 3,
       scheduledTaskCount: 0,
     },
@@ -513,7 +668,7 @@ test('trace export redacts secrets and anonymizes absolute-path usernames', asyn
     throw new Error('Expected refreshed session to exist');
   }
 
-  const exported = exportSessionTraceAtifJsonl({
+  const exported = await exportSessionTraceAtifJsonl({
     agentId: refreshedSession.agent_id,
     session: refreshedSession,
     messages: [
@@ -523,7 +678,7 @@ test('trace export redacts secrets and anonymizes absolute-path usernames', asyn
         user_id: 'user-1',
         username: 'alice',
         role: 'user',
-        content: `Inspect /Users/${localUsername}/work/project/.env and token ghs_abcdefghijklmnopqrstuvwxyz1234567890 via ~${localUsername}/docs from -Users-${localUsername}-src-project and ${highEntropySecret}. Contact user@company.com at 203.0.113.42 or (555) 123-4567.`,
+        content: `Inspect /Users/${localUsername}/work/project/.env and token ghs_abcdefghijklmnopqrstuvwxyz1234567890 via ~${localUsername}/docs from -Users-${localUsername}-src-project and ${highEntropySecret}. Contact user@company.com at 203.0.113.42 or (555) 123-4567. German numbers: +49 170 3330160 and 089/4233232.`,
         created_at: new Date().toISOString(),
       },
       {
@@ -532,7 +687,7 @@ test('trace export redacts secrets and anonymizes absolute-path usernames', asyn
         user_id: 'assistant',
         username: null,
         role: 'assistant',
-        content: `I checked /home/${localUsername}/.config/app and found JWT eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYWRtaW4iLCJzY29wZSI6ImRldiJ9.signaturevalue123. SSN 123-45-6789. Card 4111 1111 1111 1111.`,
+        content: `I checked /home/${localUsername}/.config/app and found JWT eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYWRtaW4iLCJzY29wZSI6ImRldiJ9.signaturevalue123. Contact anna.meyer@example.com. SSN 123-45-6789. Card 4111 1111 1111 1111.`,
         created_at: new Date().toISOString(),
       },
     ],
@@ -577,6 +732,12 @@ test('trace export redacts secrets and anonymizes absolute-path usernames', asyn
   );
   expect(raw).not.toContain(highEntropySecret);
   expect(raw).not.toContain('user@company.com');
+  expect(raw).not.toContain('anna.meyer@example.com');
+  expect(raw).not.toContain('ops@example.com');
+  expect(raw).not.toContain('+491701234567');
+  expect(raw).not.toContain('+49 170 3330160');
+  expect(raw).not.toContain('089/4233232');
+  expect(raw).not.toContain('089 4233232');
   expect(raw).not.toContain('203.0.113.42');
   expect(raw).not.toContain('(555) 123-4567');
   expect(raw).not.toContain('123-45-6789');
@@ -608,6 +769,7 @@ test('trace export redacts secrets and anonymizes absolute-path usernames', asyn
   expect(userContent).toContain('***IP_ADDRESS_REDACTED***');
   expect(userContent).toContain('***PHONE_REDACTED***');
   expect(agentContent).toContain('/home/user_');
+  expect(agentContent).toContain('***EMAIL_REDACTED***');
   expect(agentContent).toContain('***JWT_REDACTED***');
   expect(agentContent).toContain('***SSN_REDACTED***');
   expect(agentContent).toContain('***CREDIT_CARD_REDACTED***');
@@ -621,6 +783,12 @@ test('trace export redacts secrets and anonymizes absolute-path usernames', asyn
   expect(observationContent).toContain('***DISCORD_WEBHOOK_REDACTED***');
   expect(observationContent).toContain('***PYPI_TOKEN_REDACTED***');
   expect(observationContent).toContain('C:/Users/user_');
+  expect(
+    String((record.system_prompts as Record<string, unknown>)?.[runId] || ''),
+  ).toContain('***EMAIL_REDACTED***');
+  expect(
+    String((record.system_prompts as Record<string, unknown>)?.[runId] || ''),
+  ).toContain('***PHONE_REDACTED***');
 });
 
 test('trace export preserves tool call linkage ids even when they look random', async () => {
@@ -637,6 +805,7 @@ test('trace export preserves tool call linkage ids even when they look random', 
 
   initDatabase({ quiet: true });
   const runId = 'turn_Xk9mZr3pWq7vNt2sLf6yBh4jCe8gAa5d';
+  const exportedSessionId = 'sess_Xk9mZr3pWq7vNt2sLf6yBh4jCe8gAa5d';
   const session = getOrCreateSession(
     'session-trace-linkage',
     null,
@@ -668,6 +837,7 @@ test('trace export preserves tool call linkage ids even when they look random', 
       type: 'agent.start',
       provider: 'hybridai',
       model: 'gpt-5-nano',
+      systemPrompt: 'You are a focused coding assistant.',
       promptMessages: 2,
       scheduledTaskCount: 0,
     },
@@ -700,13 +870,16 @@ test('trace export preserves tool call linkage ids even when they look random', 
     throw new Error('Expected refreshed session to exist');
   }
 
-  const exported = exportSessionTraceAtifJsonl({
+  const exported = await exportSessionTraceAtifJsonl({
     agentId: refreshedSession.agent_id,
-    session: refreshedSession,
+    session: {
+      ...refreshedSession,
+      id: exportedSessionId,
+    },
     messages: [
       {
         id: 1,
-        session_id: session.id,
+        session_id: exportedSessionId,
         user_id: 'user-1',
         username: 'alice',
         role: 'user',
@@ -715,7 +888,7 @@ test('trace export preserves tool call linkage ids even when they look random', 
       },
       {
         id: 2,
-        session_id: session.id,
+        session_id: exportedSessionId,
         user_id: 'assistant',
         username: null,
         role: 'assistant',
@@ -745,8 +918,14 @@ test('trace export preserves tool call linkage ids even when they look random', 
     (agentStep.tool_calls as Array<Record<string, unknown>>) || [];
   const observations =
     (agentStep.observations as Array<Record<string, unknown>>) || [];
+  const traceId = String(record.trace_id || '');
   const expectedToolCallId = `${runId}:tool:1`;
 
+  expect(traceId).toMatch(
+    /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/,
+  );
+  expect(traceId).not.toContain('REDACTED');
+  expect(record.session_id).toBe(exportedSessionId);
   expect(raw).toContain(expectedToolCallId);
   expect(toolCalls[0]?.tool_call_id).toBe(expectedToolCallId);
   expect(observations[0]?.source_call_id).toBe(expectedToolCallId);

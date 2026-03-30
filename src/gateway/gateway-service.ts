@@ -360,6 +360,8 @@ import {
 } from './show-mode.js';
 
 const BOT_CACHE_TTL = 300_000; // 5 minutes
+const TRACE_EXPORT_ALL_SESSION_LIMIT = 1_000;
+const TRACE_EXPORT_ALL_CONCURRENCY = 4;
 const MAX_HISTORY_MESSAGES = 40;
 const BOOTSTRAP_AUTOSTART_MARKER_KEY = 'gateway.bootstrap_autostart.v1';
 const BOOTSTRAP_AUTOSTART_SOURCE = 'gateway.bootstrap';
@@ -481,6 +483,14 @@ function sanitizeRequestLogMessages(messages: ChatMessage[]): ChatMessage[] {
         }))
       : message.tool_calls,
   }));
+}
+
+function readSystemPromptMessage(messages: ChatMessage[]): string | null {
+  const firstMessage = messages[0];
+  if (!firstMessage || firstMessage.role !== 'system') return null;
+  return typeof firstMessage.content === 'string' && firstMessage.content.trim()
+    ? firstMessage.content
+    : null;
 }
 
 function sanitizeRequestLogToolExecutions(
@@ -1494,6 +1504,44 @@ function resolveSessionAgentId(session: { agent_id: string }): string {
   const sessionAgent = session.agent_id?.trim();
   if (sessionAgent) return sessionAgent;
   return resolveDefaultAgentId(getRuntimeConfig());
+}
+
+type TraceExportResult = Awaited<
+  ReturnType<typeof exportSessionTraceAtifJsonl>
+>;
+
+async function exportTraceForSession(
+  session: Session,
+): Promise<TraceExportResult> {
+  return exportSessionTraceAtifJsonl({
+    agentId: resolveSessionAgentId(session),
+    session,
+    messages: memoryService.getRecentMessages(session.id),
+    auditEntries: getStructuredAuditForSession(session.id),
+    usageTotals: getSessionUsageTotals(session.id),
+  });
+}
+
+async function exportTraceForSessions(
+  sessions: Session[],
+): Promise<Exclude<TraceExportResult, null>[]> {
+  const exported: Exclude<TraceExportResult, null>[] = [];
+  for (
+    let index = 0;
+    index < sessions.length;
+    index += TRACE_EXPORT_ALL_CONCURRENCY
+  ) {
+    const batch = sessions.slice(index, index + TRACE_EXPORT_ALL_CONCURRENCY);
+    const results = await Promise.all(
+      batch.map((session) => exportTraceForSession(session)),
+    );
+    exported.push(
+      ...results.filter(
+        (result): result is Exclude<TraceExportResult, null> => result != null,
+      ),
+    );
+  }
+  return exported;
 }
 
 function resolveAgentImageAssetPath(
@@ -3835,6 +3883,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
         model: resolved.model,
         scheduledTaskCount: 0,
         promptMessages: messages.length,
+        systemPrompt: readSystemPromptMessage(messages),
       },
     });
 
@@ -5343,6 +5392,7 @@ export async function handleGatewayMessage(
         model,
         scheduledTaskCount: scheduledTasks.length,
         promptMessages: messages.length,
+        systemPrompt: readSystemPromptMessage(messages),
       },
     });
     if (pluginManager) {
@@ -8023,26 +8073,19 @@ export async function handleGatewayCommand(
           );
         }
         if (exportAllTraces) {
-          const targetSessions = getAllSessions();
+          const targetSessions = getAllSessions({
+            limit: TRACE_EXPORT_ALL_SESSION_LIMIT,
+            warnLabel: 'gateway export trace all',
+          });
           if (targetSessions.length === 0) {
             return plainCommand('No sessions available to export.');
           }
-          const exportedPaths: string[] = [];
-          let totalSteps = 0;
-          for (const targetSession of targetSessions) {
-            const exportAgentId = resolveSessionAgentId(targetSession);
-            const messages = memoryService.getRecentMessages(targetSession.id);
-            const exported = exportSessionTraceAtifJsonl({
-              agentId: exportAgentId,
-              session: targetSession,
-              messages,
-              auditEntries: getStructuredAuditForSession(targetSession.id),
-              usageTotals: getSessionUsageTotals(targetSession.id),
-            });
-            if (!exported) continue;
-            exportedPaths.push(exported.path);
-            totalSteps += exported.stepCount;
-          }
+          const exportedTraces = await exportTraceForSessions(targetSessions);
+          const exportedPaths = exportedTraces.map((exported) => exported.path);
+          const totalSteps = exportedTraces.reduce(
+            (sum, exported) => sum + exported.stepCount,
+            0,
+          );
           if (exportedPaths.length === 0) {
             return badCommand(
               'Export Failed',
@@ -8075,16 +8118,9 @@ export async function handleGatewayCommand(
             `Session \`${targetSessionId}\` was not found.`,
           );
         }
-        const exportAgentId = resolveSessionAgentId(targetSession);
         const messages = memoryService.getRecentMessages(targetSessionId);
         if (sub === 'trace') {
-          const exported = exportSessionTraceAtifJsonl({
-            agentId: exportAgentId,
-            session: targetSession,
-            messages,
-            auditEntries: getStructuredAuditForSession(targetSessionId),
-            usageTotals: getSessionUsageTotals(targetSessionId),
-          });
+          const exported = await exportTraceForSession(targetSession);
           if (!exported) {
             return badCommand(
               'Export Failed',
@@ -8102,7 +8138,7 @@ export async function handleGatewayCommand(
           );
         }
         const exported = exportSessionSnapshotJsonl({
-          agentId: exportAgentId,
+          agentId: resolveSessionAgentId(targetSession),
           sessionId: targetSessionId,
           channelId: targetSession.channel_id,
           summary: targetSession.session_summary,

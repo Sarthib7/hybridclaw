@@ -1,6 +1,11 @@
 # ── Build stage ───────────────────────────────────────────────────────────────
 FROM node:22-slim AS builder
 
+# node-pty and better-sqlite3 require native compilation
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      python3 make g++ \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # Install root deps first (cached unless package.json changes)

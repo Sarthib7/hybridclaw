@@ -112,7 +112,9 @@ function decodeAttributedBodyText(value: Buffer | null): string | null {
 }
 
 function looksLikeSelfChatAttributedReplay(value: string): boolean {
-  const normalized = String(value || '').replace(/\r\n?/g, '\n').trim();
+  const normalized = String(value || '')
+    .replace(/\r\n?/g, '\n')
+    .trim();
   if (!normalized) return false;
 
   const nonEmptyLines = normalized
@@ -138,9 +140,7 @@ function resolveMessageText(row: LocalMessageRow): string {
   );
   if (decodedAttributedBody) {
     if (isSelfChatConversation(row)) {
-      if (
-        SELF_CHAT_ATTRIBUTED_CONTROL_COMMAND_RE.test(decodedAttributedBody)
-      ) {
+      if (SELF_CHAT_ATTRIBUTED_CONTROL_COMMAND_RE.test(decodedAttributedBody)) {
         logger.warn(
           {
             rowid: row.rowid,

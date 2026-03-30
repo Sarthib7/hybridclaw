@@ -181,6 +181,7 @@ import {
   resolveLocalModelContextWindow,
 } from '../providers/local-discovery.js';
 import { localBackendsProbe } from '../providers/local-health.js';
+import { readMistralApiKey } from '../providers/mistral-utils.js';
 import {
   getAvailableModelList,
   getAvailableModelListWithOptions,
@@ -962,6 +963,14 @@ function isHuggingFaceAvailableForModelCommands(): boolean {
   );
 }
 
+function isMistralAvailableForModelCommands(): boolean {
+  const runtimeConfig = getRuntimeConfig();
+  return (
+    runtimeConfig.mistral.enabled &&
+    Boolean(readMistralApiKey({ required: false }))
+  );
+}
+
 function isModelAvailableForCurrentGatewayState(
   model: string,
   providerHealth: GatewayStatus['providerHealth'],
@@ -973,6 +982,8 @@ function isModelAvailableForCurrentGatewayState(
       return providerHealth?.codex?.reachable === true;
     case 'openrouter':
       return isOpenRouterAvailableForModelCommands();
+    case 'mistral':
+      return isMistralAvailableForModelCommands();
     case 'huggingface':
       return isHuggingFaceAvailableForModelCommands();
     case 'ollama':
@@ -6793,13 +6804,13 @@ export async function handleGatewayCommand(
           if (providerFilterArg && !providerFilter) {
             return badCommand(
               'Unknown Provider',
-              'Usage: `model list [hybridai|codex|openrouter|huggingface|local|ollama|lmstudio|vllm]`',
+              'Usage: `model list [hybridai|codex|openrouter|mistral|huggingface|local|ollama|lmstudio|vllm]`',
             );
           }
           if (listModifierArg && !expandedModelList) {
             return badCommand(
               'Usage',
-              'Usage: `model list [hybridai|codex|openrouter|huggingface|local|ollama|lmstudio|vllm]`',
+              'Usage: `model list [hybridai|codex|openrouter|mistral|huggingface|local|ollama|lmstudio|vllm]`',
             );
           }
           const listedModels =

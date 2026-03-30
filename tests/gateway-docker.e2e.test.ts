@@ -8,17 +8,23 @@ import { describe, test, expect, afterAll, beforeAll } from 'vitest';
  * Requires:
  *   HYBRIDCLAW_RUN_DOCKER_E2E=1        — gate flag (CI sets this)
  *   HYBRIDCLAW_E2E_IMAGE               — pre-built image tag
- *   HYBRIDAI_API_KEY                   — real API key (CI: GitHub secret)
  *
- * The container is started with the same env vars a production deployment
- * uses: HYBRIDCLAW_ACCEPT_TRUST, HYBRIDAI_API_KEY.  No mocks, no bypasses.
+ * When HYBRIDAI_API_KEY is set (CI secret on internal PRs), the gateway runs
+ * with a real key — identical to production.  Provider health probes connect
+ * to the real API and /health reflects live reachability.
+ *
+ * When the secret is unavailable (fork PRs, local dev without key), a dummy
+ * key is used so the gateway still starts.  Provider probes fail gracefully
+ * in the background; static content and endpoint tests still run.
  *
  * All execSync calls use only hardcoded strings (no user input).
  */
 
 const DOCKER_E2E = process.env.HYBRIDCLAW_RUN_DOCKER_E2E === '1';
 const IMAGE = process.env.HYBRIDCLAW_E2E_IMAGE || 'hybridclaw-gateway:e2e';
-const API_KEY = process.env.HYBRIDAI_API_KEY || '';
+const CI_FALLBACK_KEY = 'hai-ci-placeholder-not-a-real-key';
+const API_KEY = process.env.HYBRIDAI_API_KEY || CI_FALLBACK_KEY;
+const HAS_REAL_KEY = !!process.env.HYBRIDAI_API_KEY;
 const CONTAINER_NAME = `gw-e2e-${process.pid}`;
 const HOST_PORT = 9199;
 const GATEWAY_URL = `http://127.0.0.1:${HOST_PORT}`;
@@ -63,7 +69,7 @@ async function waitForHealth(): Promise<void> {
   );
 }
 
-describe.skipIf(!DOCKER_E2E || !API_KEY)('gateway Docker image', () => {
+describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
   beforeAll(async () => {
     // Start the container the same way a real deployment would.
     execSync(
@@ -170,4 +176,23 @@ describe.skipIf(!DOCKER_E2E || !API_KEY)('gateway Docker image', () => {
     const html = await res.text();
     expect(html).toBeTruthy();
   });
+
+  // ── Provider health (real key only) ──────────────────────────────────
+
+  test.skipIf(!HAS_REAL_KEY)(
+    '/health reports HybridAI provider reachable',
+    async () => {
+      // Allow time for the background provider probe to complete
+      await new Promise((r) => setTimeout(r, 3_000));
+      const res = await fetch(`${GATEWAY_URL}/health`, {
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+      const body = (await res.json()) as {
+        providerHealth?: {
+          hybridai?: { reachable: boolean };
+        };
+      };
+      expect(body.providerHealth?.hybridai?.reachable).toBe(true);
+    },
+  );
 });

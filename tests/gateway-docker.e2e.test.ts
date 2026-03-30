@@ -25,6 +25,7 @@ const IMAGE = process.env.HYBRIDCLAW_E2E_IMAGE || 'hybridclaw-gateway:e2e';
 const CI_FALLBACK_KEY = 'hai-ci-placeholder-not-a-real-key';
 const API_KEY = process.env.HYBRIDAI_API_KEY || CI_FALLBACK_KEY;
 const HAS_REAL_KEY = !!process.env.HYBRIDAI_API_KEY;
+const WEB_API_TOKEN = 'e2e-test-token';
 const CONTAINER_NAME = `gw-e2e-${process.pid}`;
 const HOST_PORT = 9199;
 const GATEWAY_URL = `http://127.0.0.1:${HOST_PORT}`;
@@ -80,6 +81,7 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
         '-e HYBRIDCLAW_ACCEPT_TRUST=true',
         '-e HEALTH_HOST=0.0.0.0',
         `-e HYBRIDAI_API_KEY=${API_KEY}`,
+        `-e WEB_API_TOKEN=${WEB_API_TOKEN}`,
         IMAGE,
       ].join(' '),
       { stdio: 'pipe', timeout: 15_000 },
@@ -251,5 +253,32 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
       };
       expect(body.providerHealth?.hybridai?.reachable).toBe(true);
     },
+  );
+
+  // ── Chat API: send a message, get a response (real key only) ────────
+
+  test.skipIf(!HAS_REAL_KEY)(
+    'POST /api/chat returns a response to a simple message',
+    async () => {
+      const res = await fetch(`${GATEWAY_URL}/api/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${WEB_API_TOKEN}`,
+        },
+        body: JSON.stringify({ content: 'Reply with exactly: e2e-ok' }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        status: string;
+        result: string | null;
+        sessionId?: string;
+      };
+      expect(body.status).toBe('success');
+      expect(body.result).toBeTruthy();
+      expect(body.sessionId).toBeTruthy();
+    },
+    60_000,
   );
 });

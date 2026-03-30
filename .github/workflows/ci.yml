@@ -139,6 +139,11 @@ jobs:
       - name: Unit tests with coverage
         run: npx vitest run --coverage --config vitest.unit.config.ts
 
+      - name: npm install journey e2e
+        env:
+          HYBRIDCLAW_RUN_NPM_E2E: '1'
+        run: npx vitest run --config vitest.e2e.config.ts tests/npm-install.e2e.test.ts
+
       - name: Generate coverage badge
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |

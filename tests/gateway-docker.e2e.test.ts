@@ -101,15 +101,25 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
   // ── Runtime file checks ──────────────────────────────────────────────
 
   const requiredFiles = [
+    // Browsable docs (markdown source)
     'docs/development/README.md',
     'docs/development/getting-started/README.md',
     'docs/development/getting-started/installation.md',
     'docs/development/getting-started/quickstart.md',
+    'docs/development/getting-started/authentication.md',
+    // SPA entry points
     'docs/index.html',
     'docs/chat.html',
     'docs/agents.html',
+    // Admin console
+    'console/dist/index.html',
+    // Agent templates and skills
     'templates/SOUL.md',
+    'templates/TOOLS.md',
     'skills/hybridclaw-help/SKILL.md',
+    // Security docs (required by trust acceptance)
+    'SECURITY.md',
+    'TRUST_MODEL.md',
   ];
 
   test.each(requiredFiles)('image contains %s', (filePath) => {
@@ -174,7 +184,44 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
     });
     expect(res.status).toBe(200);
     const html = await res.text();
-    expect(html).toBeTruthy();
+    expect(html).toContain('HybridClaw');
+  });
+
+  test('/agents serves the agents SPA', async () => {
+    const res = await fetch(`${GATEWAY_URL}/agents`, {
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('HybridClaw');
+  });
+
+  test('/admin redirects to login (auth enforced in container)', async () => {
+    const res = await fetch(`${GATEWAY_URL}/admin`, {
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      redirect: 'manual',
+    });
+    expect(res.status).toBe(302);
+  });
+
+  // ── Legacy route redirects ──────────────────────────────────────────
+
+  test('/development redirects to /docs', async () => {
+    const res = await fetch(`${GATEWAY_URL}/development`, {
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      redirect: 'manual',
+    });
+    expect(res.status).toBe(308);
+    expect(res.headers.get('location')).toBe('/docs');
+  });
+
+  test('/development/getting-started redirects to /docs/getting-started', async () => {
+    const res = await fetch(`${GATEWAY_URL}/development/getting-started`, {
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      redirect: 'manual',
+    });
+    expect(res.status).toBe(308);
+    expect(res.headers.get('location')).toBe('/docs/getting-started');
   });
 
   // ── Provider health (real key only) ──────────────────────────────────

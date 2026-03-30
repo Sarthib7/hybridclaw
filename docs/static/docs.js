@@ -780,11 +780,7 @@ export async function mountDocsApp(options = {}) {
     return false;
   }
 
-  const markdownHref = buildDocMarkdownHref(
-    docPath,
-    basePath,
-    contentBasePath,
-  );
+  const markdownHref = buildDocMarkdownHref(docPath, basePath, contentBasePath);
   const response = await fetch(markdownHref, { cache: 'no-store' });
   if (!response.ok) {
     renderNotFoundState(mount, docPath, basePath);

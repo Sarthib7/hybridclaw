@@ -240,10 +240,7 @@ function resolveDevelopmentDocFile(relativePath: string): string | null {
 }
 
 function normalizeDevelopmentDocRelativePath(pathname: string): string | null {
-  const recognizedRoutes = [
-    DOCS_ROUTE,
-    LEGACY_DEVELOPMENT_ROUTE,
-  ];
+  const recognizedRoutes = [DOCS_ROUTE, LEGACY_DEVELOPMENT_ROUTE];
   for (const route of recognizedRoutes) {
     if (pathname === route || pathname === `${route}/`) {
       return 'README.md';
@@ -1927,10 +1924,7 @@ function renderDevelopmentDocsErrorPage(message: string): string {
 </html>`;
 }
 
-export function serveDocs(
-  pathname: string,
-  res: ServerResponse,
-): boolean {
+export function serveDocs(pathname: string, res: ServerResponse): boolean {
   if (
     pathname === LEGACY_DEVELOPMENT_ROUTE ||
     pathname === `${LEGACY_DEVELOPMENT_ROUTE}/` ||
@@ -1941,10 +1935,7 @@ export function serveDocs(
       const redirectLocation =
         pathname === LEGACY_DEVELOPMENT_ROUTE
           ? DOCS_ROUTE
-          : pathname.replace(
-              LEGACY_DEVELOPMENT_ROUTE,
-              DOCS_ROUTE,
-            );
+          : pathname.replace(LEGACY_DEVELOPMENT_ROUTE, DOCS_ROUTE);
       res.writeHead(308, {
         'Cache-Control': 'no-cache',
         Location: redirectLocation,

@@ -49,15 +49,11 @@ describe('docs viewer helpers', () => {
   });
 
   test('can resolve links against a legacy content base path', () => {
+    expect(buildDocMarkdownHref('README.md', '/docs', '/development')).toBe(
+      '/development/README.md',
+    );
     expect(
-      buildDocMarkdownHref('README.md', '/docs', '/development'),
-    ).toBe('/development/README.md');
-    expect(
-      buildDocMarkdownHref(
-        'extensibility/skills.md',
-        '/docs',
-        '/development',
-      ),
+      buildDocMarkdownHref('extensibility/skills.md', '/docs', '/development'),
     ).toBe('/development/extensibility/skills.md');
   });
 

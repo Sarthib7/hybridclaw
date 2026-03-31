@@ -5869,7 +5869,7 @@ setPluginInboundMessageDispatcher(
   async (pluginId, request) =>
     await handleGatewayMessage({
       ...request,
-      source: String(request.source || '').trim() || `plugin:${pluginId}`,
+      source: `plugin:${pluginId}`,
     }),
 );
 
@@ -5890,12 +5890,8 @@ export async function handleGatewayPluginWebhook(
       surface: 'webhook',
     });
   if (!pluginManager) {
-    const detail =
-      pluginInitError instanceof Error
-        ? pluginInitError.message
-        : 'Unknown plugin manager error.';
     sendWebhookJson(res, 503, {
-      error: `Plugin manager unavailable: ${detail}`,
+      error: 'Plugin manager unavailable.',
     });
     return;
   }

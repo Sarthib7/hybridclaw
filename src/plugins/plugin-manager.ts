@@ -1286,10 +1286,7 @@ export class PluginManager {
         'Plugin inbound-message dispatch is unavailable outside the gateway runtime.',
       );
     }
-    return await this.dispatchInboundMessageHost(pluginId, {
-      ...request,
-      source: String(request.source || '').trim() || `plugin:${pluginId}`,
-    });
+    return await this.dispatchInboundMessageHost(pluginId, request);
   }
 
   async handleInboundWebhook(params: {

@@ -333,7 +333,6 @@ export interface PluginDispatchInboundMessageRequest {
     message: PluginInboundProactiveMessage,
   ) => void | Promise<void>;
   abortSignal?: AbortSignal;
-  source?: string;
 }
 
 export interface PluginInboundWebhookContext {

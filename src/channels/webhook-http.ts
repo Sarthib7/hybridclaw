@@ -87,10 +87,14 @@ export function sendWebhookJson(
   statusCode: number,
   body: Record<string, unknown>,
 ): void {
-  if (!res.headersSent) {
-    res.statusCode = statusCode;
-    res.setHeader('content-type', 'application/json; charset=utf-8');
+  if (res.headersSent) {
+    if (!res.writableEnded) {
+      res.end();
+    }
+    return;
   }
+  res.statusCode = statusCode;
+  res.setHeader('content-type', 'application/json; charset=utf-8');
   if (!res.writableEnded) {
     res.end(JSON.stringify(body));
   }

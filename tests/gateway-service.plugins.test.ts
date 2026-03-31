@@ -1,3 +1,5 @@
+import { Readable } from 'node:stream';
+
 import { expect, test, vi } from 'vitest';
 import { setupGatewayTest } from './helpers/gateway-test-setup.js';
 
@@ -41,6 +43,7 @@ const {
     notifyTurnComplete: vi.fn(async () => {}),
     notifyAgentEnd: vi.fn(async () => {}),
     handleSessionReset: vi.fn(async () => {}),
+    handleInboundWebhook: vi.fn(async () => false),
     notifySessionStart: vi.fn(async () => {}),
     listPluginSummary: vi.fn(() => []),
   };
@@ -179,6 +182,7 @@ const { setupHome } = setupGatewayTest({
     pluginManagerMock.collectPromptContextDetails.mockClear();
     pluginManagerMock.collectPromptContext.mockClear();
     pluginManagerMock.getToolDefinitions.mockClear();
+    pluginManagerMock.handleInboundWebhook.mockClear();
     pluginManagerMock.notifyBeforeAgentStart.mockClear();
     pluginManagerMock.notifyTurnComplete.mockClear();
     pluginManagerMock.notifyAgentEnd.mockClear();
@@ -197,6 +201,54 @@ const { setupHome } = setupGatewayTest({
     writePluginConfigValueMock.mockClear();
   },
 });
+
+function makeWebhookRequest(params: {
+  method?: string;
+  url: string;
+}): import('node:http').IncomingMessage {
+  return Object.assign(Readable.from([]), {
+    method: params.method || 'POST',
+    url: params.url,
+    headers: {},
+    socket: {
+      remoteAddress: '127.0.0.1',
+    },
+  }) as import('node:http').IncomingMessage;
+}
+
+function makeWebhookResponse(): import('node:http').ServerResponse & {
+  body: string;
+  headers: Record<string, string>;
+  writableEnded: boolean;
+  headersSent: boolean;
+} {
+  const headers: Record<string, string> = {};
+  const response = {
+    headersSent: false,
+    writableEnded: false,
+    statusCode: 0,
+    body: '',
+    headers,
+    setHeader(name: string, value: string) {
+      headers[name.toLowerCase()] = value;
+    },
+    end(chunk?: unknown) {
+      if (chunk != null) {
+        response.body += Buffer.isBuffer(chunk)
+          ? chunk.toString('utf8')
+          : String(chunk);
+      }
+      response.writableEnded = true;
+      response.headersSent = true;
+    },
+  };
+  return response as unknown as import('node:http').ServerResponse & {
+    body: string;
+    headers: Record<string, string>;
+    writableEnded: boolean;
+    headersSent: boolean;
+  };
+}
 
 test('handleGatewayMessage injects plugin prompt context and forwards plugin tools to the agent', async () => {
   setupHome();
@@ -328,6 +380,33 @@ test('handleGatewayMessage continues without plugins when plugin manager init fa
       pluginTools: [],
     }),
   );
+});
+
+test('handleGatewayPluginWebhook returns a generic 503 when plugin manager init fails', async () => {
+  setupHome();
+
+  const { handleGatewayPluginWebhook } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  ensurePluginManagerInitializedMock.mockRejectedValueOnce(
+    new Error('plugin load exploded at /tmp/private-path'),
+  );
+  const req = makeWebhookRequest({
+    method: 'POST',
+    url: '/api/plugin-webhooks/demo-plugin/email-inbound',
+  });
+  const res = makeWebhookResponse();
+
+  await handleGatewayPluginWebhook(
+    req,
+    res,
+    new URL('http://localhost/api/plugin-webhooks/demo-plugin/email-inbound'),
+  );
+
+  expect(res.statusCode).toBe(503);
+  expect(res.body).toContain('Plugin manager unavailable.');
+  expect(res.body).not.toContain('/tmp/private-path');
 });
 
 test('handleGatewayCommand lists plugin summaries', async () => {

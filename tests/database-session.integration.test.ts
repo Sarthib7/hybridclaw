@@ -20,6 +20,11 @@ let getOrCreateSession: typeof import('../src/memory/db.js').getOrCreateSession;
 let storeMessage: typeof import('../src/memory/db.js').storeMessage;
 let getConversationHistory: typeof import('../src/memory/db.js').getConversationHistory;
 let getCanonicalContext: typeof import('../src/memory/db.js').getCanonicalContext;
+let getCompactionCandidateMessages: typeof import('../src/memory/db.js').getCompactionCandidateMessages;
+let deleteMessagesBeforeId: typeof import('../src/memory/db.js').deleteMessagesBeforeId;
+let updateSessionSummary: typeof import('../src/memory/db.js').updateSessionSummary;
+let forkSessionBranch: typeof import('../src/memory/db.js').forkSessionBranch;
+let getSessionById: typeof import('../src/memory/db.js').getSessionById;
 let schemaVersion: number;
 
 beforeAll(async () => {
@@ -42,6 +47,11 @@ beforeAll(async () => {
   storeMessage = dbMod.storeMessage;
   getConversationHistory = dbMod.getConversationHistory;
   getCanonicalContext = dbMod.getCanonicalContext;
+  getCompactionCandidateMessages = dbMod.getCompactionCandidateMessages;
+  deleteMessagesBeforeId = dbMod.deleteMessagesBeforeId;
+  updateSessionSummary = dbMod.updateSessionSummary;
+  forkSessionBranch = dbMod.forkSessionBranch;
+  getSessionById = dbMod.getSessionById;
   schemaVersion = dbMod.DATABASE_SCHEMA_VERSION;
 
   initDatabase({ quiet: true, dbPath });
@@ -199,5 +209,169 @@ describe('database session integration', () => {
     } finally {
       freshDb.close();
     }
+  });
+
+  // --- Compaction tests ---
+
+  it('getCompactionCandidateMessages returns null when fewer messages than keepRecent', () => {
+    const session = getOrCreateSession(
+      'test-compact-few',
+      'guild-1',
+      'channel-1',
+    );
+    for (let i = 0; i < 3; i++) {
+      storeMessage(session.id, 'user-1', 'Alice', 'user', `msg ${i}`);
+    }
+    const result = getCompactionCandidateMessages(session.id, 10);
+    expect(result).toBeNull();
+  });
+
+  it('getCompactionCandidateMessages identifies older messages for compaction', () => {
+    const session = getOrCreateSession(
+      'test-compact-candidates',
+      'guild-1',
+      'channel-1',
+    );
+    const messageIds: number[] = [];
+    for (let i = 0; i < 25; i++) {
+      messageIds.push(
+        storeMessage(session.id, 'user-1', 'Alice', 'user', `Message ${i}`),
+      );
+    }
+
+    const keepRecent = 5;
+    const result = getCompactionCandidateMessages(session.id, keepRecent);
+    expect(result).not.toBeNull();
+    expect(result!.olderMessages.length).toBe(20);
+    // All older messages should have IDs less than the cutoff.
+    for (const msg of result!.olderMessages) {
+      expect(msg.id).toBeLessThan(result!.cutoffId);
+    }
+  });
+
+  it('compaction workflow: delete old messages and store summary', () => {
+    const session = getOrCreateSession(
+      'test-compact-workflow',
+      'guild-1',
+      'channel-1',
+    );
+    for (let i = 0; i < 25; i++) {
+      storeMessage(session.id, 'user-1', 'Alice', 'user', `Chat line ${i}`);
+    }
+
+    const keepRecent = 5;
+    const candidates = getCompactionCandidateMessages(session.id, keepRecent);
+    expect(candidates).not.toBeNull();
+
+    const deletedCount = deleteMessagesBeforeId(
+      session.id,
+      candidates!.cutoffId,
+    );
+    expect(deletedCount).toBe(20);
+
+    // Store a summary for the compacted messages.
+    updateSessionSummary(session.id, 'Summary of 20 older messages.');
+
+    // Only the 5 most recent messages should remain.
+    const remaining = getConversationHistory(session.id, 100);
+    expect(remaining.length).toBe(5);
+    for (const msg of remaining) {
+      expect(msg.content).toMatch(/^Chat line (2[0-4])$/);
+    }
+
+    // Verify session summary and compaction_count were updated.
+    const updatedSession = getSessionById(session.id);
+    expect(updatedSession).toBeDefined();
+    expect(updatedSession!.session_summary).toBe(
+      'Summary of 20 older messages.',
+    );
+    expect(updatedSession!.compaction_count).toBeGreaterThanOrEqual(1);
+  });
+
+  // --- Session forking tests ---
+
+  it('forkSessionBranch creates a new session with copied messages', () => {
+    const session = getOrCreateSession(
+      'test-fork-source',
+      'guild-1',
+      'channel-1',
+    );
+    const ids: number[] = [];
+    for (let i = 0; i < 10; i++) {
+      ids.push(
+        storeMessage(session.id, 'user-1', 'Alice', 'user', `Fork msg ${i}`),
+      );
+    }
+
+    // Fork before message 6 — should copy messages 0..5 (IDs before ids[6]).
+    const forkResult = forkSessionBranch({
+      sessionId: session.id,
+      beforeMessageId: ids[6],
+    });
+    expect(forkResult.session).toBeDefined();
+    expect(forkResult.session.id).not.toBe(session.id);
+    expect(forkResult.copiedMessageCount).toBe(6);
+
+    // Verify fork has the copied messages.
+    const forkHistory = getConversationHistory(forkResult.session.id, 100);
+    expect(forkHistory.length).toBe(6);
+    // History is DESC, so newest first.
+    expect(forkHistory[0].content).toBe('Fork msg 5');
+    expect(forkHistory[forkHistory.length - 1].content).toBe('Fork msg 0');
+  });
+
+  it('forked session is independent from the original', () => {
+    const session = getOrCreateSession(
+      'test-fork-independent',
+      'guild-1',
+      'channel-1',
+    );
+    const ids: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      ids.push(
+        storeMessage(session.id, 'user-1', 'Alice', 'user', `Ind msg ${i}`),
+      );
+    }
+
+    const forkResult = forkSessionBranch({
+      sessionId: session.id,
+      beforeMessageId: ids[3],
+    });
+
+    // Add a new message to the fork.
+    storeMessage(
+      forkResult.session.id,
+      'user-1',
+      'Alice',
+      'user',
+      'Fork-only message',
+    );
+
+    // Add a new message to the original.
+    storeMessage(session.id, 'user-1', 'Alice', 'user', 'Original-only message');
+
+    const originalHistory = getConversationHistory(session.id, 100);
+    const forkHistory = getConversationHistory(forkResult.session.id, 100);
+
+    const originalContents = originalHistory.map((m) => m.content);
+    const forkContents = forkHistory.map((m) => m.content);
+
+    expect(originalContents).toContain('Original-only message');
+    expect(originalContents).not.toContain('Fork-only message');
+    expect(forkContents).toContain('Fork-only message');
+    expect(forkContents).not.toContain('Original-only message');
+  });
+
+  it('forkSessionBranch throws for invalid beforeMessageId', () => {
+    const session = getOrCreateSession(
+      'test-fork-invalid',
+      'guild-1',
+      'channel-1',
+    );
+    storeMessage(session.id, 'user-1', 'Alice', 'user', 'Only message');
+
+    expect(() =>
+      forkSessionBranch({ sessionId: session.id, beforeMessageId: 999999 }),
+    ).toThrow();
   });
 });

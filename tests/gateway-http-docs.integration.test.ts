@@ -6,9 +6,12 @@
  * raw markdown serving, search, and redirects.
  */
 
+import fs from 'node:fs';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
+import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { resolveInstallPath } from '../src/infra/install-root.js';
 
 let server: http.Server;
 let baseUrl: string;
@@ -99,5 +102,91 @@ describe('gateway docs HTTP integration', () => {
     // serveDocs returns false for unknown paths, so our wrapper returns 404.
     expect(res.status).toBe(404);
     expect(res.ok).toBe(false);
+  });
+
+  // --- All markdown files render ---
+
+  it('every markdown file in docs/development/ renders as 200 HTML', async () => {
+    const docsDir = resolveInstallPath('docs', 'development');
+
+    function collectMarkdownFiles(dir: string): string[] {
+      const results: string[] = [];
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          results.push(...collectMarkdownFiles(fullPath));
+        } else if (entry.name.endsWith('.md') && entry.name !== 'README.md') {
+          results.push(fullPath);
+        }
+      }
+      return results;
+    }
+
+    const mdFiles = collectMarkdownFiles(docsDir);
+    expect(mdFiles.length).toBeGreaterThan(0);
+
+    for (const filePath of mdFiles) {
+      const relative = path.relative(docsDir, filePath);
+      // Remove .md extension for URL path.
+      const urlPath = `/docs/${relative.replace(/\.md$/, '').replace(/\\/g, '/')}`;
+      const res = await fetch(`${baseUrl}${urlPath}`);
+      expect(
+        res.status,
+        `Expected 200 for ${urlPath} but got ${res.status}`,
+      ).toBe(200);
+      const html = await res.text();
+      expect(html.length, `Expected non-empty HTML for ${urlPath}`).toBeGreaterThan(0);
+    }
+  });
+
+  // --- Sidebar contains all top-level sections ---
+
+  it('sidebar contains links for all top-level sections', async () => {
+    const res = await fetch(`${baseUrl}/docs`);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+
+    const expectedSections = [
+      'getting-started',
+      'guides',
+      'reference',
+      'extensibility',
+      'internals',
+    ];
+    for (const section of expectedSections) {
+      expect(
+        html,
+        `Sidebar should contain a link for "${section}"`,
+      ).toContain(`/docs/${section}`);
+    }
+  });
+
+  // --- Internal doc links resolve ---
+
+  it('all internal /docs/ links on the index page resolve to 200', async () => {
+    const res = await fetch(`${baseUrl}/docs`);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+
+    // Extract all href values that start with /docs/.
+    const linkRegex = /href="(\/docs\/[^"#]*)"/g;
+    const links = new Set<string>();
+    let linkMatch = linkRegex.exec(html);
+    while (linkMatch !== null) {
+      links.add(linkMatch[1]);
+      linkMatch = linkRegex.exec(html);
+    }
+
+    expect(links.size, 'Expected at least one internal /docs/ link').toBeGreaterThan(0);
+
+    for (const link of links) {
+      const linkRes = await fetch(`${baseUrl}${link}`);
+      expect(
+        linkRes.status,
+        `Internal link ${link} should resolve to 200 but got ${linkRes.status}`,
+      ).toBe(200);
+      // Consume the body to avoid leaking connections.
+      await linkRes.text();
+    }
   });
 });

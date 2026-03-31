@@ -18,6 +18,7 @@ let verifyAuditSessionChain: typeof import('../src/audit/audit-trail.js').verify
 let getAuditWirePath: typeof import('../src/audit/audit-trail.js').getAuditWirePath;
 let createAuditRunId: typeof import('../src/audit/audit-trail.js').createAuditRunId;
 let AUDIT_PROTOCOL_VERSION: typeof import('../src/audit/audit-trail.js').AUDIT_PROTOCOL_VERSION;
+type WireRecord = import('../src/audit/audit-trail.js').WireRecord;
 
 beforeAll(async () => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-audit-integration-'));
@@ -101,7 +102,7 @@ describe('audit trail integration', () => {
     const chainSessionId = 'audit-chain-test';
     const runId = createAuditRunId('chain');
 
-    const records = [];
+    const records: WireRecord[] = [];
     for (let i = 0; i < 5; i++) {
       records.push(
         appendAuditEvent({
@@ -221,7 +222,7 @@ describe('audit trail integration', () => {
     const seqSessionId = 'audit-seq-monotonic';
     const runId = createAuditRunId('seq');
 
-    const records = [];
+    const records: WireRecord[] = [];
     for (let i = 0; i < 10; i++) {
       records.push(
         appendAuditEvent({

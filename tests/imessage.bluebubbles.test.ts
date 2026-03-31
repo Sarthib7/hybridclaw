@@ -174,6 +174,24 @@ describe('bluebubbles iMessage backend', () => {
     expect(onInbound).not.toHaveBeenCalled();
   });
 
+  test('returns 400 when the webhook body is JSON but not an object', async () => {
+    const { createBlueBubblesIMessageBackend } =
+      await importFreshBlueBubblesBackend();
+    const onInbound = vi.fn(async () => {});
+    const backend = createBlueBubblesIMessageBackend({ onInbound });
+    const req = makeRequest({
+      url: '/api/imessage/webhook?password=test-password',
+      body: [{ type: 'new-message' }],
+    });
+    const res = makeResponse();
+
+    await backend.handleWebhook?.(req as never, res as never);
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toContain('JSON object');
+    expect(onInbound).not.toHaveBeenCalled();
+  });
+
   test('blocks private BlueBubbles server urls unless explicitly allowed', async () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal('fetch', fetchSpy);

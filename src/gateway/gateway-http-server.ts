@@ -485,8 +485,9 @@ function dispatchWebhookRoute(
   handler: () => Promise<unknown>,
 ): void {
   void handler().catch((error) => {
+    logger.error({ err: error }, 'Webhook handler failed');
     sendJson(res, 500, {
-      error: error instanceof Error ? error.message : String(error),
+      error: 'Internal server error',
     });
   });
 }

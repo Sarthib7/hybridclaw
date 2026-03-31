@@ -326,7 +326,8 @@ export function createBlueBubblesIMessageBackend(
           tooLargeStatusCode: 400,
           invalidJsonMessage: 'BlueBubbles webhook body must be valid JSON.',
           requireObject: true,
-          invalidShapeMessage: 'BlueBubbles webhook body must be JSON.',
+          invalidShapeMessage:
+            'BlueBubbles webhook body must be a JSON object.',
         })) as Record<string, unknown>;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

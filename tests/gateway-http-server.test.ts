@@ -1004,6 +1004,7 @@ async function importFreshHealth(options?: {
     getSessionById,
     getAgentById,
     loggerDebug,
+    loggerError,
     handleIMessageWebhook,
     runMessageToolAction,
     normalizeDiscordToolAction,
@@ -1115,6 +1116,33 @@ describe('gateway HTTP server', () => {
     expect(state.handleGatewayPluginWebhook).toHaveBeenCalledTimes(1);
     expect(res.statusCode).toBe(202);
     expect(res.body).toBe('plugin-webhook');
+  });
+
+  test('returns a generic 500 when a webhook handler throws unexpectedly', async () => {
+    const state = await importFreshHealth();
+    state.handleGatewayPluginWebhook.mockRejectedValueOnce(
+      new Error('secret webhook failure details'),
+    );
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/plugin-webhooks/demo-plugin/email-inbound',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(
+      res,
+      () => state.handleGatewayPluginWebhook.mock.calls.length > 0,
+    );
+
+    expect(state.handleGatewayPluginWebhook).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(500);
+    expect(res.body).toContain('Internal server error');
+    expect(res.body).not.toContain('secret webhook failure details');
+    expect(state.loggerError).toHaveBeenCalledWith(
+      { err: expect.any(Error) },
+      'Webhook handler failed',
+    );
   });
 
   test('renders docs markdown as a browsable HTML page', async () => {

@@ -1438,6 +1438,52 @@ test('plugin manager resolves fixed plugin inbound webhook routes and enforces H
   ).resolves.toBe(false);
 });
 
+test('plugin manager rejects unsupported inbound webhook methods', async () => {
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager();
+
+  expect(() =>
+    manager.registerInboundWebhook('demo-plugin', {
+      name: 'email-inbound',
+      method: 'get' as 'GET',
+      async handler() {},
+    }),
+  ).toThrow(
+    'Plugin inbound webhook "email-inbound" on plugin "demo-plugin" has invalid method "get". Supported methods are "GET" and "POST".',
+  );
+});
+
+test('plugin manager creates inbound webhook loggers from the injected logger', async () => {
+  const childLogger = {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    child: vi.fn(),
+  };
+  const logger = {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    child: vi.fn(() => childLogger),
+  };
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    logger: logger as never,
+  });
+
+  manager.registerInboundWebhook('demo-plugin', {
+    name: 'email-inbound',
+    async handler() {},
+  });
+
+  expect(logger.child).toHaveBeenCalledWith({
+    pluginId: 'demo-plugin',
+    webhookName: 'email-inbound',
+  });
+});
+
 test('plugin manager rolls back partial registration when register throws', async () => {
   const homeDir = makeTempDir('hybridclaw-plugin-home-');
   const cwd = makeTempDir('hybridclaw-plugin-project-');

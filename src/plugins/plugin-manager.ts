@@ -1097,7 +1097,12 @@ export class PluginManager {
     if (!normalizedName) {
       throw new Error('Plugin inbound webhook is missing `name`.');
     }
-    const method = webhook.method === 'GET' ? 'GET' : 'POST';
+    const method = webhook.method ?? 'POST';
+    if (method !== 'GET' && method !== 'POST') {
+      throw new Error(
+        `Plugin inbound webhook "${normalizedName}" on plugin "${pluginId}" has invalid method "${String(method)}". Supported methods are "GET" and "POST".`,
+      );
+    }
     const path = buildPluginInboundWebhookPath(pluginId, normalizedName);
     if (this.inboundWebhooks.has(path)) {
       throw new Error(
@@ -1112,7 +1117,7 @@ export class PluginManager {
         name: normalizedName,
         method,
       },
-      logger: rootLogger.child({
+      logger: this.logger.child({
         pluginId,
         webhookName: normalizedName,
       }) as PluginLogger,

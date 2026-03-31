@@ -107,7 +107,7 @@ pre {
   width: 30px;
   height: 30px;
   display: block;
-  border-radius: 8px;
+  object-fit: contain;
 }
 
 .docs-brand-accent {

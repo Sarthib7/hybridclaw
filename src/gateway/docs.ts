@@ -1837,7 +1837,7 @@ function renderPage(
       <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h14v1.5H3V5Zm0 4.25h14v1.5H3v-1.5Zm0 4.25h14V15H3v-1.5Z" fill="currentColor"></path></svg>
     </button>
     <a class="docs-brand" href="${DOCS_ROUTE}">
-      <img src="/static/favicon.svg" alt="HybridClaw">
+      <img src="/static/hybridclaw-logo.svg" alt="HybridClaw">
       <span>HybridClaw</span>
       <span class="docs-brand-accent">Docs</span>
     </a>

@@ -680,7 +680,7 @@ function renderNotFoundState(mount, docPath, basePath) {
         <a class="docs-brand" href="${escapeHtml(
           buildDocHtmlHref('README.md', basePath),
         )}">
-          <img src="/static/favicon.svg" alt="HybridClaw">
+          <img src="/static/hybridclaw-logo.svg" alt="HybridClaw">
           <span>HybridClaw</span>
           <span class="docs-brand-accent">Docs</span>
         </a>
@@ -801,7 +801,7 @@ export async function mountDocsApp(options = {}) {
         <a class="docs-brand" href="${escapeHtml(
           buildDocHtmlHref('README.md', basePath),
         )}">
-          <img src="/static/favicon.svg" alt="HybridClaw">
+          <img src="/static/hybridclaw-logo.svg" alt="HybridClaw">
           <span>HybridClaw</span>
           <span class="docs-brand-accent">Docs</span>
         </a>

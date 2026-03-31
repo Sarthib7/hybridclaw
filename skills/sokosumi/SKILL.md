@@ -201,7 +201,7 @@ When operating for a human:
   a terminal state or a clear input request.
 - Prefer polling every 30 to 60 seconds instead of tight retry loops.
 - Do not stop after the first `RUNNING`, `QUEUED`, or partial-progress response.
-- Continue checking until the item is clearly `completed`, `failed`, canceled,
+- Continue checking until the item is clearly `completed`, `failed`, `canceled`,
   or waiting for user input.
 - If the human asks you to monitor the work, stay on the monitoring path and
   report progress updates instead of assuming the first non-final response is

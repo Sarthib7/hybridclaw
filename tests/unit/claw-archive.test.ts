@@ -670,10 +670,7 @@ describe('.claw archive support', () => {
             'Request failed for https://clawhub.ai/api/v1/download?slug=x-actionbook-recap&version=0.1.0: HTTP 429 Rate limit exceeded',
           );
         }
-        const skillDir = path.join(
-          options?.installRootDir || cwd,
-          'himalaya',
-        );
+        const skillDir = path.join(options?.installRootDir || cwd, 'himalaya');
         writeSkillDir(skillDir, 'himalaya');
         return {
           skillName: 'himalaya',

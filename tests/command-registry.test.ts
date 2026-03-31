@@ -110,9 +110,9 @@ test('registers agent install as a canonical and local slash/text command', asyn
                   ? '--skip-externals'
                   : name === 'skip-import-errors'
                     ? '--skip-import-errors'
-                  : name === 'yes'
-                    ? '--yes'
-                    : null,
+                    : name === 'yes'
+                      ? '--yes'
+                      : null,
       getSubcommand: () => 'install',
     }),
   ).toEqual([

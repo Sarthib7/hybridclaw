@@ -57,7 +57,9 @@ test('isLocalFilesystemInstallSource does not throw on invalid remote-like sourc
   expect(() =>
     isLocalFilesystemInstallSource('https://example.com/downloads/demo.zip'),
   ).not.toThrow();
-  expect(isLocalFilesystemInstallSource('https://example.com/downloads/demo.zip')).toBe(false);
+  expect(
+    isLocalFilesystemInstallSource('https://example.com/downloads/demo.zip'),
+  ).toBe(false);
 
   expect(() => isLocalFilesystemInstallSource('official:')).not.toThrow();
   expect(isLocalFilesystemInstallSource('official:')).toBe(false);

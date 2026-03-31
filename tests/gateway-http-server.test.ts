@@ -455,6 +455,10 @@ async function importFreshHealth(options?: {
     kind: 'plain' as const,
     text: 'ok',
   }));
+  const handleGatewayPluginWebhook = vi.fn(async (_req, res) => {
+    res.statusCode = 202;
+    res.end('plugin-webhook');
+  });
   const renderGatewayCommand = vi.fn(
     (result: { title?: string; text: string }) =>
       result.title ? `${result.title}\n${result.text}` : result.text,
@@ -900,7 +904,6 @@ async function importFreshHealth(options?: {
     getGatewayAdminMcp,
     getGatewayAdminModels,
     getGatewayAdminOverview,
-    getGatewayAdminPlugins,
     getGatewayAdminScheduler,
     getGatewayAdminSessions,
     getGatewayAdminSkills,
@@ -915,7 +918,6 @@ async function importFreshHealth(options?: {
     handleGatewayMessage,
     moveGatewayAdminSchedulerJob,
     renderGatewayCommand,
-    runGatewayPluginTool,
     removeGatewayAdminChannel,
     removeGatewayAdminMcpServer,
     removeGatewayAdminSchedulerJob,
@@ -927,6 +929,11 @@ async function importFreshHealth(options?: {
     upsertGatewayAdminChannel,
     upsertGatewayAdminMcpServer,
     upsertGatewayAdminSchedulerJob,
+  }));
+  vi.doMock('../src/gateway/gateway-plugin-service.js', () => ({
+    getGatewayAdminPlugins,
+    handleGatewayPluginWebhook,
+    runGatewayPluginTool,
   }));
   vi.doMock('../src/channels/message/tool-actions.js', () => ({
     runMessageToolAction,
@@ -994,10 +1001,12 @@ async function importFreshHealth(options?: {
     setGatewayAdminSkillEnabled,
     handleGatewayMessage,
     handleGatewayCommand,
+    handleGatewayPluginWebhook,
     renderGatewayCommand,
     getSessionById,
     getAgentById,
     loggerDebug,
+    loggerError,
     handleIMessageWebhook,
     runMessageToolAction,
     normalizeDiscordToolAction,
@@ -1090,6 +1099,52 @@ describe('gateway HTTP server', () => {
     );
 
     expect(state.handleIMessageWebhook).toHaveBeenCalledTimes(1);
+  });
+
+  test('delegates plugin webhook requests before API auth is enforced', async () => {
+    const state = await importFreshHealth({ webApiToken: 'secret-token' });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/plugin-webhooks/demo-plugin/email-inbound',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(
+      res,
+      () => state.handleGatewayPluginWebhook.mock.calls.length > 0,
+    );
+
+    expect(state.handleGatewayPluginWebhook).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(202);
+    expect(res.body).toBe('plugin-webhook');
+  });
+
+  test('returns a generic 500 when a webhook handler throws unexpectedly', async () => {
+    const state = await importFreshHealth();
+    state.handleGatewayPluginWebhook.mockRejectedValueOnce(
+      new Error('secret webhook failure details'),
+    );
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/plugin-webhooks/demo-plugin/email-inbound',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(
+      res,
+      () => state.handleGatewayPluginWebhook.mock.calls.length > 0,
+    );
+
+    expect(state.handleGatewayPluginWebhook).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(500);
+    expect(res.body).toContain('Internal server error');
+    expect(res.body).not.toContain('secret webhook failure details');
+    expect(state.loggerError).toHaveBeenCalledWith(
+      { err: expect.any(Error) },
+      'Webhook handler failed',
+    );
   });
 
   test('renders docs markdown as a browsable HTML page', async () => {

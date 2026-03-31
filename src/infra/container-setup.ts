@@ -244,17 +244,18 @@ export function resolveContainerImageAcquisitionMode(
   imageName: string,
 ): ContainerImageAcquisitionMode {
   const sourceCheckout = isSourceCheckout(cwd);
+  if (!sourceCheckout) return 'pull-only';
+
   if ((process.env.HYBRIDCLAW_CONTAINER_PULL_IMAGE || '').trim()) {
-    return sourceCheckout ? 'pull-or-build' : 'pull-only';
+    return 'pull-or-build';
   }
   if (imageName.includes('/')) {
-    return sourceCheckout ? 'pull-or-build' : 'pull-only';
+    return 'pull-or-build';
   }
   if (imageName !== DEFAULT_CONTAINER_IMAGE) return 'build-only';
 
   // In a local checkout, published images can lag the working tree.
-  if (sourceCheckout) return 'build-only';
-  return 'pull-only';
+  return 'build-only';
 }
 
 function normalizeRebuildPolicy(
@@ -483,6 +484,15 @@ async function buildAndValidateImage(params: {
       acquisitionMode === 'pull-only'
     ) {
       const pullImages = resolveContainerPullImages(imageName);
+      if (pullImages.length === 0) {
+        throw new Error(
+          [
+            `No pullable container image source is configured for '${imageName}'.`,
+            'Packaged installs only support pulling published runtime images.',
+            'Set `container.image` to a registry-qualified image name or set `HYBRIDCLAW_CONTAINER_PULL_IMAGE`.',
+          ].join(' '),
+        );
+      }
       for (const pullImage of pullImages) {
         console.log(
           `${commandName}: ${reason} Pulling container image '${pullImage}'...`,
@@ -550,32 +560,53 @@ export async function ensureContainerImageReady(
   const acquisitionMode = resolveContainerImageAcquisitionMode(cwd, imageName);
   const rebuildPolicy = resolveRebuildPolicy();
   const fingerprint = computeContainerFingerprint(cwd, imageName);
+  const sourceCheckout = isSourceCheckout(cwd);
+  const pullImages = resolveContainerPullImages(imageName);
+  const packagedImageHint =
+    pullImages.length > 0
+      ? [
+          'HybridClaw could not pull a published runtime image automatically.',
+          'Check Docker connectivity and the published image tag, or set `container.sandboxMode` to `host` to run without Docker.',
+        ].join(' ')
+      : [
+          'Packaged installs only support pulling published runtime images automatically.',
+          'Set `container.image` to a registry-qualified image name or set `HYBRIDCLAW_CONTAINER_PULL_IMAGE`.',
+        ].join(' ');
 
   if (!(await ensureDockerAvailable(commandName, required))) {
     return;
   }
 
   const exists = await containerImageExists(imageName);
-  const missingImageHint =
-    acquisitionMode === 'pull-only'
-      ? [
-          `${commandName}: Required container image '${imageName}' not found.`,
-          'HybridClaw could not pull a published runtime image automatically.',
-          'Check Docker connectivity and the published image tag, or set `container.sandboxMode` to `host` to run without Docker.',
-        ].join(' ')
-      : [
-          `${commandName}: Required container image '${imageName}' not found.`,
-          'Run `npm run build:container` in the project root to build it.',
-          'HybridClaw also attempts to pull published images automatically before local build.',
-        ].join(' ');
-  const rebuildImageHint = [
-    `${commandName}: Unable to rebuild container image '${imageName}' automatically.`,
-    'Run `npm run build:container` in the project root to rebuild it manually.',
-  ].join(' ');
-  const refreshImageHint = [
-    `Run \`npm run build:container\` in the project root to refresh container image '${imageName}' manually.`,
-    'The existing image will be reused for now.',
-  ].join(' ');
+  const missingImageHint = !sourceCheckout
+    ? [
+        `${commandName}: Required container image '${imageName}' not found.`,
+        packagedImageHint,
+      ].join(' ')
+    : [
+        `${commandName}: Required container image '${imageName}' not found.`,
+        'Run `npm run build:container` in the project root to build it.',
+        'HybridClaw also attempts to pull published images automatically before local build.',
+      ].join(' ');
+  const rebuildImageHint = !sourceCheckout
+    ? [
+        `${commandName}: Unable to refresh container image '${imageName}' automatically.`,
+        packagedImageHint,
+      ].join(' ')
+    : [
+        `${commandName}: Unable to rebuild container image '${imageName}' automatically.`,
+        'Run `npm run build:container` in the project root to rebuild it manually.',
+      ].join(' ');
+  const refreshImageHint = !sourceCheckout
+    ? [
+        `${commandName}: Unable to refresh container image '${imageName}' automatically.`,
+        packagedImageHint,
+        'The existing image will be reused for now.',
+      ].join(' ')
+    : [
+        `Run \`npm run build:container\` in the project root to refresh container image '${imageName}' manually.`,
+        'The existing image will be reused for now.',
+      ].join(' ');
 
   if (!exists) {
     await buildAndValidateImage({
@@ -604,8 +635,8 @@ export async function ensureContainerImageReady(
       required,
       cwd,
       imageName,
-      acquisitionMode: 'build-only',
-      reason: "Container rebuild policy is 'always'.",
+      acquisitionMode,
+      reason: "Container refresh policy is 'always'.",
       hint: rebuildImageHint,
       fingerprint,
     });
@@ -626,7 +657,7 @@ export async function ensureContainerImageReady(
     required,
     cwd,
     imageName,
-    acquisitionMode: 'build-only',
+    acquisitionMode,
     reason: 'Container sources changed since the last recorded build.',
     hint: refreshImageHint,
     fingerprint,

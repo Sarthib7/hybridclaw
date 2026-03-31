@@ -46,6 +46,7 @@ import {
 } from '../media/uploaded-media-cache.js';
 import { claimQueuedProactiveMessages } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
+import { isPluginInboundWebhookPath } from '../plugins/plugin-webhooks.js';
 import {
   buildSessionKey,
   classifySessionKeyShape,
@@ -72,12 +73,15 @@ import {
 } from './chat-result.js';
 import { serveDocs } from './docs.js';
 import {
+  getGatewayAdminPlugins,
+  handleGatewayPluginWebhook,
+  runGatewayPluginTool,
+} from './gateway-plugin-service.js';
+import {
   createGatewayAdminAgent,
   deleteGatewayAdminAgent,
   deleteGatewayAdminSession,
   ensureGatewayBootstrapAutostart,
-  type GatewayChatRequest,
-  type GatewayCommandRequest,
   GatewayRequestError,
   getGatewayAdminAgents,
   getGatewayAdminAudit,
@@ -87,7 +91,6 @@ import {
   getGatewayAdminMcp,
   getGatewayAdminModels,
   getGatewayAdminOverview,
-  getGatewayAdminPlugins,
   getGatewayAdminScheduler,
   getGatewayAdminSessions,
   getGatewayAdminSkills,
@@ -105,7 +108,6 @@ import {
   removeGatewayAdminChannel,
   removeGatewayAdminMcpServer,
   removeGatewayAdminSchedulerJob,
-  runGatewayPluginTool,
   saveGatewayAdminConfig,
   saveGatewayAdminModels,
   setGatewayAdminSchedulerJobPaused,
@@ -117,8 +119,10 @@ import {
 } from './gateway-service.js';
 import type {
   GatewayChatBranchRequestBody,
+  GatewayChatRequest,
   GatewayChatRequestBody,
   GatewayChatResult,
+  GatewayCommandRequest,
 } from './gateway-types.js';
 import { resolveWorkspaceRelativePath } from './gateway-utils.js';
 import { consumeGatewayMediaUploadQuota } from './media-upload-quota.js';
@@ -476,6 +480,18 @@ function sendJson(
     'Content-Type': 'application/json; charset=utf-8',
   });
   res.end(JSON.stringify(payload, null, 2));
+}
+
+function dispatchWebhookRoute(
+  res: ServerResponse,
+  handler: () => Promise<unknown>,
+): void {
+  void handler().catch((error) => {
+    logger.error({ err: error }, 'Webhook handler failed');
+    sendJson(res, 500, {
+      error: 'Internal server error',
+    });
+  });
 }
 
 function sendText(res: ServerResponse, statusCode: number, text: string): void {
@@ -2311,19 +2327,17 @@ export function startGatewayHttpServer(): void {
 
     if (pathname.startsWith('/api/')) {
       if (pathname === MSTEAMS_WEBHOOK_PATH && method === 'POST') {
-        void handleMSTeamsWebhook(req, res).catch((error) => {
-          sendJson(res, 500, {
-            error: error instanceof Error ? error.message : String(error),
-          });
-        });
+        dispatchWebhookRoute(res, () => handleMSTeamsWebhook(req, res));
         return;
       }
       if (pathname === IMESSAGE_WEBHOOK_PATH && method === 'POST') {
-        void handleIMessageWebhook(req, res).catch((error) => {
-          sendJson(res, 500, {
-            error: error instanceof Error ? error.message : String(error),
-          });
-        });
+        dispatchWebhookRoute(res, () => handleIMessageWebhook(req, res));
+        return;
+      }
+      if (isPluginInboundWebhookPath(pathname)) {
+        dispatchWebhookRoute(res, () =>
+          handleGatewayPluginWebhook(req, res, url),
+        );
         return;
       }
       if (pathname === '/api/artifact' && method === 'GET') {

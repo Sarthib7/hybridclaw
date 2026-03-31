@@ -26,7 +26,11 @@ function restoreEnvVar(name: string, value: string | undefined): void {
 }
 
 function writeTrackedFiles(cwd: string): void {
+  writePackagedTrackedFiles(cwd);
   fs.writeFileSync(path.join(cwd, '.git'), 'gitdir: ./.git/worktrees/dev\n');
+}
+
+function writePackagedTrackedFiles(cwd: string): void {
   fs.writeFileSync(
     path.join(cwd, 'package.json'),
     JSON.stringify({ name: 'hybridclaw', version: '0.4.1' }),
@@ -116,12 +120,13 @@ function mockDockerAvailable(command: string, args: string[]) {
 async function importFreshContainerSetup(options?: {
   homeDir?: string;
   spawnMock?: ReturnType<typeof vi.fn>;
+  imageName?: string;
 }) {
   vi.resetModules();
   process.env.HOME = options?.homeDir || createTempDir();
   vi.doMock('../src/config/config.ts', () => ({
     APP_VERSION: '0.4.1',
-    CONTAINER_IMAGE: 'hybridclaw-agent',
+    CONTAINER_IMAGE: options?.imageName || 'hybridclaw-agent',
   }));
   if (options?.spawnMock) {
     vi.doMock('node:child_process', () => ({
@@ -209,7 +214,7 @@ describe('resolveContainerImageAcquisitionMode', () => {
     ).toBe('pull-or-build');
   });
 
-  test('builds custom local image tags locally', async () => {
+  test('pulls custom image tags in packaged installs', async () => {
     const cwd = createTempDir();
     const containerSetup = await importFreshContainerSetup();
 
@@ -218,7 +223,7 @@ describe('resolveContainerImageAcquisitionMode', () => {
         cwd,
         'custom-hybridclaw',
       ),
-    ).toBe('build-only');
+    ).toBe('pull-only');
   });
 });
 
@@ -370,6 +375,143 @@ describe('ensureContainerImageReady', () => {
       }),
     ).rejects.toThrow(
       "hybridclaw gateway restart: Required container image 'hybridclaw-agent' not found.",
+    );
+    expect(
+      spawnMock.mock.calls.some(
+        ([command, args]) =>
+          command === 'npm' &&
+          Array.isArray(args) &&
+          args[0] === 'run' &&
+          args[1] === 'build:container',
+      ),
+    ).toBe(false);
+  });
+
+  test('refreshes stale packaged installs by pulling instead of building locally', async () => {
+    const cwd = createTempDir();
+    const homeDir = createTempDir();
+    writePackagedTrackedFiles(cwd);
+    writeState(homeDir, cwd, 'hybridclaw-agent', 'stale-fingerprint');
+    Object.defineProperty(process.stdin, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+
+    const spawnMock = vi.fn((command: string, args: string[]) => {
+      const dockerAvailable = mockDockerAvailable(command, args);
+      if (dockerAvailable) return dockerAvailable;
+      if (
+        command === 'docker' &&
+        args[0] === 'image' &&
+        args[1] === 'inspect'
+      ) {
+        return makeSpawnResult({ code: 0 });
+      }
+      if (
+        command === 'docker' &&
+        args[0] === 'pull' &&
+        args[1] === 'ghcr.io/hybridaione/hybridclaw-agent:v0.4.1'
+      ) {
+        return makeSpawnResult({ code: 0 });
+      }
+      if (
+        command === 'docker' &&
+        args[0] === 'tag' &&
+        args[1] === 'ghcr.io/hybridaione/hybridclaw-agent:v0.4.1' &&
+        args[2] === 'hybridclaw-agent'
+      ) {
+        return makeSpawnResult({ code: 0 });
+      }
+      if (
+        command === 'npm' &&
+        args[0] === 'run' &&
+        args[1] === 'build:container'
+      ) {
+        throw new Error('packaged refresh should not build locally');
+      }
+      throw new Error(`Unexpected spawn: ${command} ${args.join(' ')}`);
+    });
+
+    const containerSetup = await importFreshContainerSetup({
+      homeDir,
+      spawnMock,
+    });
+
+    await expect(
+      containerSetup.ensureContainerImageReady({
+        commandName: 'hybridclaw gateway restart',
+        cwd,
+      }),
+    ).resolves.toBeUndefined();
+    expect(
+      spawnMock.mock.calls.some(
+        ([command, args]) =>
+          command === 'docker' &&
+          Array.isArray(args) &&
+          args[0] === 'pull' &&
+          args[1] === 'ghcr.io/hybridaione/hybridclaw-agent:v0.4.1',
+      ),
+    ).toBe(true);
+    expect(
+      spawnMock.mock.calls.some(
+        ([command, args]) =>
+          command === 'npm' &&
+          Array.isArray(args) &&
+          args[0] === 'run' &&
+          args[1] === 'build:container',
+      ),
+    ).toBe(false);
+  });
+
+  test('fails explicitly when a packaged install is configured with a non-pullable image name', async () => {
+    const cwd = createTempDir();
+    writePackagedTrackedFiles(cwd);
+    Object.defineProperty(process.stdin, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+
+    const spawnMock = vi.fn((command: string, args: string[]) => {
+      const dockerAvailable = mockDockerAvailable(command, args);
+      if (dockerAvailable) return dockerAvailable;
+      if (
+        command === 'docker' &&
+        args[0] === 'image' &&
+        args[1] === 'inspect'
+      ) {
+        return makeSpawnResult({ code: 1, err: 'missing image' });
+      }
+      if (
+        command === 'npm' &&
+        args[0] === 'run' &&
+        args[1] === 'build:container'
+      ) {
+        throw new Error('packaged installs must not build locally');
+      }
+      throw new Error(`Unexpected spawn: ${command} ${args.join(' ')}`);
+    });
+
+    const containerSetup = await importFreshContainerSetup({
+      homeDir: createTempDir(),
+      spawnMock,
+      imageName: 'custom-hybridclaw',
+    });
+
+    await expect(
+      containerSetup.ensureContainerImageReady({
+        commandName: 'hybridclaw gateway restart',
+        cwd,
+      }),
+    ).rejects.toThrow(
+      "hybridclaw gateway restart: Required container image 'custom-hybridclaw' not found. Packaged installs only support pulling published runtime images automatically. Set `container.image` to a registry-qualified image name or set `HYBRIDCLAW_CONTAINER_PULL_IMAGE`. Details: No pullable container image source is configured for 'custom-hybridclaw'. Packaged installs only support pulling published runtime images. Set `container.image` to a registry-qualified image name or set `HYBRIDCLAW_CONTAINER_PULL_IMAGE`.",
     );
     expect(
       spawnMock.mock.calls.some(

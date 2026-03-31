@@ -100,6 +100,7 @@ function createGatewayMainTestState(options?: {
     initGatewayService: vi.fn(
       options?.initGatewayServiceImpl || (async () => {}),
     ),
+    stopGatewayPlugins: vi.fn(async () => {}),
     listQueuedProactiveMessages: vi.fn(() => []),
     loggerDebug: vi.fn(),
     loggerError: vi.fn(),
@@ -369,10 +370,13 @@ async function importFreshGatewayMain(options?: {
     getGatewayStatus: state.getGatewayStatus,
     handleGatewayCommand: state.handleGatewayCommand,
     handleGatewayMessage: state.handleGatewayMessage,
-    initGatewayService: state.initGatewayService,
     renderGatewayCommand: state.renderGatewayCommand,
     resumeEnabledFullAutoSessions: state.resumeEnabledFullAutoSessions,
     runGatewayScheduledTask: vi.fn(async () => {}),
+  }));
+  vi.doMock('../src/gateway/gateway-plugin-service.js', () => ({
+    initGatewayService: state.initGatewayService,
+    stopGatewayPlugins: state.stopGatewayPlugins,
   }));
   vi.doMock('../src/gateway/gateway-http-server.js', () => ({
     startGatewayHttpServer: state.startGatewayHttpServer,

@@ -39,6 +39,7 @@ export type CanonicalSlashSubcommandOptionDefinition = {
   options?: CanonicalSlashStringOptionDefinition[];
   tuiMenu?: CanonicalTuiMenuPresentation;
   tuiMenuEntries?: CanonicalTuiMenuEntryDefinition[];
+  localOnly?: boolean;
 };
 
 export type CanonicalSlashCommandOptionDefinition =
@@ -642,6 +643,7 @@ function buildSlashCommandCatalogDefinitions(
           kind: 'subcommand',
           name: 'install',
           description: 'Install a packaged agent from a local TUI/web session',
+          localOnly: true,
           tuiMenu: {
             label: '/agent install <source>',
             insertText: '/agent install ',
@@ -1516,9 +1518,14 @@ function buildSlashCommandCatalogDefinitions(
 export function buildCanonicalSlashCommandDefinitions(
   modelChoices: Array<{ name: string; value: string }>,
 ): CanonicalSlashCommandDefinition[] {
-  return buildSlashCommandCatalogDefinitions(modelChoices).filter(
-    (definition) => !definition.tuiOnly,
-  );
+  return buildSlashCommandCatalogDefinitions(modelChoices)
+    .filter((definition) => !definition.tuiOnly)
+    .map((definition) => ({
+      ...definition,
+      options: definition.options?.filter(
+        (option) => option.kind !== 'subcommand' || option.localOnly !== true,
+      ),
+    }));
 }
 
 export function buildTuiSlashCommandDefinitions(

@@ -58,13 +58,16 @@ test('registers plugin as a slash/text command', async () => {
   );
 });
 
-test('registers agent install as a slash/text command', async () => {
+test('keeps agent install out of canonical slash commands but available to local slash/text commands', async () => {
   const {
     buildCanonicalSlashCommandDefinitions,
+    buildTuiSlashCommandDefinitions,
+    isRegisteredTextCommandName,
     parseCanonicalSlashCommandArgs,
   } = await importCommandRegistry();
 
-  expect(buildCanonicalSlashCommandDefinitions([])).toEqual(
+  expect(isRegisteredTextCommandName('agent')).toBe(true);
+  expect(buildCanonicalSlashCommandDefinitions([])).not.toEqual(
     expect.arrayContaining([
       expect.objectContaining({
         name: 'agent',
@@ -72,6 +75,20 @@ test('registers agent install as a slash/text command', async () => {
           expect.objectContaining({
             kind: 'subcommand',
             name: 'install',
+          }),
+        ]),
+      }),
+    ]),
+  );
+  expect(buildTuiSlashCommandDefinitions([])).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        name: 'agent',
+        options: expect.arrayContaining([
+          expect.objectContaining({
+            kind: 'subcommand',
+            name: 'install',
+            localOnly: true,
           }),
         ]),
       }),

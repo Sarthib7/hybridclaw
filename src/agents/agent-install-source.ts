@@ -192,10 +192,29 @@ function parseGitHubArchiveUrl(rawValue: string): string | null {
   return null;
 }
 
+function parseDirectArchiveUrl(rawValue: string): string | null {
+  const raw = rawValue.trim();
+  if (!/^https?:\/\//.test(raw)) return null;
+
+  const githubUrl = parseGitHubArchiveUrl(raw);
+  if (githubUrl) {
+    return githubUrl;
+  }
+
+  const url = new URL(raw);
+  if (url.pathname.endsWith('.claw')) {
+    return url.toString();
+  }
+
+  throw new Error(
+    `Install source URL must point to a .claw archive: ${url.toString()}`,
+  );
+}
+
 export async function resolveInstallArchiveSource(
   rawArchivePath: string,
 ): Promise<ResolvedInstallArchive> {
-  const directUrl = parseGitHubArchiveUrl(rawArchivePath);
+  const directUrl = parseDirectArchiveUrl(rawArchivePath);
   if (directUrl) {
     return downloadArchive(directUrl);
   }

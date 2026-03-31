@@ -20,6 +20,7 @@ import {
   getKnownToolGroups,
   isKnownToolName,
 } from '../agent/tool-summary.js';
+import { resolveInstallArchiveSource } from '../agents/agent-install-source.js';
 import {
   deleteRegisteredAgent,
   findAgentConfig,
@@ -6198,6 +6199,13 @@ export async function handleGatewayCommand(
             scope: 'bare',
           },
           {
+            command:
+              'agent install <file.claw|official:<agent-dir>|github:owner/repo/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--yes]',
+            description:
+              'Install a packaged agent from a local TUI/web session',
+            scope: 'both',
+          },
+          {
             command: 'agent model [name]',
             description:
               'Show or set the persistent model for the current agent',
@@ -6720,9 +6728,129 @@ export async function handleGatewayCommand(
           );
         }
 
+        if (sub === 'install') {
+          const usage =
+            'agent install <file.claw|official:<agent-dir>|github:owner/repo/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--yes]';
+          let installSource = '';
+          let requestedId = '';
+          let force = false;
+          let skipSkillScan = false;
+          let skipExternals = false;
+          let yes = false;
+
+          for (let index = 2; index < req.args.length; index += 1) {
+            const arg = String(req.args[index] || '').trim();
+            if (!arg) continue;
+            if (arg === '--id') {
+              const nextValue = String(req.args[index + 1] || '').trim();
+              if (!nextValue || nextValue.startsWith('--')) {
+                return badCommand(
+                  'Usage',
+                  `Missing agent id for \`${usage}\`.`,
+                );
+              }
+              requestedId = nextValue;
+              index += 1;
+              continue;
+            }
+            if (arg === '--force') {
+              force = true;
+              continue;
+            }
+            if (arg === '--skip-skill-scan') {
+              skipSkillScan = true;
+              continue;
+            }
+            if (arg === '--skip-externals') {
+              skipExternals = true;
+              continue;
+            }
+            if (arg === '--yes') {
+              yes = true;
+              continue;
+            }
+            if (arg.startsWith('--')) {
+              return badCommand(
+                'Usage',
+                `Unknown option for \`agent install\`: ${arg}. Use \`${usage}\`.`,
+              );
+            }
+            if (!installSource) {
+              installSource = arg;
+              continue;
+            }
+            return badCommand(
+              'Usage',
+              `Unexpected extra arguments for \`${usage}\`.`,
+            );
+          }
+
+          if (!installSource) {
+            return badCommand('Usage', `Missing source for \`${usage}\`.`);
+          }
+          if (!isLocalSession(req)) {
+            return badCommand(
+              'Agent Install Restricted',
+              '`agent install` is only available from local TUI/web sessions.',
+            );
+          }
+
+          const { unpackAgent } = await import('../agents/claw-archive.js');
+          const resolvedArchive =
+            await resolveInstallArchiveSource(installSource);
+          try {
+            const result = await unpackAgent(resolvedArchive.archivePath, {
+              ...(requestedId ? { agentId: requestedId } : {}),
+              force,
+              skipSkillScan,
+              skipExternals,
+              yes,
+            });
+            const reloadResult =
+              result.installedPlugins.length > 0
+                ? await reloadPluginRuntime()
+                : null;
+            const importedSkillsCount = result.importedSkills.length;
+            const skippedSkillScans = result.importedSkills.filter(
+              (skill) => skill.guardSkipped,
+            ).length;
+            const lines = [
+              `Installed agent \`${result.agentId}\` to \`${result.workspacePath}\`.`,
+              `Bundled skills restored: ${result.bundledSkills.length}`,
+              ...(importedSkillsCount > 0
+                ? [`Skill imports installed: ${importedSkillsCount}`]
+                : []),
+              ...(skippedSkillScans > 0
+                ? [
+                    `Skill scanner skipped for ${skippedSkillScans} imported skill${skippedSkillScans === 1 ? '' : 's'} because --skip-skill-scan was set.`,
+                  ]
+                : []),
+              `Bundled plugins installed: ${result.installedPlugins.length}`,
+              ...(result.runtimeConfigChanged
+                ? [`Updated runtime config at \`${runtimeConfigPath()}\`.`]
+                : []),
+              ...(result.externalActions.length > 0
+                ? [
+                    'External references were not installed automatically:',
+                    ...result.externalActions.map((action) => `  ${action}`),
+                  ]
+                : []),
+              ...(reloadResult ? [reloadResult.message] : []),
+            ];
+            return infoCommand('Agent Installed', lines.join('\n'));
+          } catch (error) {
+            return badCommand(
+              'Agent Install Failed',
+              error instanceof Error ? error.message : String(error),
+            );
+          } finally {
+            resolvedArchive.cleanup?.();
+          }
+        }
+
         return badCommand(
           'Usage',
-          'Usage: `agent|agent list|agent switch <id>|agent model [name]|agent create <id> [--model <model>]`',
+          'Usage: `agent|agent list|agent switch <id>|agent model [name]|agent create <id> [--model <model>]|agent install <file.claw|official:<agent-dir>|github:owner/repo/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--yes]`',
         );
       }
 

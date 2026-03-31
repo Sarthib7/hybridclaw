@@ -593,7 +593,8 @@ function buildSlashCommandCatalogDefinitions(
     },
     {
       name: 'agent',
-      description: 'Inspect, list, switch, create, or configure agents',
+      description:
+        'Inspect, list, switch, create, install, or configure agents',
       options: [
         {
           kind: 'subcommand',
@@ -634,6 +635,62 @@ function buildSlashCommandCatalogDefinitions(
               name: 'model',
               description: 'Optional model name',
               choices: modelChoices.length > 0 ? modelChoices : undefined,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'install',
+          description: 'Install a packaged agent from a local TUI/web session',
+          tuiMenu: {
+            label: '/agent install <source>',
+            insertText: '/agent install ',
+            aliases: [
+              '/agent install <source> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--yes]',
+            ],
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'source',
+              description:
+                'Archive path, URL, official:<agent-dir>, or github:owner/repo/<agent-dir>',
+              required: true,
+            },
+            {
+              kind: 'string',
+              name: 'id',
+              description: 'Optional installed agent id',
+            },
+            {
+              kind: 'string',
+              name: 'force',
+              description: 'Optional --force override to replace an agent',
+              choices: [{ name: '--force', value: '--force' }],
+            },
+            {
+              kind: 'string',
+              name: 'skip-skill-scan',
+              description:
+                'Optional --skip-skill-scan override to bypass the scanner',
+              choices: [
+                { name: '--skip-skill-scan', value: '--skip-skill-scan' },
+              ],
+            },
+            {
+              kind: 'string',
+              name: 'skip-externals',
+              description:
+                'Optional --skip-externals override to skip imported skills',
+              choices: [
+                { name: '--skip-externals', value: '--skip-externals' },
+              ],
+            },
+            {
+              kind: 'string',
+              name: 'yes',
+              description: 'Optional --yes override for non-interactive parity',
+              choices: [{ name: '--yes', value: '--yes' }],
             },
           ],
         },
@@ -1600,6 +1657,39 @@ export function parseCanonicalSlashCommandArgs(
         return model
           ? ['agent', 'create', agentId, '--model', model]
           : ['agent', 'create', agentId];
+      }
+      if (subcommand === 'install') {
+        const source = normalizeStringOption(interaction, 'source', true);
+        if (!source) return null;
+        const agentId = normalizeStringOption(interaction, 'id');
+        const force = normalizeStringOption(interaction, 'force');
+        const skipSkillScan = normalizeStringOption(
+          interaction,
+          'skip-skill-scan',
+        );
+        const skipExternals = normalizeStringOption(
+          interaction,
+          'skip-externals',
+        );
+        const yes = normalizeStringOption(interaction, 'yes');
+        if (
+          (force && force !== '--force') ||
+          (skipSkillScan && skipSkillScan !== '--skip-skill-scan') ||
+          (skipExternals && skipExternals !== '--skip-externals') ||
+          (yes && yes !== '--yes')
+        ) {
+          return null;
+        }
+        return [
+          'agent',
+          'install',
+          source,
+          ...(agentId ? ['--id', agentId] : []),
+          ...(force ? ['--force'] : []),
+          ...(skipSkillScan ? ['--skip-skill-scan'] : []),
+          ...(skipExternals ? ['--skip-externals'] : []),
+          ...(yes ? ['--yes'] : []),
+        ];
       }
       return null;
     }

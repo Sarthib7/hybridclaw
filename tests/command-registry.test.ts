@@ -58,6 +58,56 @@ test('registers plugin as a slash/text command', async () => {
   );
 });
 
+test('registers agent install as a slash/text command', async () => {
+  const { buildCanonicalSlashCommandDefinitions, parseCanonicalSlashCommandArgs } =
+    await importCommandRegistry();
+
+  expect(buildCanonicalSlashCommandDefinitions([])).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        name: 'agent',
+        options: expect.arrayContaining([
+          expect.objectContaining({
+            kind: 'subcommand',
+            name: 'install',
+          }),
+        ]),
+      }),
+    ]),
+  );
+
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'agent',
+      getString: (name) =>
+        name === 'source'
+          ? 'official:charly'
+          : name === 'id'
+            ? 'research'
+            : name === 'force'
+              ? '--force'
+              : name === 'skip-skill-scan'
+                ? '--skip-skill-scan'
+                : name === 'skip-externals'
+                  ? '--skip-externals'
+                  : name === 'yes'
+                    ? '--yes'
+                    : null,
+      getSubcommand: () => 'install',
+    }),
+  ).toEqual([
+    'agent',
+    'install',
+    'official:charly',
+    '--id',
+    'research',
+    '--force',
+    '--skip-skill-scan',
+    '--skip-externals',
+    '--yes',
+  ]);
+});
+
 test('registers auth as a local slash/text command', async () => {
   const {
     buildCanonicalSlashCommandDefinitions,

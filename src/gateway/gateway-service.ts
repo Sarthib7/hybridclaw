@@ -274,19 +274,12 @@ import {
   normalizePlaceholderToolReply,
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
+import { handleConciergeCommand } from './concierge-commands.js';
 import {
   buildConciergeExecutionNotice,
-  buildConciergeQuestion,
-  buildConciergeResumePrompt,
   type ConciergeProfile,
-  decideConciergeRouting,
-  inferPromptUrgencyProfile,
-  normalizeConciergeProfileName,
-  type PendingConciergeState,
-  parseConciergeChoice,
-  resolveConciergeProfileModel,
-  shouldTriggerConcierge,
 } from './concierge-routing.js';
+import { resolveConciergeTurn } from './concierge-session.js';
 import {
   buildFullAutoOperatingContract,
   buildFullAutoStatusLines,
@@ -1043,9 +1036,7 @@ function parseIntOrNull(raw: string | undefined): number | null {
   return Number.isNaN(parsed) ? null : parsed;
 }
 
-function normalizeMediaContextItems(
-  raw: GatewayChatRequestBody['media'],
-): MediaContextItem[] {
+function normalizeMediaContextItems(raw: unknown): MediaContextItem[] {
   if (!Array.isArray(raw) || raw.length === 0) return [];
   const normalized: MediaContextItem[] = [];
   for (const item of raw) {
@@ -1078,6 +1069,10 @@ function normalizeMediaContextItems(
     });
   }
   return normalized;
+}
+
+function cloneMediaContextItems(media: MediaContextItem[]): MediaContextItem[] {
+  return media.map((item) => ({ ...item }));
 }
 
 function isImageMediaItem(item: MediaContextItem): boolean {
@@ -2020,84 +2015,6 @@ function formatConfiguredAgentModel(
 ): string {
   const model = resolveAgentModel(agent);
   return model ? formatModelForDisplay(model) : '(none)';
-}
-
-function formatConciergeProfileLabel(profile: ConciergeProfile): string {
-  if (profile === 'asap') return 'asap';
-  if (profile === 'balanced') return 'balanced';
-  return 'no_hurry';
-}
-
-function buildConciergeInfoText(): string {
-  const concierge = getRuntimeConfig().routing.concierge;
-  return [
-    `Enabled: ${concierge.enabled ? 'on' : 'off'}`,
-    `Decision model: ${formatModelForDisplay(concierge.model)}`,
-    '',
-    'Profiles:',
-    `asap: ${formatModelForDisplay(concierge.profiles.asap)}`,
-    `balanced: ${formatModelForDisplay(concierge.profiles.balanced)}`,
-    `no_hurry: ${formatModelForDisplay(concierge.profiles.noHurry)}`,
-  ].join('\n');
-}
-
-function resolveConciergeExecutionModel(params: {
-  profile: ConciergeProfile;
-  currentModel: string;
-  chatbotId: string;
-}): string {
-  const configuredModel =
-    resolveConciergeProfileModel(getRuntimeConfig(), params.profile) ||
-    params.currentModel;
-  if (!modelRequiresChatbotId(configuredModel) || params.chatbotId) {
-    return configuredModel;
-  }
-  if (!modelRequiresChatbotId(params.currentModel)) {
-    logger.info(
-      {
-        currentModel: params.currentModel,
-        configuredModel,
-        profile: params.profile,
-      },
-      'Concierge routing kept the current model because the configured profile model requires a chatbot',
-    );
-    return params.currentModel;
-  }
-  return configuredModel;
-}
-
-const CONCIERGE_PENDING_STATE_KEY = 'gateway.concierge.pending';
-
-function getPendingConciergeState(
-  sessionId: string,
-): PendingConciergeState | null {
-  const raw = getMemoryValue(sessionId, CONCIERGE_PENDING_STATE_KEY);
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const originalUserContent =
-    typeof (raw as { originalUserContent?: unknown }).originalUserContent ===
-    'string'
-      ? (raw as { originalUserContent: string }).originalUserContent.trim()
-      : '';
-  if (!originalUserContent) return null;
-  const createdAt =
-    typeof (raw as { createdAt?: unknown }).createdAt === 'string'
-      ? (raw as { createdAt: string }).createdAt
-      : new Date().toISOString();
-  return {
-    originalUserContent,
-    createdAt,
-  };
-}
-
-function setPendingConciergeState(
-  sessionId: string,
-  state: PendingConciergeState,
-): void {
-  setMemoryValue(sessionId, CONCIERGE_PENDING_STATE_KEY, state);
-}
-
-function clearPendingConciergeState(sessionId: string): void {
-  deleteMemoryValue(sessionId, CONCIERGE_PENDING_STATE_KEY);
 }
 
 function enableFullAutoCommand(params: {
@@ -4875,6 +4792,7 @@ export async function handleGatewayMessage(
     model: resolvedModel,
     chatbotId: resolvedChatbotId,
   } = resolvedRequest;
+  const resolvedAgent = resolveAgentConfig(agentId);
   let model = resolvedModel;
   let chatbotId = resolvedChatbotId;
   let chatbotResolution = await resolveGatewayChatbotId({
@@ -4954,7 +4872,7 @@ export async function handleGatewayMessage(
   const shouldEmitTools = sessionShowModeShowsTools(showMode);
   const enableRag = req.enableRag ?? session.enable_rag === 1;
   let provider = resolveModelProvider(model);
-  const media = normalizeMediaContextItems(req.media);
+  let media = normalizeMediaContextItems(req.media);
   const workspacePath = path.resolve(agentWorkspaceDir(agentId));
   const workspaceBootstrap = ensureBootstrapFiles(agentId);
   if (
@@ -5033,131 +4951,61 @@ export async function handleGatewayMessage(
     channelType !== 'scheduler' &&
     channelType !== 'heartbeat';
   const explicitModelPinned = Boolean(
-    req.model?.trim() || session.model?.trim(),
+    req.model?.trim() ||
+      session.model?.trim() ||
+      resolveAgentModel(resolvedAgent),
   );
-  const pendingConciergeState = getPendingConciergeState(req.sessionId);
-  const routingConfig = getRuntimeConfig().routing.concierge;
+  const conciergeTurn = await resolveConciergeTurn({
+    sessionId: req.sessionId,
+    requestContent: req.content,
+    agentId,
+    chatbotId,
+    currentModel: model,
+    isInteractiveSource,
+    explicitModelPinned,
+    media,
+    effectiveUserTurnContent,
+    effectiveUserTurnContentExpanded,
+    effectiveUserTurnContentStripped,
+    normalizeMediaContextItems,
+    cloneMediaContextItems,
+  });
   let conciergeExecutionProfile: ConciergeProfile | null = null;
-  if (isInteractiveSource && pendingConciergeState) {
-    const chosenProfile = parseConciergeChoice(req.content);
-    if (!chosenProfile) {
-      const resultText = buildConciergeQuestion({ invalidChoice: true });
-      const storedTurn = recordSuccessfulTurn({
-        sessionId: req.sessionId,
-        agentId,
-        chatbotId,
-        enableRag,
-        model,
-        channelId: req.channelId,
-        runId,
-        turnIndex,
-        userId: req.userId,
-        username: req.username,
-        canonicalScopeId: canonicalContextScope,
-        userContent: req.content,
-        resultText,
-        toolCallCount: 0,
-        startedAt,
-      });
-      return attachSessionIdentity({
-        status: 'success',
-        result: resultText,
-        toolsUsed: [],
-        userMessageId: storedTurn.userMessageId,
-        assistantMessageId: storedTurn.assistantMessageId,
-      });
-    }
-    clearPendingConciergeState(req.sessionId);
-    conciergeExecutionProfile = chosenProfile;
-    model = resolveConciergeExecutionModel({
-      profile: chosenProfile,
-      currentModel: model,
+  if (conciergeTurn.kind === 'respond') {
+    const storedTurn = recordSuccessfulTurn({
+      sessionId: req.sessionId,
+      agentId,
       chatbotId,
+      enableRag,
+      model,
+      channelId: req.channelId,
+      runId,
+      turnIndex,
+      userId: req.userId,
+      username: req.username,
+      canonicalScopeId: canonicalContextScope,
+      userContent: buildStoredUserTurnContent(userTurnContent, media),
+      resultText: conciergeTurn.resultText,
+      toolCallCount: 0,
+      startedAt,
     });
-    provider = resolveModelProvider(model);
-    effectiveUserTurnContent = pendingConciergeState.originalUserContent;
-    effectiveUserTurnContentExpanded = buildConciergeResumePrompt(
-      pendingConciergeState.originalUserContent,
-      chosenProfile,
-    );
-    effectiveUserTurnContentStripped =
-      pendingConciergeState.originalUserContent;
-  } else if (
-    isInteractiveSource &&
-    routingConfig.enabled &&
-    !explicitModelPinned
-  ) {
-    const inferredProfile = inferPromptUrgencyProfile(
-      effectiveUserTurnContentStripped,
-    );
-    if (inferredProfile) {
-      conciergeExecutionProfile = inferredProfile;
-      model = resolveConciergeExecutionModel({
-        profile: inferredProfile,
-        currentModel: model,
-        chatbotId,
-      });
-      provider = resolveModelProvider(model);
-      effectiveUserTurnContentExpanded = buildConciergeResumePrompt(
-        effectiveUserTurnContentExpanded,
-        inferredProfile,
-      );
-    } else if (
-      shouldTriggerConcierge(effectiveUserTurnContentStripped, {
-        explicitModelPinned,
-        interactiveOnly: isInteractiveSource,
-      })
-    ) {
-      const decision = await decideConciergeRouting({
-        content: effectiveUserTurnContentStripped,
-        agentId,
-        chatbotId,
-      });
-      if (decision.kind === 'pick_profile') {
-        conciergeExecutionProfile = decision.profile;
-        model = resolveConciergeExecutionModel({
-          profile: decision.profile,
-          currentModel: model,
-          chatbotId,
-        });
-        provider = resolveModelProvider(model);
-        effectiveUserTurnContentExpanded = buildConciergeResumePrompt(
-          effectiveUserTurnContentExpanded,
-          decision.profile,
-        );
-      } else {
-        const resultText = buildConciergeQuestion();
-        setPendingConciergeState(req.sessionId, {
-          originalUserContent: effectiveUserTurnContentExpanded,
-          createdAt: new Date().toISOString(),
-        });
-        const storedTurn = recordSuccessfulTurn({
-          sessionId: req.sessionId,
-          agentId,
-          chatbotId,
-          enableRag,
-          model,
-          channelId: req.channelId,
-          runId,
-          turnIndex,
-          userId: req.userId,
-          username: req.username,
-          canonicalScopeId: canonicalContextScope,
-          userContent: buildStoredUserTurnContent(userTurnContent, media),
-          resultText,
-          toolCallCount: 0,
-          startedAt,
-        });
-        return attachSessionIdentity({
-          status: 'success',
-          result: resultText,
-          toolsUsed: [],
-          userMessageId: storedTurn.userMessageId,
-          assistantMessageId: storedTurn.assistantMessageId,
-        });
-      }
-    }
+    return attachSessionIdentity({
+      status: 'success',
+      result: conciergeTurn.resultText,
+      toolsUsed: [],
+      userMessageId: storedTurn.userMessageId,
+      assistantMessageId: storedTurn.assistantMessageId,
+    });
   }
+  conciergeExecutionProfile = conciergeTurn.conciergeExecutionProfile;
+  model = conciergeTurn.model;
+  provider = conciergeTurn.provider;
+  media = conciergeTurn.media;
+  effectiveUserTurnContent = conciergeTurn.effectiveUserTurnContent;
+  effectiveUserTurnContentExpanded =
+    conciergeTurn.effectiveUserTurnContentExpanded;
+  effectiveUserTurnContentStripped =
+    conciergeTurn.effectiveUserTurnContentStripped;
   if (model !== resolvedModel) {
     chatbotResolution = await resolveGatewayChatbotId({
       model,
@@ -6143,6 +5991,50 @@ export async function handleGatewayCommand(
       severity: summary.error > 0 ? 'error' : summary.warn > 0 ? 'warn' : 'ok',
       text: lines.join('\n'),
     };
+  }
+
+  async function resolveValidatedRuntimeModelName(
+    rawModelName: string,
+  ): Promise<
+    { ok: true; model: string } | { ok: false; result: GatewayCommandResult }
+  > {
+    const normalizedModelName = resolveDisplayedModelName(
+      normalizeHybridAIModelForRuntime(rawModelName),
+    );
+    await refreshAvailableModelCatalogs({
+      includeHybridAI: resolveModelProvider(normalizedModelName) === 'hybridai',
+    });
+    const catalogModels = getAvailableModelList();
+    if (
+      catalogModels.length > 0 &&
+      !catalogModels.includes(normalizedModelName)
+    ) {
+      return {
+        ok: false,
+        result: badCommand(
+          'Unknown Model',
+          `\`${rawModelName}\` is not in the available models list.`,
+        ),
+      };
+    }
+    const gatewayStatus = await getGatewayStatusForModelSubcommand('set');
+    const availableModels = filterModelsForCurrentGatewayState(
+      catalogModels,
+      gatewayStatus.providerHealth,
+    );
+    if (
+      availableModels.length > 0 &&
+      !availableModels.includes(normalizedModelName)
+    ) {
+      return {
+        ok: false,
+        result: badCommand(
+          'Unknown Model',
+          `\`${rawModelName}\` is not in the available models list.`,
+        ),
+      };
+    }
+    return { ok: true, model: normalizedModelName };
   }
 
   const result = await (async (): Promise<GatewayCommandResult> => {
@@ -7195,93 +7087,13 @@ export async function handleGatewayCommand(
       }
 
       case 'concierge': {
-        const sub = req.args[1]?.toLowerCase();
-        const concierge = getRuntimeConfig().routing.concierge;
-
-        if (!sub || sub === 'info') {
-          return infoCommand('Concierge Routing', buildConciergeInfoText());
-        }
-
-        if (sub === 'on' || sub === 'enable') {
-          updateRuntimeConfig((draft) => {
-            draft.routing.concierge.enabled = true;
-          });
-          return plainCommand(
-            `Concierge routing enabled. Decision model: \`${formatModelForDisplay(getRuntimeConfig().routing.concierge.model)}\`.`,
-          );
-        }
-
-        if (sub === 'off' || sub === 'disable') {
-          updateRuntimeConfig((draft) => {
-            draft.routing.concierge.enabled = false;
-          });
-          return plainCommand('Concierge routing disabled.');
-        }
-
-        if (sub === 'model') {
-          const modelName = String(req.args[2] || '').trim();
-          if (!modelName) {
-            return infoCommand(
-              'Concierge Model',
-              [
-                `Enabled: ${concierge.enabled ? 'on' : 'off'}`,
-                `Decision model: ${formatModelForDisplay(concierge.model)}`,
-              ].join('\n'),
-            );
-          }
-          const normalizedModelName =
-            normalizeHybridAIModelForRuntime(modelName);
-          updateRuntimeConfig((draft) => {
-            draft.routing.concierge.model = normalizedModelName;
-          });
-          return plainCommand(
-            `Concierge decision model set to \`${formatModelForDisplay(normalizedModelName)}\`.`,
-          );
-        }
-
-        if (sub === 'profile') {
-          const profile = normalizeConciergeProfileName(
-            String(req.args[2] || ''),
-          );
-          if (!profile) {
-            return badCommand(
-              'Usage',
-              'Usage: `concierge profile <asap|balanced|no_hurry> [model]`',
-            );
-          }
-          const configuredModel = resolveConciergeProfileModel(
-            getRuntimeConfig(),
-            profile,
-          );
-          const modelName = String(req.args[3] || '').trim();
-          if (!modelName) {
-            return infoCommand(
-              'Concierge Profile',
-              `${formatConciergeProfileLabel(profile)}: ${formatModelForDisplay(configuredModel)}`,
-            );
-          }
-          const normalizedModelName =
-            normalizeHybridAIModelForRuntime(modelName);
-          updateRuntimeConfig((draft) => {
-            if (profile === 'asap') {
-              draft.routing.concierge.profiles.asap = normalizedModelName;
-              return;
-            }
-            if (profile === 'balanced') {
-              draft.routing.concierge.profiles.balanced = normalizedModelName;
-              return;
-            }
-            draft.routing.concierge.profiles.noHurry = normalizedModelName;
-          });
-          return plainCommand(
-            `Concierge profile \`${formatConciergeProfileLabel(profile)}\` set to \`${formatModelForDisplay(normalizedModelName)}\`.`,
-          );
-        }
-
-        return badCommand(
-          'Usage',
-          'Usage: `concierge [info|on|off|model [name]|profile <asap|balanced|no_hurry> [model]]`',
-        );
+        return await handleConciergeCommand({
+          args: req.args,
+          badCommand,
+          infoCommand: (title, text) => infoCommand(title, text),
+          plainCommand,
+          resolveValidatedRuntimeModelName,
+        });
       }
 
       case 'rag': {

@@ -6,12 +6,14 @@ import { logger } from '../logger.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
 import { formatModelForDisplay } from '../providers/model-names.js';
 import type { ChatMessage } from '../types/api.js';
+import type { MediaContextItem } from '../types/container.js';
 
 export type ConciergeProfile = 'asap' | 'balanced' | 'no_hurry';
 
 export interface PendingConciergeState {
   originalUserContent: string;
   createdAt: string;
+  media: MediaContextItem[];
 }
 
 export type ConciergeDecision =

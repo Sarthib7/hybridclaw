@@ -68,25 +68,23 @@ test('concierge command updates the decision model and profile mappings', async 
     sessionId: 'session-concierge-command-model',
     guildId: null,
     channelId: 'web',
-    args: ['concierge', 'model', 'gemini-3-flash'],
+    args: ['concierge', 'model', 'gpt-5'],
   });
 
   expect(modelResult.kind).toBe('plain');
   expect(modelResult.text).toContain('Concierge decision model set');
-  expect(getRuntimeConfig().routing.concierge.model).toBe('gemini-3-flash');
+  expect(getRuntimeConfig().routing.concierge.model).toBe('gpt-5');
 
   const profileResult = await handleGatewayCommand({
     sessionId: 'session-concierge-command-model',
     guildId: null,
     channelId: 'web',
-    args: ['concierge', 'profile', 'no_hurry', 'ollama/qwen3:latest'],
+    args: ['concierge', 'profile', 'no_hurry', 'gpt-5-mini'],
   });
 
   expect(profileResult.kind).toBe('plain');
   expect(profileResult.text).toContain('Concierge profile `no_hurry` set');
-  expect(getRuntimeConfig().routing.concierge.profiles.noHurry).toBe(
-    'ollama/qwen3:latest',
-  );
+  expect(getRuntimeConfig().routing.concierge.profiles.noHurry).toBe('gpt-5-mini');
 });
 
 test('concierge command rejects unknown profile names', async () => {
@@ -109,5 +107,45 @@ test('concierge command rejects unknown profile names', async () => {
   expect(result.kind).toBe('error');
   expect(result.text).toContain(
     'Usage: `concierge profile <asap|balanced|no_hurry> [model]`',
+  );
+});
+
+test('concierge command rejects unknown model names', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getRuntimeConfig } = await import('../src/config/runtime-config.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const invalidDecisionModel = await handleGatewayCommand({
+    sessionId: 'session-concierge-command-unknown-model',
+    guildId: null,
+    channelId: 'web',
+    args: ['concierge', 'model', 'definitely-not-a-real-model'],
+  });
+
+  expect(invalidDecisionModel.kind).toBe('error');
+  expect(invalidDecisionModel.text).toContain(
+    '`definitely-not-a-real-model` is not in the available models list.',
+  );
+  expect(getRuntimeConfig().routing.concierge.model).toBe('gemini-3-flash');
+
+  const invalidProfileModel = await handleGatewayCommand({
+    sessionId: 'session-concierge-command-unknown-model',
+    guildId: null,
+    channelId: 'web',
+    args: ['concierge', 'profile', 'balanced', 'definitely-not-a-real-model'],
+  });
+
+  expect(invalidProfileModel.kind).toBe('error');
+  expect(invalidProfileModel.text).toContain(
+    '`definitely-not-a-real-model` is not in the available models list.',
+  );
+  expect(getRuntimeConfig().routing.concierge.profiles.balanced).toBe(
+    'gpt-5-mini',
   );
 });

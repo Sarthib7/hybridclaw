@@ -53,6 +53,9 @@ async function createFixture() {
   );
   initDatabase({ quiet: true });
 
+  const { upsertRegisteredAgent } = await import(
+    '../src/agents/agent-registry.ts'
+  );
   const { updateRuntimeConfig } = await import(
     '../src/config/runtime-config.ts'
   );
@@ -66,6 +69,7 @@ async function createFixture() {
     memoryService,
     updateRuntimeConfig,
     updateSessionModel,
+    upsertRegisteredAgent,
   };
 }
 
@@ -164,6 +168,56 @@ test('numeric concierge reply selects the configured profile model', async () =>
     'User selected: No hurry',
   );
   expect(request?.messages?.at(-1)?.content).toContain('marketing plan');
+});
+
+test('concierge resume preserves original media context', async () => {
+  callAuxiliaryModelMock.mockResolvedValue({
+    provider: 'hybridai',
+    model: 'gemini-3-flash',
+    content: '{"decision":"ask_user"}',
+  });
+
+  const fixture = await createFixture();
+  fixture.updateRuntimeConfig((draft) => {
+    draft.routing.concierge.enabled = true;
+    draft.routing.concierge.profiles.noHurry = 'gpt-5-mini';
+  });
+
+  await fixture.handleGatewayMessage({
+    sessionId: 'session-concierge-media',
+    guildId: null,
+    channelId: 'tui',
+    userId: 'user-1',
+    username: 'user',
+    content: 'Please review the attached PDF and create a summary deck.',
+    chatbotId: 'bot_123',
+    media: [
+      {
+        path: '/tmp/q3-launch.pdf',
+        url: 'https://example.com/q3-launch.pdf',
+        originalUrl: 'https://example.com/q3-launch.pdf',
+        mimeType: 'application/pdf',
+        sizeBytes: 2048,
+        filename: 'q3-launch.pdf',
+      },
+    ],
+  });
+
+  await fixture.handleGatewayMessage({
+    sessionId: 'session-concierge-media',
+    guildId: null,
+    channelId: 'tui',
+    userId: 'user-1',
+    username: 'user',
+    content: '3',
+    chatbotId: 'bot_123',
+  });
+
+  const request = runAgentMock.mock.calls.at(-1)?.[0] as
+    | { messages?: Array<{ role: string; content: string }> }
+    | undefined;
+  expect(request?.messages?.at(-1)?.content).toContain('[MediaContext]');
+  expect(request?.messages?.at(-1)?.content).toContain('/tmp/q3-launch.pdf');
 });
 
 test('asap concierge replies continue without an execution notice', async () => {
@@ -327,4 +381,39 @@ test('explicit session model pins bypass the concierge', async () => {
     | { model?: string }
     | undefined;
   expect(latest?.model).toBe('openai-codex/gpt-5.4');
+});
+
+test('explicit agent model pins bypass the concierge', async () => {
+  callAuxiliaryModelMock.mockResolvedValue({
+    provider: 'hybridai',
+    model: 'gemini-3-flash',
+    content: '{"decision":"ask_user"}',
+  });
+
+  const fixture = await createFixture();
+  fixture.updateRuntimeConfig((draft) => {
+    draft.routing.concierge.enabled = true;
+  });
+  fixture.upsertRegisteredAgent({
+    id: 'research',
+    model: 'openai-codex/gpt-5.4',
+  });
+
+  await fixture.handleGatewayMessage({
+    sessionId: 'session-concierge-agent-pinned',
+    guildId: null,
+    channelId: 'tui',
+    userId: 'user-1',
+    username: 'user',
+    agentId: 'research',
+    content: 'Can you create a marketing plan as PDF for our Q3 launch?',
+    chatbotId: 'bot_123',
+  });
+
+  expect(callAuxiliaryModelMock).not.toHaveBeenCalled();
+  expect(runAgentMock).toHaveBeenCalledTimes(1);
+  const request = runAgentMock.mock.calls[0]?.[0] as
+    | { model?: string }
+    | undefined;
+  expect(request?.model).toBe('openai-codex/gpt-5.4');
 });

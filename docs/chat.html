@@ -698,6 +698,12 @@
       text-transform: uppercase;
     }
 
+    .msg-agent-fallback.is-emoji {
+      font-size: 17px;
+      line-height: 1;
+      text-transform: none;
+    }
+
     .msg-content {
       min-width: 0;
     }
@@ -1412,9 +1418,19 @@
       return initials.toUpperCase() || 'AI';
     }
 
-    function createAssistantAvatarFallback(label) {
+    function isMainAssistantPresentation(presentation) {
+      return normalizeAgentId(presentation?.agentId) === activeDefaultAgentId;
+    }
+
+    function createAssistantAvatarFallback(presentation) {
+      const label = presentation?.displayName || '';
       const fallback = document.createElement('span');
       fallback.className = 'msg-agent-avatar msg-agent-fallback';
+      if (isMainAssistantPresentation(presentation)) {
+        fallback.classList.add('is-emoji');
+        fallback.textContent = '🪼';
+        return fallback;
+      }
       fallback.textContent = buildAssistantInitials(label);
       return fallback;
     }
@@ -1447,7 +1463,7 @@
       const header = document.createElement('div');
       header.className = 'msg-agent';
 
-      const fallback = createAssistantAvatarFallback(normalized.displayName);
+      const fallback = createAssistantAvatarFallback(normalized);
       header.appendChild(fallback);
 
       if (normalized.imageUrl) {

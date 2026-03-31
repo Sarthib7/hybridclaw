@@ -177,3 +177,33 @@ test('handleGatewayCommand cleans up downloaded archives when agent install fail
   expect(result.title).toBe('Agent Install Failed');
   expect(result.text).toBe('archive failed validation');
 });
+
+test('handleGatewayCommand reports archive resolution failures as agent install errors', async () => {
+  setupHome();
+
+  resolveInstallArchiveSourceMock.mockRejectedValueOnce(
+    new Error('download failed'),
+  );
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-agent-install-resolution-failed',
+    guildId: null,
+    channelId: 'web',
+    args: ['agent', 'install', 'official:missing'],
+  });
+
+  expect(unpackAgentMock).not.toHaveBeenCalled();
+  expect(result.kind).toBe('error');
+  if (result.kind !== 'error') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Agent Install Failed');
+  expect(result.text).toBe('download failed');
+});

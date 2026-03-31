@@ -6796,9 +6796,11 @@ export async function handleGatewayCommand(
           }
 
           const { unpackAgent } = await import('../agents/claw-archive.js');
-          const resolvedArchive =
-            await resolveInstallArchiveSource(installSource);
+          let resolvedArchive: Awaited<
+            ReturnType<typeof resolveInstallArchiveSource>
+          > | null = null;
           try {
+            resolvedArchive = await resolveInstallArchiveSource(installSource);
             const result = await unpackAgent(resolvedArchive.archivePath, {
               ...(requestedId ? { agentId: requestedId } : {}),
               force,
@@ -6844,7 +6846,7 @@ export async function handleGatewayCommand(
               error instanceof Error ? error.message : String(error),
             );
           } finally {
-            resolvedArchive.cleanup?.();
+            resolvedArchive?.cleanup?.();
           }
         }
 

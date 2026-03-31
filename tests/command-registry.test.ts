@@ -108,6 +108,8 @@ test('registers agent install as a canonical and local slash/text command', asyn
                 ? '--skip-skill-scan'
                 : name === 'skip-externals'
                   ? '--skip-externals'
+                  : name === 'skip-import-errors'
+                    ? '--skip-import-errors'
                   : name === 'yes'
                     ? '--yes'
                     : null,
@@ -122,6 +124,7 @@ test('registers agent install as a canonical and local slash/text command', asyn
     '--force',
     '--skip-skill-scan',
     '--skip-externals',
+    '--skip-import-errors',
     '--yes',
   ]);
 });

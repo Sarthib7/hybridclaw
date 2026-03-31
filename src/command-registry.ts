@@ -646,7 +646,7 @@ function buildSlashCommandCatalogDefinitions(
             label: '/agent install <source>',
             insertText: '/agent install ',
             aliases: [
-              '/agent install <source> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--yes]',
+              '/agent install <source> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--skip-import-errors] [--yes]',
             ],
           },
           options: [
@@ -684,6 +684,18 @@ function buildSlashCommandCatalogDefinitions(
                 'Optional --skip-externals override to skip imported skills',
               choices: [
                 { name: '--skip-externals', value: '--skip-externals' },
+              ],
+            },
+            {
+              kind: 'string',
+              name: 'skip-import-errors',
+              description:
+                'Optional --skip-import-errors override to continue after imported skill failures',
+              choices: [
+                {
+                  name: '--skip-import-errors',
+                  value: '--skip-import-errors',
+                },
               ],
             },
             {
@@ -1671,11 +1683,16 @@ export function parseCanonicalSlashCommandArgs(
           interaction,
           'skip-externals',
         );
+        const skipImportErrors = normalizeStringOption(
+          interaction,
+          'skip-import-errors',
+        );
         const yes = normalizeStringOption(interaction, 'yes');
         if (
           (force && force !== '--force') ||
           (skipSkillScan && skipSkillScan !== '--skip-skill-scan') ||
           (skipExternals && skipExternals !== '--skip-externals') ||
+          (skipImportErrors && skipImportErrors !== '--skip-import-errors') ||
           (yes && yes !== '--yes')
         ) {
           return null;
@@ -1688,6 +1705,7 @@ export function parseCanonicalSlashCommandArgs(
           ...(force ? ['--force'] : []),
           ...(skipSkillScan ? ['--skip-skill-scan'] : []),
           ...(skipExternals ? ['--skip-externals'] : []),
+          ...(skipImportErrors ? ['--skip-import-errors'] : []),
           ...(yes ? ['--yes'] : []),
         ];
       }

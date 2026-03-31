@@ -255,8 +255,12 @@ export function isLocalFilesystemInstallSource(
 ): boolean {
   const raw = rawArchivePath.trim();
   if (!raw) return false;
-  if (parseDirectArchiveUrl(raw)) return false;
-  return parseOfficialClawsSource(raw) == null;
+  try {
+    if (parseDirectArchiveUrl(raw)) return false;
+    return parseOfficialClawsSource(raw) == null;
+  } catch {
+    return false;
+  }
 }
 
 export async function resolveInstallArchiveSource(

@@ -85,6 +85,7 @@ test('handleGatewayCommand installs an agent from a local TUI/web session', asyn
       'research',
       '--force',
       '--skip-skill-scan',
+      '--skip-import-errors',
       '--yes',
     ],
   });
@@ -99,6 +100,7 @@ test('handleGatewayCommand installs an agent from a local TUI/web session', asyn
       force: true,
       skipSkillScan: true,
       skipExternals: false,
+      skipImportErrors: true,
       yes: true,
     }),
   );
@@ -169,6 +171,69 @@ test('handleGatewayCommand installs an agent from a remote session when using a 
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
   expect(result.title).toBe('Agent Installed');
+});
+
+test('handleGatewayCommand reports partial imported skill failures when agent install continues', async () => {
+  setupHome();
+
+  const cleanupMock = vi.fn();
+  resolveInstallArchiveSourceMock.mockResolvedValue({
+    archivePath: '/tmp/charly.claw',
+    cleanup: cleanupMock,
+  });
+  unpackAgentMock.mockResolvedValue({
+    archivePath: '/tmp/charly.claw',
+    manifest: { id: 'charly' },
+    agentId: 'research',
+    workspacePath: '/tmp/.hybridclaw/agents/research/workspace',
+    bundledSkills: [],
+    importedSkills: [],
+    failedImportedSkills: [
+      {
+        source: 'clawhub/x-actionbook-recap',
+        error:
+          'Request failed for https://clawhub.ai/api/v1/download?slug=x-actionbook-recap&version=0.1.0: HTTP 429 Rate limit exceeded',
+      },
+    ],
+    installedPlugins: [],
+    externalActions: [],
+    runtimeConfigChanged: false,
+  });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-agent-install-partial-imports',
+    guildId: null,
+    channelId: 'web',
+    args: ['agent', 'install', 'official:charly', '--skip-import-errors'],
+  });
+
+  expect(unpackAgentMock).toHaveBeenCalledWith(
+    '/tmp/charly.claw',
+    expect.objectContaining({
+      skipImportErrors: true,
+    }),
+  );
+  expect(cleanupMock).toHaveBeenCalled();
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.text).toContain(
+    '1 imported skill failed during install because --skip-import-errors was set:',
+  );
+  expect(result.text).toContain(
+    'clawhub/x-actionbook-recap: Request failed for https://clawhub.ai/api/v1/download?slug=x-actionbook-recap&version=0.1.0: HTTP 429 Rate limit exceeded',
+  );
+  expect(result.text).toContain(
+    'Retry: hybridclaw skill import clawhub/x-actionbook-recap',
+  );
 });
 
 test('handleGatewayCommand cleans up downloaded archives when agent install fails', async () => {

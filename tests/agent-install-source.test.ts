@@ -49,6 +49,25 @@ test('isLocalFilesystemInstallSource classifies supported remote sources', async
   expect(isLocalFilesystemInstallSource('./demo.claw')).toBe(true);
 });
 
+test('isLocalFilesystemInstallSource does not throw on invalid remote-like sources', async () => {
+  const { isLocalFilesystemInstallSource } = await import(
+    '../src/agents/agent-install-source.js'
+  );
+
+  expect(() =>
+    isLocalFilesystemInstallSource('https://example.com/downloads/demo.zip'),
+  ).not.toThrow();
+  expect(isLocalFilesystemInstallSource('https://example.com/downloads/demo.zip')).toBe(false);
+
+  expect(() => isLocalFilesystemInstallSource('official:')).not.toThrow();
+  expect(isLocalFilesystemInstallSource('official:')).toBe(false);
+
+  expect(() =>
+    isLocalFilesystemInstallSource('github:owner/repo'),
+  ).not.toThrow();
+  expect(isLocalFilesystemInstallSource('github:owner/repo')).toBe(false);
+});
+
 test('resolveInstallArchiveSource rejects non-.claw URLs with a clear error', async () => {
   const fetchMock = vi.fn();
   vi.stubGlobal('fetch', fetchMock);

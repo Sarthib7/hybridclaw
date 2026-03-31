@@ -444,6 +444,7 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
     let force = false;
     let skipSkillScan = false;
     let skipExternals = false;
+    let skipImportErrors = false;
     let yes = false;
 
     for (let index = 1; index < normalized.length; index += 1) {
@@ -474,6 +475,10 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
       }
       if (arg === '--skip-externals') {
         skipExternals = true;
+        continue;
+      }
+      if (arg === '--skip-import-errors') {
+        skipImportErrors = true;
         continue;
       }
       if (arg === '--yes') {
@@ -510,6 +515,7 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
         force,
         skipSkillScan,
         skipExternals,
+        skipImportErrors,
         yes,
         confirm: async (inspection) => {
           console.log(formatClawArchiveSummary(inspection).join('\n'));
@@ -546,6 +552,16 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
         console.warn(
           `⚠️ Skill scanner skipped for ${skippedSkillScans} imported skill${skippedSkillScans === 1 ? '' : 's'} because --skip-skill-scan was set.`,
         );
+      }
+    }
+    const failedImportedSkills = result.failedImportedSkills ?? [];
+    if (failedImportedSkills.length > 0) {
+      console.warn(
+        `⚠️ ${failedImportedSkills.length} imported skill${failedImportedSkills.length === 1 ? '' : 's'} failed during install because --skip-import-errors was set:`,
+      );
+      for (const failure of failedImportedSkills) {
+        console.warn(`  ${failure.source}: ${failure.error}`);
+        console.warn(`  Retry: hybridclaw skill import ${failure.source}`);
       }
     }
     console.log(

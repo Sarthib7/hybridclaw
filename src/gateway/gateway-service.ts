@@ -5926,7 +5926,7 @@ export async function handleGatewayCommand(
           },
           {
             command:
-              'agent install <file.claw|https://.../*.claw|official:<agent-dir>|github:owner/repo/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--yes]',
+              'agent install <file.claw|https://.../*.claw|official:<agent-dir>|github:owner/repo/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--skip-import-errors] [--yes]',
             description: 'Install a packaged agent from a path or URL',
             scope: 'both',
           },
@@ -6455,12 +6455,13 @@ export async function handleGatewayCommand(
 
         if (sub === 'install') {
           const usage =
-            'agent install <file.claw|https://.../*.claw|official:<agent-dir>|github:owner/repo/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--yes]';
+            'agent install <file.claw|https://.../*.claw|official:<agent-dir>|github:owner/repo/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--skip-import-errors] [--yes]';
           let installSource = '';
           let requestedId = '';
           let force = false;
           let skipSkillScan = false;
           let skipExternals = false;
+          let skipImportErrors = false;
           let yes = false;
 
           for (let index = 2; index < req.args.length; index += 1) {
@@ -6488,6 +6489,10 @@ export async function handleGatewayCommand(
             }
             if (arg === '--skip-externals') {
               skipExternals = true;
+              continue;
+            }
+            if (arg === '--skip-import-errors') {
+              skipImportErrors = true;
               continue;
             }
             if (arg === '--yes') {
@@ -6534,6 +6539,7 @@ export async function handleGatewayCommand(
               force,
               skipSkillScan,
               skipExternals,
+              skipImportErrors,
               yes,
             });
             const reloadResult =
@@ -6544,6 +6550,7 @@ export async function handleGatewayCommand(
             const skippedSkillScans = result.importedSkills.filter(
               (skill) => skill.guardSkipped,
             ).length;
+            const failedImportedSkills = result.failedImportedSkills ?? [];
             const lines = [
               `Installed agent \`${result.agentId}\` to \`${result.workspacePath}\`.`,
               `Bundled skills restored: ${result.bundledSkills.length}`,
@@ -6553,6 +6560,15 @@ export async function handleGatewayCommand(
               ...(skippedSkillScans > 0
                 ? [
                     `Skill scanner skipped for ${skippedSkillScans} imported skill${skippedSkillScans === 1 ? '' : 's'} because --skip-skill-scan was set.`,
+                  ]
+                : []),
+              ...(failedImportedSkills.length > 0
+                ? [
+                    `${failedImportedSkills.length} imported skill${failedImportedSkills.length === 1 ? '' : 's'} failed during install because --skip-import-errors was set:`,
+                    ...failedImportedSkills.flatMap((failure) => [
+                      `  ${failure.source}: ${failure.error}`,
+                      `  Retry: hybridclaw skill import ${failure.source}`,
+                    ]),
                   ]
                 : []),
               `Bundled plugins installed: ${result.installedPlugins.length}`,
@@ -6580,7 +6596,7 @@ export async function handleGatewayCommand(
 
         return badCommand(
           'Usage',
-          'Usage: `agent|agent list|agent switch <id>|agent model [name]|agent create <id> [--model <model>]|agent install <file.claw|https://.../*.claw|official:<agent-dir>|github:owner/repo/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--yes]`',
+          'Usage: `agent|agent list|agent switch <id>|agent model [name]|agent create <id> [--model <model>]|agent install <file.claw|https://.../*.claw|official:<agent-dir>|github:owner/repo/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--skip-import-errors] [--yes]`',
         );
       }
 

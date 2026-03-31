@@ -442,7 +442,7 @@ Commands:
   hybridclaw agent list
   hybridclaw agent export [agent-id] [-o <path>] [--description <text>] [--author <text>] [--version <value>] [--dry-run] [--skills <ask|active|all|some>] [--skill <name>]... [--plugins <ask|active|all|some>] [--plugin <id>]...
   hybridclaw agent inspect <file.claw>
-  hybridclaw agent install <file.claw|https://.../*.claw|official:<agent-dir>|github:owner/repo/<agent-dir>> [--id <id>] [--force] [--skip-externals] [--yes]
+  hybridclaw agent install <file.claw|https://.../*.claw|official:<agent-dir>|github:owner/repo/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--skip-import-errors] [--yes]
   hybridclaw agent activate <agent-id>
   hybridclaw agent uninstall <agent-id> [--yes]
 
@@ -463,7 +463,9 @@ Notes:
   - \`uninstall\` removes a non-main agent registration and its workspace root.
   - Use \`--yes\` to skip the install or uninstall confirmation prompt.
   - Use \`--force\` to replace an existing agent workspace or bundled plugin install during install.
+  - Use \`--skip-skill-scan\` to bypass the imported skill security scanner during install.
   - Use \`--skip-externals\` to skip manifest-declared imported skills and other external references during install.
+  - Use \`--skip-import-errors\` to continue agent install when an imported skill fetch/install fails, and print retry commands instead.
   - Legacy aliases remain accepted: \`pack\` maps to \`export\`, and \`unpack\` maps to \`install\`.`);
 }
 

@@ -665,7 +665,7 @@ function renderSidebarNode(
     .join('');
 
   if (!node.pathKey) {
-    return `<div class="docs-sidebar-root"><div class="docs-sidebar-section-title">${escapeHtml(node.label)}</div><div class="docs-sidebar-section-items">${childrenMarkup}</div></div>`;
+    return childrenMarkup;
   }
 
   return `<details class="docs-sidebar-group" ${

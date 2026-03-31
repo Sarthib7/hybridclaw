@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { CLAW_ARCHIVE_MAX_COMPRESSED_BYTES } from './claw-security.js';
 
 const OFFICIAL_CLAWS_REPO = 'HybridAIOne/claws';
@@ -87,7 +88,7 @@ async function downloadArchive(url: string): Promise<ResolvedInstallArchive> {
   let totalBytes = 0;
   try {
     await pipeline(
-      Readable.fromWeb(response.body),
+      Readable.fromWeb(response.body as NodeReadableStream),
       new Transform({
         transform(chunk, _encoding, callback) {
           totalBytes += Buffer.byteLength(chunk);

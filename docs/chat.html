@@ -698,15 +698,6 @@
       text-transform: uppercase;
     }
 
-    .msg-agent-fallback.is-emoji {
-      background: transparent;
-      border-color: rgba(95, 111, 136, 0.12);
-      font-size: 17px;
-      line-height: 1;
-      text-transform: none;
-      color: #5f6f88;
-    }
-
     .msg-content {
       min-width: 0;
     }
@@ -1421,19 +1412,10 @@
       return initials.toUpperCase() || 'AI';
     }
 
-    function isMainAssistantPresentation(presentation) {
-      return normalizeAgentId(presentation?.agentId) === activeDefaultAgentId;
-    }
-
     function createAssistantAvatarFallback(presentation) {
       const label = presentation?.displayName || '';
       const fallback = document.createElement('span');
       fallback.className = 'msg-agent-avatar msg-agent-fallback';
-      if (isMainAssistantPresentation(presentation)) {
-        fallback.classList.add('is-emoji');
-        fallback.textContent = '🪼︎';
-        return fallback;
-      }
       fallback.textContent = buildAssistantInitials(label);
       return fallback;
     }

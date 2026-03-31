@@ -16,9 +16,9 @@ Main docs landing pages:
 - [HybridClaw Docs](./README.md)
 - [Getting Started](./getting-started/README.md)
 - [Guides](./guides/README.md)
-- [Reference](./reference/README.md)
 - [Extensibility](./extensibility/README.md)
 - [Internals](./internals/README.md)
+- [Reference](./reference/README.md)
 
 ## Getting Started
 
@@ -37,15 +37,6 @@ Main docs landing pages:
 - [TUI MCP](./guides/tui-mcp.md)
 - [Voice / TTS](./guides/voice-tts.md)
 
-## Reference
-
-- [Reference](./reference/README.md)
-- [Commands](./reference/commands.md)
-- [Configuration](./reference/configuration.md)
-- [Diagnostics](./reference/diagnostics.md)
-- [FAQ](./reference/faq.md)
-- [Model Selection](./reference/model-selection.md)
-
 ## Extensibility
 
 - [Extensibility](./extensibility/README.md)
@@ -62,3 +53,12 @@ Main docs landing pages:
 - [Architecture](./internals/architecture.md)
 - [Runtime](./internals/runtime.md)
 - [Session Routing](./internals/session-routing.md)
+
+## Reference
+
+- [Reference](./reference/README.md)
+- [Commands](./reference/commands.md)
+- [Configuration](./reference/configuration.md)
+- [Diagnostics](./reference/diagnostics.md)
+- [FAQ](./reference/faq.md)
+- [Model Selection](./reference/model-selection.md)

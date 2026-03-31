@@ -38,12 +38,12 @@ If you want a raw-markdown entrypoint that links every docs page directly, use
   onboarding, provider authentication, and first-run setup
 - [Guides](./guides/README.md) for local providers, MCP, bundled skills,
   voice/TTS, and optional office tooling
-- [Reference](./reference/README.md) for model selection, configuration,
-  diagnostics, commands, and FAQ
 - [Extensibility](./extensibility/README.md) for tools, skills, plugins,
   agent packages, and extension-specific operator workflows
 - [Internals](./internals/README.md) for architecture, runtime behavior,
   session routing, testing, and release mechanics
+- [Reference](./reference/README.md) for model selection, configuration,
+  diagnostics, commands, and FAQ
 
 ## Fast Paths
 

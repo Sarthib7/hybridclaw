@@ -10,8 +10,8 @@ import {
 
 /**
  * When HYBRIDAI_API_KEY is set (CI secret), the gateway uses a real key and
- * provider health probes hit the live API. Without it, a dummy key lets the
- * gateway start for static-content and endpoint tests.
+ * provider health probes and the chat API test hit the live API. Without it,
+ * a dummy key lets the gateway start for static-content and endpoint tests.
  */
 
 const DOCKER_E2E = process.env.HYBRIDCLAW_RUN_DOCKER_E2E === '1';

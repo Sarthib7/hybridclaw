@@ -4,11 +4,10 @@ import net from 'node:net';
 /**
  * Shared helpers for Docker-based e2e tests.
  *
- * All execSync/spawnSync calls use only hardcoded strings — no user input,
- * no injection risk.
+ * Current call sites pass hardcoded literals only. Functions accept
+ * arbitrary strings — callers must ensure args are shell-safe.
  */
 
-/** Prefix for all e2e container names. */
 export const CONTAINER_PREFIX = 'hc-e2e';
 
 /**
@@ -27,8 +26,8 @@ export function cleanupStaleContainers(suitePrefix: string): void {
         timeout: 15_000,
       });
     }
-  } catch {
-    // best-effort cleanup
+  } catch (err) {
+    console.warn(`[cleanup] Failed to remove stale ${suitePrefix} containers:`, err);
   }
 }
 
@@ -65,7 +64,8 @@ export async function getAvailablePort(preferred?: number): Promise<number> {
 
 /**
  * Poll a URL until the response satisfies a condition or the timeout expires.
- * By default checks for `{ status: 'ok' }`.
+ * By default checks for `{ status: 'ok' }`. Polls every 500ms with a 2s
+ * per-request timeout.
  */
 export async function waitForHealth(
   url: string,
@@ -83,8 +83,11 @@ export async function waitForHealth(
         const body = (await res.json()) as Record<string, unknown>;
         if (check(body)) return;
       }
-    } catch {
-      // not ready yet
+    } catch (err) {
+      // Network errors (ECONNREFUSED, AbortError) are expected during startup.
+      if (err instanceof TypeError || err instanceof SyntaxError) {
+        console.warn(`[health] Unexpected error polling ${url}:`, (err as Error).message);
+      }
     }
     await new Promise((r) => setTimeout(r, 500));
   }
@@ -99,9 +102,8 @@ export function dockerExec(
   cmd: string,
   timeoutMs = 10_000,
 ): string {
-  // All arguments are hardcoded constants — no injection risk.
-  // Use double quotes for the sh -c argument so single quotes work inside
-  // commands. Internal double quotes must be escaped by the caller.
+  // Double-quote the sh -c argument so single quotes work inside commands.
+  // Only double quotes are escaped — does not protect against $() or backticks.
   const escaped = cmd.replace(/"/g, '\\"');
   return execSync(`docker exec ${containerName} sh -c "${escaped}"`, {
     encoding: 'utf-8',
@@ -168,7 +170,7 @@ export function startContainer(opts: StartContainerOpts): StartContainerResult {
 export function removeContainer(name: string): void {
   try {
     execSync(`docker rm -f ${name}`, { stdio: 'pipe', timeout: 15_000 });
-  } catch {
-    // best-effort cleanup
+  } catch (err) {
+    console.warn(`[cleanup] Failed to remove container ${name}:`, err);
   }
 }

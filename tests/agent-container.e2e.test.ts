@@ -22,7 +22,11 @@ function hasCommand(cmd: string): boolean {
   try {
     exec(`which ${cmd}`);
     return true;
-  } catch {
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('is not running') || msg.includes('No such container')) {
+      throw err;
+    }
     return false;
   }
 }

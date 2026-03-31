@@ -54,7 +54,10 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
       encoding: 'utf-8',
       timeout: 120_000,
     }).trim();
-    const tarballName = packOutput.split('\n').pop()!.trim();
+    const tarballName = packOutput.split('\n').pop()?.trim();
+    if (!tarballName) {
+      throw new Error(`npm pack produced no output. Full output: ${packOutput}`);
+    }
     const tarball = path.join(tempDir, tarballName);
 
     execSync(
@@ -102,15 +105,28 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
     await waitForHealth(`${GATEWAY_URL}/health`, STARTUP_TIMEOUT_MS);
   }, STARTUP_TIMEOUT_MS + 150_000);
 
-  afterAll(() => {
+  afterAll(async () => {
     if (gatewayProcess) {
-      gatewayProcess.kill('SIGTERM');
+      const proc = gatewayProcess;
       gatewayProcess = null;
+      proc.kill('SIGTERM');
+
+      const exited = await Promise.race([
+        new Promise<boolean>((resolve) => proc.on('exit', () => resolve(true))),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5_000)),
+      ]);
+
+      if (!exited) {
+        console.warn('[cleanup] Gateway did not exit after SIGTERM, sending SIGKILL');
+        proc.kill('SIGKILL');
+      }
     }
-    try {
-      fs.rmSync(tempDir, { recursive: true, force: true });
-    } catch {
-      // best-effort cleanup
+    if (tempDir) {
+      try {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      } catch (err) {
+        console.warn('[cleanup] Failed to remove temp dir:', err);
+      }
     }
   });
 

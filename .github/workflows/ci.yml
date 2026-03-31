@@ -61,8 +61,7 @@ jobs:
         run: npx vitest run --config vitest.e2e.config.ts tests/gateway-docker.e2e.test.ts
 
       - name: Gateway e2e tests (external services)
-        if: matrix.name == 'gateway'
-        continue-on-error: true
+        if: matrix.name == 'gateway' && secrets.HYBRIDAI_API_KEY != ''
         env:
           HYBRIDCLAW_RUN_DOCKER_E2E: '1'
           HYBRIDCLAW_E2E_IMAGE: hybridclaw-gateway:preflight

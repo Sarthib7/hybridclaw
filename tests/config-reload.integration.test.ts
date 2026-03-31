@@ -2,7 +2,7 @@
  * Integration test: Config loading, validation, and update cycle.
  *
  * Writes real config.json files to a temp directory, sets HYBRIDCLAW_DATA_DIR
- * to point there, and tests loadRuntimeConfigFromSources / getRuntimeConfig /
+ * to point there, and tests reloadRuntimeConfig / getRuntimeConfig /
  * updateRuntimeConfig with real filesystem I/O.
  *
  * The file watcher is intentionally disabled (HYBRIDCLAW_DISABLE_CONFIG_WATCHER=1)

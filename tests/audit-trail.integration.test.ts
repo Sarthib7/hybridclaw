@@ -23,8 +23,8 @@ type WireRecord = import('../src/audit/audit-trail.js').WireRecord;
 beforeAll(async () => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-audit-integration-'));
 
-  // Point DATA_DIR at our temp dir so audit files land there.
-  // The audit module reads DATA_DIR from config at call time.
+  // The env var alone is insufficient — DATA_DIR is resolved at module load.
+  // The vi.doMock below ensures the config module returns our temp dir.
   process.env.HYBRIDCLAW_DATA_DIR = tmpDir;
   process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
 
@@ -165,11 +165,8 @@ describe('audit trail integration', () => {
     lines[3] = JSON.stringify(tampered);
     fs.writeFileSync(wirePath, lines.join('\n'), 'utf-8');
 
-    // Verification should now fail.
-    // Note: verifyAuditSessionChain reads from disk, but our in-memory
-    // sessionStateCache still has the old state. We need a fresh module
-    // to bypass the cache, but the verify function reads from disk directly
-    // so it should detect the tamper regardless of cache.
+    // verifyAuditSessionChain always reads from disk, bypassing the
+    // in-memory sessionStateCache, so it detects the tampered file.
     const afterTamper = verifyAuditSessionChain(tamperSessionId);
     expect(afterTamper.ok).toBe(false);
     expect(afterTamper.errors.length).toBeGreaterThan(0);

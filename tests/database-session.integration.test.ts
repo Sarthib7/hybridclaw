@@ -175,24 +175,18 @@ describe('database session integration', () => {
     expect(contents).not.toContain('Session B msg');
   });
 
-  it('rapid sequential writes produce unique message IDs', async () => {
+  it('sequential writes produce unique message IDs', () => {
     const session = getOrCreateSession(
-      'test-concurrent',
+      'test-sequential-unique',
       'guild-1',
       'channel-1',
     );
-    const promises = Array.from({ length: 20 }, (_, i) =>
-      Promise.resolve(
-        storeMessage(
-          session.id,
-          'user-1',
-          'Alice',
-          'user',
-          `Concurrent ${i}`,
-        ),
-      ),
-    );
-    const ids = await Promise.all(promises);
+    const ids: number[] = [];
+    for (let i = 0; i < 20; i++) {
+      ids.push(
+        storeMessage(session.id, 'user-1', 'Alice', 'user', `Message ${i}`),
+      );
+    }
     const unique = new Set(ids);
     expect(unique.size).toBe(20);
   });

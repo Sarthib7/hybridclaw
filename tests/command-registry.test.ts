@@ -59,8 +59,10 @@ test('registers plugin as a slash/text command', async () => {
 });
 
 test('registers agent install as a slash/text command', async () => {
-  const { buildCanonicalSlashCommandDefinitions, parseCanonicalSlashCommandArgs } =
-    await importCommandRegistry();
+  const {
+    buildCanonicalSlashCommandDefinitions,
+    parseCanonicalSlashCommandArgs,
+  } = await importCommandRegistry();
 
   expect(buildCanonicalSlashCommandDefinitions([])).toEqual(
     expect.arrayContaining([

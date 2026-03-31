@@ -1511,7 +1511,6 @@ function renderPage(
       flex-wrap: wrap;
       gap: 6px;
       align-items: center;
-      margin-top: 4px;
       color: var(--muted);
       font-size: 0.88rem;
     }

@@ -5,19 +5,24 @@ import { expect, test, vi } from 'vitest';
 
 import { setupGatewayTest } from './helpers/gateway-test-setup.js';
 
-const { runAgentMock, ensurePluginManagerInitializedMock, pluginManagerMock } =
-  vi.hoisted(() => {
-    const pluginManager = {
-      getToolDefinitions: vi.fn(() => []),
-      notifyBeforeAgentStart: vi.fn(async () => {}),
-      notifySessionStart: vi.fn(async () => {}),
-    };
-    return {
-      runAgentMock: vi.fn(),
-      ensurePluginManagerInitializedMock: vi.fn(async () => pluginManager),
-      pluginManagerMock: pluginManager,
-    };
-  });
+const {
+  runAgentMock,
+  ensurePluginManagerInitializedMock,
+  setPluginInboundMessageDispatcherMock,
+  pluginManagerMock,
+} = vi.hoisted(() => {
+  const pluginManager = {
+    getToolDefinitions: vi.fn(() => []),
+    notifyBeforeAgentStart: vi.fn(async () => {}),
+    notifySessionStart: vi.fn(async () => {}),
+  };
+  return {
+    runAgentMock: vi.fn(),
+    ensurePluginManagerInitializedMock: vi.fn(async () => pluginManager),
+    setPluginInboundMessageDispatcherMock: vi.fn(),
+    pluginManagerMock: pluginManager,
+  };
+});
 
 vi.mock('../src/agent/agent.js', () => ({
   runAgent: runAgentMock,
@@ -39,6 +44,7 @@ vi.mock('../src/plugins/plugin-manager.js', () => ({
   ensurePluginManagerInitialized: ensurePluginManagerInitializedMock,
   listLoadedPluginCommands: vi.fn(() => []),
   reloadPluginManager: vi.fn(async () => pluginManagerMock),
+  setPluginInboundMessageDispatcher: setPluginInboundMessageDispatcherMock,
   shutdownPluginManager: vi.fn(async () => {}),
 }));
 
@@ -48,6 +54,7 @@ const { setupHome } = setupGatewayTest({
     runAgentMock.mockReset();
     fetchHybridAIAccountChatbotIdMock.mockClear();
     ensurePluginManagerInitializedMock.mockClear();
+    setPluginInboundMessageDispatcherMock.mockClear();
     pluginManagerMock.getToolDefinitions.mockClear();
     pluginManagerMock.notifyBeforeAgentStart.mockClear();
     pluginManagerMock.notifySessionStart.mockClear();

@@ -699,6 +699,8 @@
     }
 
     .msg-agent-fallback.is-emoji {
+      background: transparent;
+      border-color: rgba(95, 111, 136, 0.12);
       font-size: 17px;
       line-height: 1;
       text-transform: none;
@@ -1429,7 +1431,7 @@
       fallback.className = 'msg-agent-avatar msg-agent-fallback';
       if (isMainAssistantPresentation(presentation)) {
         fallback.classList.add('is-emoji');
-        fallback.textContent = '🪼';
+        fallback.textContent = '🪼︎';
         return fallback;
       }
       fallback.textContent = buildAssistantInitials(label);

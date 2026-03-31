@@ -6,6 +6,7 @@ const {
   ensurePluginManagerInitializedMock,
   reloadPluginManagerMock,
   shutdownPluginManagerMock,
+  setPluginInboundMessageDispatcherMock,
   installPluginMock,
   readPluginConfigEntryMock,
   readPluginConfigValueMock,
@@ -48,6 +49,7 @@ const {
     ensurePluginManagerInitializedMock: vi.fn(async () => pluginManager),
     reloadPluginManagerMock: vi.fn(async () => pluginManager),
     shutdownPluginManagerMock: vi.fn(async () => {}),
+    setPluginInboundMessageDispatcherMock: vi.fn(),
     installPluginMock: vi.fn(async (source: string) => ({
       pluginId: 'demo-plugin',
       pluginDir: '/tmp/.hybridclaw/plugins/demo-plugin',
@@ -150,6 +152,7 @@ vi.mock('../src/plugins/plugin-manager.js', () => ({
   ensurePluginManagerInitialized: ensurePluginManagerInitializedMock,
   reloadPluginManager: reloadPluginManagerMock,
   shutdownPluginManager: shutdownPluginManagerMock,
+  setPluginInboundMessageDispatcher: setPluginInboundMessageDispatcherMock,
 }));
 
 vi.mock('../src/plugins/plugin-install.js', () => ({
@@ -172,6 +175,7 @@ const { setupHome } = setupGatewayTest({
     runAgentMock.mockReset();
     ensurePluginManagerInitializedMock.mockClear();
     reloadPluginManagerMock.mockClear();
+    setPluginInboundMessageDispatcherMock.mockClear();
     pluginManagerMock.collectPromptContextDetails.mockClear();
     pluginManagerMock.collectPromptContext.mockClear();
     pluginManagerMock.getToolDefinitions.mockClear();

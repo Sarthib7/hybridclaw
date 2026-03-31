@@ -304,6 +304,7 @@ import {
 import { GATEWAY_LOG_REQUESTS_ENV } from './gateway-lifecycle.js';
 import {
   handlePluginGatewayCommand,
+  reloadPluginRuntime,
   tryEnsurePluginManagerInitializedForGateway,
   tryHandlePluginDefinedGatewayCommand,
 } from './gateway-plugin-service.js';

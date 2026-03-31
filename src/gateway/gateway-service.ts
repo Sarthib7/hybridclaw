@@ -274,6 +274,12 @@ import {
   normalizePlaceholderToolReply,
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
+import { handleConciergeCommand } from './concierge-commands.js';
+import {
+  buildConciergeExecutionNotice,
+  type ConciergeProfile,
+} from './concierge-routing.js';
+import { resolveConciergeTurn } from './concierge-session.js';
 import {
   buildFullAutoOperatingContract,
   buildFullAutoStatusLines,
@@ -339,7 +345,6 @@ import {
   type GatewayAgentsResponse,
   type GatewayAssistantPresentation,
   type GatewayChatRequest,
-  type GatewayChatRequestBody,
   type GatewayChatResult,
   type GatewayCommandRequest,
   type GatewayCommandResult,
@@ -1030,9 +1035,7 @@ function parseIntOrNull(raw: string | undefined): number | null {
   return Number.isNaN(parsed) ? null : parsed;
 }
 
-function normalizeMediaContextItems(
-  raw: GatewayChatRequestBody['media'],
-): MediaContextItem[] {
+function normalizeMediaContextItems(raw: unknown): MediaContextItem[] {
   if (!Array.isArray(raw) || raw.length === 0) return [];
   const normalized: MediaContextItem[] = [];
   for (const item of raw) {
@@ -1065,6 +1068,10 @@ function normalizeMediaContextItems(
     });
   }
   return normalized;
+}
+
+function cloneMediaContextItems(media: MediaContextItem[]): MediaContextItem[] {
+  return media.map((item) => ({ ...item }));
 }
 
 function isImageMediaItem(item: MediaContextItem): boolean {
@@ -4779,8 +4786,15 @@ export async function handleGatewayMessage(
     model: req.model,
     chatbotId: req.chatbotId,
   });
-  let { agentId, model, chatbotId } = resolvedRequest;
-  const chatbotResolution = await resolveGatewayChatbotId({
+  const {
+    agentId,
+    model: resolvedModel,
+    chatbotId: resolvedChatbotId,
+  } = resolvedRequest;
+  const resolvedAgent = resolveAgentConfig(agentId);
+  let model = resolvedModel;
+  let chatbotId = resolvedChatbotId;
+  let chatbotResolution = await resolveGatewayChatbotId({
     model,
     chatbotId,
     sessionId: req.sessionId,
@@ -4856,8 +4870,8 @@ export async function handleGatewayMessage(
   const showMode = normalizeSessionShowMode(session.show_mode);
   const shouldEmitTools = sessionShowModeShowsTools(showMode);
   const enableRag = req.enableRag ?? session.enable_rag === 1;
-  const provider = resolveModelProvider(model);
-  const media = normalizeMediaContextItems(req.media);
+  let provider = resolveModelProvider(model);
+  let media = normalizeMediaContextItems(req.media);
   const workspacePath = path.resolve(agentWorkspaceDir(agentId));
   const workspaceBootstrap = ensureBootstrapFiles(agentId);
   if (
@@ -4905,8 +4919,9 @@ export async function handleGatewayMessage(
     message: userTurnContent,
     ...contextReferenceOptions,
   });
-  const userTurnContentExpanded = contextRefResult.message;
-  const userTurnContentStripped = contextRefResult.strippedMessage;
+  let effectiveUserTurnContent = userTurnContent;
+  let effectiveUserTurnContentExpanded = contextRefResult.message;
+  let effectiveUserTurnContentStripped = contextRefResult.strippedMessage;
   const canonicalContextScope = resolveCanonicalContextScope(session);
   if (isFullAutoEnabled(session)) {
     syncFullAutoRuntimeContext(req.sessionId, {
@@ -4930,6 +4945,77 @@ export async function handleGatewayMessage(
       });
     }
   }
+  const isInteractiveSource =
+    source !== 'fullauto' &&
+    channelType !== 'scheduler' &&
+    channelType !== 'heartbeat';
+  const explicitModelPinned = Boolean(
+    req.model?.trim() ||
+      session.model?.trim() ||
+      resolveAgentModel(resolvedAgent),
+  );
+  const conciergeTurn = await resolveConciergeTurn({
+    sessionId: req.sessionId,
+    requestContent: req.content,
+    agentId,
+    chatbotId,
+    currentModel: model,
+    isInteractiveSource,
+    explicitModelPinned,
+    media,
+    effectiveUserTurnContent,
+    effectiveUserTurnContentExpanded,
+    effectiveUserTurnContentStripped,
+    normalizeMediaContextItems,
+    cloneMediaContextItems,
+  });
+  let conciergeExecutionProfile: ConciergeProfile | null = null;
+  if (conciergeTurn.kind === 'respond') {
+    const storedTurn = recordSuccessfulTurn({
+      sessionId: req.sessionId,
+      agentId,
+      chatbotId,
+      enableRag,
+      model,
+      channelId: req.channelId,
+      runId,
+      turnIndex,
+      userId: req.userId,
+      username: req.username,
+      canonicalScopeId: canonicalContextScope,
+      userContent: buildStoredUserTurnContent(userTurnContent, media),
+      resultText: conciergeTurn.resultText,
+      toolCallCount: 0,
+      startedAt,
+    });
+    return attachSessionIdentity({
+      status: 'success',
+      result: conciergeTurn.resultText,
+      toolsUsed: [],
+      userMessageId: storedTurn.userMessageId,
+      assistantMessageId: storedTurn.assistantMessageId,
+    });
+  }
+  conciergeExecutionProfile = conciergeTurn.conciergeExecutionProfile;
+  model = conciergeTurn.model;
+  provider = conciergeTurn.provider;
+  media = conciergeTurn.media;
+  effectiveUserTurnContent = conciergeTurn.effectiveUserTurnContent;
+  effectiveUserTurnContentExpanded =
+    conciergeTurn.effectiveUserTurnContentExpanded;
+  effectiveUserTurnContentStripped =
+    conciergeTurn.effectiveUserTurnContentStripped;
+  if (model !== resolvedModel) {
+    chatbotResolution = await resolveGatewayChatbotId({
+      model,
+      chatbotId,
+      sessionId: req.sessionId,
+      channelId: req.channelId,
+      agentId,
+      trigger: 'chat',
+    });
+    chatbotId = chatbotResolution.chatbotId;
+  }
   const debugMeta = {
     sessionId: req.sessionId,
     guildId: req.guildId,
@@ -4940,7 +5026,7 @@ export async function handleGatewayMessage(
     turnIndex,
     mediaCount: media.length,
     audioTranscriptCount: audioPrelude.transcripts.length,
-    contentLength: userTurnContentExpanded.length,
+    contentLength: effectiveUserTurnContentExpanded.length,
     streamingRequested: Boolean(
       req.onTextDelta || req.onToolProgress || req.onApprovalProgress,
     ),
@@ -5121,7 +5207,7 @@ export async function handleGatewayMessage(
   );
   const memoryContext = memoryService.buildPromptMemoryContext({
     session,
-    query: userTurnContentStripped,
+    query: effectiveUserTurnContentStripped,
   });
   const mergedSessionSummary =
     [canonicalPromptSummary, memoryContext.promptSummary]
@@ -5137,13 +5223,13 @@ export async function handleGatewayMessage(
         source === 'fullauto' ? 'background' : 'supervised',
       )
     : undefined;
-  const mediaPolicy = resolveMediaToolPolicy(userTurnContent, media);
+  const mediaPolicy = resolveMediaToolPolicy(effectiveUserTurnContent, media);
   const { messages, skills, historyStats } = buildConversationContext({
     agentId,
     sessionSummary: mergedSessionSummary,
     retrievedContext: pluginPromptSummary,
     history,
-    currentUserContent: userTurnContent,
+    currentUserContent: effectiveUserTurnContent,
     extraSafetyText: fullAutoOperatingContract,
     runtimeInfo: {
       chatbotId,
@@ -5195,7 +5281,7 @@ export async function handleGatewayMessage(
   }
   const mediaContextBlock = buildMediaPromptContext(media);
   const skillInvocation = expandSkillInvocationWithResolution(
-    userTurnContent,
+    effectiveUserTurnContent,
     skills,
   );
   const skillArgsContext = skillInvocation.invocation
@@ -5209,7 +5295,7 @@ export async function handleGatewayMessage(
         skillInvocation.invocation,
         skillArgsContext?.message ?? '',
       )
-    : userTurnContentExpanded;
+    : effectiveUserTurnContentExpanded;
   const explicitSkillName = skillInvocation.invocation?.skill.name || null;
   const agentUserContent = mediaContextBlock
     ? `${expandedUserContent}\n\n${mediaContextBlock}`
@@ -5290,6 +5376,12 @@ export async function handleGatewayMessage(
       },
       'Gateway chat invoking agent',
     );
+    const conciergeExecutionNotice = conciergeExecutionProfile
+      ? buildConciergeExecutionNotice(conciergeExecutionProfile, model)
+      : null;
+    if (conciergeExecutionNotice) {
+      req.onTextDelta?.(conciergeExecutionNotice);
+    }
     recordAuditEvent({
       sessionId: req.sessionId,
       runId,
@@ -5530,7 +5622,10 @@ export async function handleGatewayMessage(
       });
     }
 
-    const resultText = output.result || 'No response from agent.';
+    const rawResultText = output.result || 'No response from agent.';
+    const resultText = conciergeExecutionNotice
+      ? `${conciergeExecutionNotice}${rawResultText}`
+      : rawResultText;
     const memoryCitations = extractMemoryCitations(
       resultText,
       memoryContext.citationIndex,
@@ -5897,6 +5992,50 @@ export async function handleGatewayCommand(
     };
   }
 
+  async function resolveValidatedRuntimeModelName(
+    rawModelName: string,
+  ): Promise<
+    { ok: true; model: string } | { ok: false; result: GatewayCommandResult }
+  > {
+    const normalizedModelName = resolveDisplayedModelName(
+      normalizeHybridAIModelForRuntime(rawModelName),
+    );
+    await refreshAvailableModelCatalogs({
+      includeHybridAI: resolveModelProvider(normalizedModelName) === 'hybridai',
+    });
+    const catalogModels = getAvailableModelList();
+    if (
+      catalogModels.length > 0 &&
+      !catalogModels.includes(normalizedModelName)
+    ) {
+      return {
+        ok: false,
+        result: badCommand(
+          'Unknown Model',
+          `\`${rawModelName}\` is not in the available models list.`,
+        ),
+      };
+    }
+    const gatewayStatus = await getGatewayStatusForModelSubcommand('set');
+    const availableModels = filterModelsForCurrentGatewayState(
+      catalogModels,
+      gatewayStatus.providerHealth,
+    );
+    if (
+      availableModels.length > 0 &&
+      !availableModels.includes(normalizedModelName)
+    ) {
+      return {
+        ok: false,
+        result: badCommand(
+          'Unknown Model',
+          `\`${rawModelName}\` is not in the available models list.`,
+        ),
+      };
+    }
+    return { ok: true, model: normalizedModelName };
+  }
+
   const result = await (async (): Promise<GatewayCommandResult> => {
     switch (cmd) {
       case 'help': {
@@ -5956,6 +6095,21 @@ export async function handleGatewayCommand(
             command: 'bot info',
             description: 'Show current chatbot settings',
             scope: 'bare',
+          },
+          {
+            command: 'concierge [info|on|off]',
+            description: 'Show or toggle concierge routing defaults',
+            scope: 'both',
+          },
+          {
+            command: 'concierge model [name]',
+            description: 'Show or set the concierge decision model',
+            scope: 'both',
+          },
+          {
+            command: 'concierge profile <asap|balanced|no_hurry> [model]',
+            description: 'Show or set concierge profile model mappings',
+            scope: 'both',
           },
           {
             command: 'model list [provider]',
@@ -6929,6 +7083,16 @@ export async function handleGatewayCommand(
           'Usage',
           'Usage: `model list [provider] [more]|set <name>|clear|default [name]|info`',
         );
+      }
+
+      case 'concierge': {
+        return await handleConciergeCommand({
+          args: req.args,
+          badCommand,
+          infoCommand: (title, text) => infoCommand(title, text),
+          plainCommand,
+          resolveValidatedRuntimeModelName,
+        });
       }
 
       case 'rag': {

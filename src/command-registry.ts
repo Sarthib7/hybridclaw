@@ -61,6 +61,7 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'auth',
   'bot',
   'config',
+  'concierge',
   'rag',
   'model',
   'status',
@@ -132,6 +133,12 @@ const MODEL_PROVIDER_CHOICES = [
   { name: 'ollama', value: 'ollama' },
   { name: 'lmstudio', value: 'lmstudio' },
   { name: 'vllm', value: 'vllm' },
+] satisfies Array<{ name: string; value: string }>;
+
+const CONCIERGE_PROFILE_CHOICES = [
+  { name: 'asap', value: 'asap' },
+  { name: 'balanced', value: 'balanced' },
+  { name: 'no_hurry', value: 'no_hurry' },
 ] satisfies Array<{ name: string; value: string }>;
 
 function tokenizeFreeformText(value: string): string[] {
@@ -212,6 +219,31 @@ export function mapCanonicalCommandToGatewayArgs(
       if (sub === 'set') return ['model', 'set', ...parts.slice(2)];
       if (parts.length > 1) return ['model', 'set', ...parts.slice(1)];
       return null;
+    }
+
+    case 'concierge': {
+      const sub = (parts[1] || '').trim().toLowerCase();
+      if (
+        !sub ||
+        sub === 'info' ||
+        sub === 'on' ||
+        sub === 'off' ||
+        sub === 'enable' ||
+        sub === 'disable'
+      ) {
+        return sub ? ['concierge', sub] : ['concierge', 'info'];
+      }
+      if (sub === 'model') {
+        return parts.length > 2
+          ? ['concierge', 'model', ...parts.slice(2)]
+          : ['concierge', 'model'];
+      }
+      if (sub === 'profile') {
+        return parts.length > 2
+          ? ['concierge', 'profile', ...parts.slice(2)]
+          : ['concierge', 'profile'];
+      }
+      return ['concierge', ...parts.slice(1)];
     }
 
     case 'agent': {
@@ -586,6 +618,65 @@ function buildSlashCommandCatalogDefinitions(
               name: 'name',
               description: 'Model name',
               choices: modelChoices.length > 0 ? modelChoices : undefined,
+            },
+          ],
+        },
+      ],
+    },
+    {
+      name: 'concierge',
+      description: 'Inspect or configure concierge routing defaults',
+      options: [
+        {
+          kind: 'subcommand',
+          name: 'info',
+          description:
+            'Show concierge enablement, decision model, and profile mappings',
+        },
+        {
+          kind: 'subcommand',
+          name: 'on',
+          description: 'Enable concierge routing globally',
+        },
+        {
+          kind: 'subcommand',
+          name: 'off',
+          description: 'Disable concierge routing globally',
+        },
+        {
+          kind: 'subcommand',
+          name: 'model',
+          description: 'Show or set the concierge decision model',
+          tuiMenu: {
+            insertText: '/concierge model ',
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'name',
+              description: 'Concierge decision model name',
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'profile',
+          description: 'Show or set a concierge execution profile model',
+          tuiMenu: {
+            insertText: '/concierge profile ',
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'profile',
+              description: 'Profile to inspect or change',
+              required: true,
+              choices: CONCIERGE_PROFILE_CHOICES,
+            },
+            {
+              kind: 'string',
+              name: 'model',
+              description: 'Execution model mapped to that profile',
             },
           ],
         },
@@ -1646,6 +1737,34 @@ export function parseCanonicalSlashCommandArgs(
         return selectedModel
           ? ['model', 'default', selectedModel]
           : ['model', 'default'];
+      }
+      return null;
+    }
+
+    case 'concierge': {
+      const subcommand = normalizeSubcommand(interaction);
+      if (!subcommand || subcommand === 'info') return ['concierge', 'info'];
+      if (
+        subcommand === 'on' ||
+        subcommand === 'off' ||
+        subcommand === 'enable' ||
+        subcommand === 'disable'
+      ) {
+        return ['concierge', subcommand];
+      }
+      if (subcommand === 'model') {
+        const selectedModel = normalizeStringOption(interaction, 'name');
+        return selectedModel
+          ? ['concierge', 'model', selectedModel]
+          : ['concierge', 'model'];
+      }
+      if (subcommand === 'profile') {
+        const profile = normalizeStringOption(interaction, 'profile', true);
+        if (!profile) return null;
+        const selectedModel = normalizeStringOption(interaction, 'model');
+        return selectedModel
+          ? ['concierge', 'profile', profile, selectedModel]
+          : ['concierge', 'profile', profile];
       }
       return null;
     }

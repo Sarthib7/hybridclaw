@@ -61,10 +61,8 @@ export const DEVELOPMENT_DOCS_SECTIONS = [
     pages: [
       { title: 'Internals', path: 'internals/README.md' },
       { title: 'Architecture', path: 'internals/architecture.md' },
-      { title: 'Releasing', path: 'internals/releasing.md' },
       { title: 'Runtime', path: 'internals/runtime.md' },
       { title: 'Session Routing', path: 'internals/session-routing.md' },
-      { title: 'Testing', path: 'internals/testing.md' },
     ],
   },
 ];

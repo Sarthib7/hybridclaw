@@ -60,7 +60,5 @@ Main docs landing pages:
 
 - [Internals](./internals/README.md)
 - [Architecture](./internals/architecture.md)
-- [Releasing](./internals/releasing.md)
 - [Runtime](./internals/runtime.md)
 - [Session Routing](./internals/session-routing.md)
-- [Testing](./internals/testing.md)
